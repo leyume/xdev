@@ -19,16 +19,20 @@ import (
 // the password from $XDEV_ADMIN_PASSWORD or, failing that, prompts twice on the
 // TTY with no echo.
 //
-// It is idempotent by default: if an admin already exists it prints a friendly
-// message and succeeds (exit 0), so installers can re-run it safely. Pass
-// --fail-if-exists to make an existing admin an error instead.
+// xdev supports multiple admins (all accounts have equal access), so:
+//   - a NEW email is created — this is how you add another admin;
+//   - an EXISTING email is, by default, a friendly no-op (exit 0) so installers
+//     can re-run safely — unless you pass --reset to set a new password (handy
+//     for recovering a forgotten one), or --fail-if-exists to make it an error.
 func runCreateAdmin(args []string) error {
 	fs := flag.NewFlagSet("xdev create-admin", flag.ContinueOnError)
 	dataDir := fs.String("data", envOr("XDEV_DATA", ""), "data directory (sqlite db + state)")
-	failIfExists := fs.Bool("fail-if-exists", false, "exit non-zero if an admin already exists")
+	failIfExists := fs.Bool("fail-if-exists", false, "exit non-zero if the account already exists")
+	reset := fs.Bool("reset", false, "if the account exists, set a new password instead of no-op")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: xdev create-admin <email> [-data dir] [--fail-if-exists]")
-		fmt.Fprintln(fs.Output(), "  password is read from $XDEV_ADMIN_PASSWORD, else prompted twice (hidden).")
+		fmt.Fprintln(fs.Output(), "usage: xdev create-admin <email> [-data dir] [--reset] [--fail-if-exists]")
+		fmt.Fprintln(fs.Output(), "  Creates a new admin, or (with --reset) resets an existing admin's password.")
+		fmt.Fprintln(fs.Output(), "  Password is read from $XDEV_ADMIN_PASSWORD, else prompted twice (hidden).")
 	}
 	// Accept the email either before or after the flags. Go's flag package stops
 	// at the first non-flag argument, so if the email leads (the documented
@@ -61,27 +65,44 @@ func runCreateAdmin(args []string) error {
 	defer st.Close()
 
 	authsvc := auth.New(st, false)
+	email = auth.NormalizeEmail(email)
 
-	// Idempotency: if an admin is already present, no-op (or fail if asked).
-	if need, err := authsvc.NeedsSetup(); err != nil {
-		return err
-	} else if !need {
+	// Does this exact account already exist?
+	_, lookupErr := st.UserByEmail(email)
+	exists := lookupErr == nil
+	if lookupErr != nil && !errors.Is(lookupErr, store.ErrNotFound) {
+		return lookupErr
+	}
+
+	if exists {
 		if *failIfExists {
-			return fmt.Errorf("an admin account already exists")
+			return fmt.Errorf("account %s already exists", email)
 		}
-		fmt.Println("admin account already exists — nothing to do")
+		if !*reset {
+			// Idempotent default — installers re-run safely.
+			fmt.Printf("account %s already exists — nothing to do (use --reset to change its password)\n", email)
+			return nil
+		}
+		password, err := readAdminPassword()
+		if err != nil {
+			return err
+		}
+		if err := authsvc.SetPassword(email, password); err != nil {
+			return err
+		}
+		fmt.Printf("reset password for %s\n", email)
 		return nil
 	}
 
+	// New account: this both creates the first admin and adds additional ones.
 	password, err := readAdminPassword()
 	if err != nil {
 		return err
 	}
-
-	if _, err := authsvc.CreateAdmin(email, password); err != nil {
+	if _, err := authsvc.CreateUser(email, password); err != nil {
 		return err
 	}
-	fmt.Printf("created admin %s\n", strings.TrimSpace(strings.ToLower(email)))
+	fmt.Printf("created admin %s\n", email)
 	return nil
 }
 

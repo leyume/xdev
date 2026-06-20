@@ -58,6 +58,11 @@ func run() error {
 	// a leading flag) runs the server.
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "help", "--help", "-h":
+			// `xdev help` mirrors `xdev -h` for consistency; both print usage.
+			fs, _ := serverFlags()
+			printUsage(fs)
+			return nil
 		case "version":
 			fmt.Println(versionString())
 			return nil

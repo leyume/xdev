@@ -133,11 +133,11 @@ compose plugin, and `caddy` on `PATH` (`brew install caddy` / apt).
 **CLI subcommands** (dispatched at the top of `run()` before flag parsing):
 
 ```bash
+xdev help                     # grouped help: flags + env vars + examples (also: xdev -h / --help)
 xdev version                  # version + go/os/arch (also: xdev -version)
 xdev doctor                   # preflight: engine/compose/daemon, caddy, ports, data dir, admin
-xdev create-admin <email>     # create the first admin (idempotent; pw from $XDEV_ADMIN_PASSWORD or TTY)
+xdev create-admin <email>     # add an admin (idempotent; --reset to set a new password)
 xdev write-hosts <file> [h…]  # rewrite the managed hosts block (internal; run as root via the OS prompt)
-xdev -h                       # grouped help: flags + env vars + examples
 ```
 
 `doctor` resolves config exactly like the server and exits non-zero when a

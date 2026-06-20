@@ -1,0 +1,56 @@
+{{define "content"}}
+<section class="page-head">
+  <h1>Admins</h1>
+  <a class="btn" href="/">← Dashboard</a>
+</section>
+
+{{if .Msg}}<div class="alert" style="border-color:#2f855a;color:#2f855a">{{.Msg}}</div>{{end}}
+{{if .Err}}<div class="alert">{{.Err}}</div>{{end}}
+
+<p class="muted small">Every admin has full access — there are no roles yet. You
+can't delete the account you're signed in as, so at least one admin always
+remains.</p>
+
+<div class="card">
+  <table class="table">
+    <tr><th>Email</th><th>Added</th><th></th></tr>
+    {{range .Admins}}
+    <tr>
+      <td>{{.Email}}{{if and $.User (eq .ID $.User.ID)}} <span class="muted small">(you)</span>{{end}}</td>
+      <td class="muted small nowrap">{{.CreatedAt}}</td>
+      <td class="nowrap">
+        <form method="post" action="/admins/{{.ID}}/password" class="inline"
+              onsubmit="return confirm('Reset password for {{.Email}}?')">
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+          <input type="password" name="password" required minlength="8" placeholder="new password" style="width:11rem">
+          <button class="btn" type="submit">Reset</button>
+        </form>
+        {{if not (and $.User (eq .ID $.User.ID))}}
+        <form method="post" action="/admins/{{.ID}}/delete" class="inline"
+              onsubmit="return confirm('Remove admin {{.Email}}?')">
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+          <button class="btn danger" type="submit">Remove</button>
+        </form>
+        {{end}}
+      </td>
+    </tr>
+    {{end}}
+  </table>
+</div>
+
+<div class="card form-card">
+  <h2>Add an admin</h2>
+  <form method="post" action="/admins">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label>Email
+      <input type="email" name="email" required placeholder="person@example.com">
+    </label>
+    <label>Password <span class="muted">(min 8 characters)</span>
+      <input type="password" name="password" required minlength="8" placeholder="set a password">
+    </label>
+    <div class="form-actions">
+      <button class="primary" type="submit">Add admin</button>
+    </div>
+  </form>
+</div>
+{{end}}
