@@ -1,0 +1,32 @@
+{{define "content"}}
+<div class="crumbs">
+  <a href="/">Projects</a> /
+  <a href="/projects/{{.Project.Slug}}">{{.Project.Name}}</a> /
+  <strong>{{.App.Name}} backups</strong>
+</div>
+<section class="page-head">
+  <div>
+    <h1>{{.App.Name}} — backups</h1>
+    <div class="muted small">.tar.gz of the app directory (code + compose). Named volumes (databases) excluded.</div>
+  </div>
+  <form class="inline" method="post" action="/apps/{{.App.ID}}/backup">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <button class="primary" type="submit">Back up now</button>
+  </form>
+</section>
+{{if .Backups}}
+<div class="card">
+  <table class="table">
+    {{range .Backups}}
+    <tr>
+      <td>{{.}}</td>
+      <td class="right"><a class="btn" href="/apps/{{$.App.ID}}/backups/{{.}}">Download</a></td>
+    </tr>
+    {{end}}
+  </table>
+</div>
+{{else}}
+<div class="empty card"><p class="muted">No backups yet — create one above.</p></div>
+{{end}}
+<a class="btn" href="/projects/{{.Project.Slug}}">← Back</a>
+{{end}}

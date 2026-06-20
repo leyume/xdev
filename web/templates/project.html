@@ -1,0 +1,129 @@
+{{define "content"}}
+<div class="crumbs"><a href="/">Project</a> / <strong>{{.Project.Name}}</strong></div>
+<section class="page-head">
+  <div>
+    <h1>{{.Project.Name}}</h1>
+    <div class="muted small">{{.Project.BaseDomain}} · {{.Project.Environment}} · network
+      <code>{{.Project.NetworkName}}</code></div>
+  </div>
+  <form class="inline" method="post" action="/projects/{{.Project.Slug}}/delete"
+    onsubmit="return confirm('Delete project {{.Project.Name}} and all its apps?')">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <button class="danger" type="submit">Delete project</button>
+  </form>
+</section>
+
+{{if .Error}}<div class="alert">{{.Error}}</div>{{end}}
+{{if .HostsMsg}}<div class="alert ok">{{.HostsMsg}}</div>{{end}}
+
+{{if .NeedsHosts}}
+<div class="alert warn-banner">
+  <strong>⚠ These domains need an <code>/etc/hosts</code> entry to resolve in your browser.</strong>
+  <p class="muted small">Click below to add them (you'll get a one-time password prompt) — or change an
+    app's domain to end in <code>.localhost</code>, which resolves to 127.0.0.1 automatically with no edit:</p>
+  <pre class="hosts-lines">{{range .NeedsHosts}}127.0.0.1  {{.}}
+{{end}}</pre>
+  <form class="inline" method="post" action="/settings/hosts-sync">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <button class="primary" type="submit">Add to hosts file</button>
+  </form>
+</div>
+{{end}}
+{{if .ProxyEnabled}}
+<p class="muted small trust-hint">🔒 For a trusted padlock on local HTTPS, run once: <code>sudo caddy trust</code></p>
+{{end}}
+
+<h3>Apps</h3>
+{{if .Apps}}
+<div class="app-list">
+  {{range .Apps}}
+  <div class="card app">
+    <div class="app-main">
+      <span class="status {{.Status}}" title="{{.Status}}"></span>
+      <div>
+        <strong>{{.Name}}</strong> <span class="muted small">{{.Type}}</span>
+        {{if or .CPULimit .MemLimit}}<span class="muted small">·
+          {{if .CPULimit}}{{f1 .CPULimit}} CPU{{end}}{{if .MemLimit}} {{mib .MemLimit}}MB{{end}}</span>{{end}}
+        <div class="muted small">
+          {{$host := .Domain}}
+          {{if $.ProxyEnabled}}
+          {{if eq $.HTTPSPort 443}}
+          <a href="https://{{$host}}" target="_blank">https://{{$host}}</a>
+          {{else}}
+          <a href="https://{{$host}}:{{$.HTTPSPort}}" target="_blank">https://{{$host}}:{{$.HTTPSPort}}</a>
+          {{end}}
+          {{else}}
+          {{$host}}
+          {{end}}
+          {{if .Port}} · <a href="http://127.0.0.1:{{.Port}}" target="_blank">:{{.Port}} direct</a>{{end}}
+        </div>
+        <div class="app-links small">
+          <a href="/apps/{{.ID}}/metrics">Metrics</a> ·
+          <a href="/apps/{{.ID}}/logs">Logs</a> ·
+          <a href="/apps/{{.ID}}/env">Env</a> ·
+          <a href="/apps/{{.ID}}/backups">Backups</a>
+        </div>
+        <form class="domain-edit" method="post" action="/apps/{{.ID}}/domain">
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+          <input type="text" name="domain" value="{{.Domain}}" spellcheck="false" aria-label="domain">
+          <button type="submit">Set domain</button>
+        </form>
+      </div>
+    </div>
+    <div class="app-actions">
+      {{if eq .Status "running"}}
+      <form class="inline" method="post" action="/apps/{{.ID}}/stop">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button type="submit">Stop</button>
+      </form>
+      {{else}}
+      <form class="inline" method="post" action="/apps/{{.ID}}/start">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button class="primary" type="submit">Start</button>
+      </form>
+      {{end}}
+      <form class="inline" method="post" action="/apps/{{.ID}}/refresh" title="Refresh status">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button type="submit">↻</button>
+      </form>
+      <form class="inline" method="post" action="/apps/{{.ID}}/delete"
+        onsubmit="return confirm('Delete app {{.Name}}?')">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button class="danger" type="submit">Delete</button>
+      </form>
+    </div>
+  </div>
+  {{end}}
+</div>
+{{else}}
+<div class="empty card">
+  <p class="muted">No apps yet — add your first one below.</p>
+</div>
+{{end}}
+
+<h3 class="mt">Add app</h3>
+<div class="card form-card">
+  <form method="post" action="/projects/{{.Project.Slug}}/apps">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label>App name
+      <input type="text" name="name" required placeholder="e.g. frontend">
+    </label>
+    <label>Type
+      <select name="type">
+        {{range .Catalog}}
+        <option value="{{.Type}}" {{if not .Available}}disabled{{end}}>{{.Name}}{{if not .Available}} — soon{{end}}
+        </option>
+        {{end}}
+      </select>
+    </label>
+    <label>Domain <span class="muted">(optional — blank serves this app at <code>{{.Project.BaseDomain}}</code>)</span>
+      <input type="text" name="domain" placeholder="{{.Project.BaseDomain}}  ·  or  api.{{.Project.BaseDomain}}">
+    </label>
+    <div class="row2">
+      <label>CPU limit <span class="muted">(cores, optional)</span>
+        <input type="number" name="cpu_cores" step="0.25" min="0" placeholder="e.g. 1.0">
+      </label>
+      <label>Memory limit <span class="muted">(MB, optional)</span>
+        <input type="number" name="memory_mb" step="64" min="0" placeholder="e.g. 512">
+      </label>
+    </div>
+    <button class="primary" type="submit">Create &amp; start app</button>
+  </form>
+</div>
+{{end}}

@@ -1,0 +1,94 @@
+{{define "content"}}
+<section class="page-head">
+  <h1>Projects</h1>
+  <a class="primary btn" href="/projects/new">+ New project</a>
+</section>
+
+<section class="card">
+  <h3>Host resources</h3>
+  <div class="host-grid">
+    <div class="host-stat">
+      <div class="host-label">CPU</div>
+      <div class="bar"><span style="width:{{f1 .Host.CPUPct}}%"></span></div>
+      <div class="muted small">{{f1 .Host.CPUPct}}%</div>
+    </div>
+    <div class="host-stat">
+      <div class="host-label">Memory</div>
+      <div class="bar"><span style="width:{{f1 .Host.MemPct}}%"></span></div>
+      <div class="muted small">{{gib .Host.MemUsed}} / {{gib .Host.MemTotal}} GB</div>
+    </div>
+    <div class="host-stat">
+      <div class="host-label">Disk (/)</div>
+      <div class="bar"><span style="width:{{f1 .Host.DiskPct}}%"></span></div>
+      <div class="muted small">{{gib .Host.DiskUsed}} / {{gib .Host.DiskTotal}} GB</div>
+    </div>
+  </div>
+</section>
+
+<section class="runtime-bar card">
+  <h3>Container engine</h3>
+  {{if .EngineMsg}}<div class="alert ok">{{.EngineMsg}}</div>{{end}}
+  <div class="runtime-grid">
+    {{with .Runtime.Podman}}
+    <div class="runtime {{if and .Installed .ComposeOK}}ok{{else}}off{{end}}">
+      <span class="dot"></span>
+      <div class="grow">
+        <strong>podman {{if eq $.Engine "podman"}}<span class="tag">active</span>{{end}}</strong>
+        <div class="muted small">
+          {{if .Installed}}{{.Version}}{{else}}not installed{{end}}
+          {{if .ComposeOK}} · compose ✓{{else if .Installed}} · compose missing{{end}}
+          {{if .Ready}} · <span class="up">daemon up</span>{{else if .Installed}} · <span class="down">daemon down</span>{{end}}
+        </div>
+      </div>
+      {{if and .Installed .ComposeOK (ne $.Engine "podman")}}
+      <form class="inline" method="post" action="/settings/engine">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <input type="hidden" name="engine" value="podman">
+        <button type="submit">Use podman</button>
+      </form>
+      {{end}}
+    </div>
+    {{end}}
+    {{with .Runtime.Docker}}
+    <div class="runtime {{if and .Installed .ComposeOK}}ok{{else}}off{{end}}">
+      <span class="dot"></span>
+      <div class="grow">
+        <strong>docker {{if eq $.Engine "docker"}}<span class="tag">active</span>{{end}}</strong>
+        <div class="muted small">
+          {{if .Installed}}{{.Version}}{{else}}not installed{{end}}
+          {{if .ComposeOK}} · compose ✓{{else if .Installed}} · compose missing{{end}}
+          {{if .Ready}} · <span class="up">daemon up</span>{{else if .Installed}} · <span class="down">daemon down</span>{{end}}
+        </div>
+      </div>
+      {{if and .Installed .ComposeOK (ne $.Engine "docker")}}
+      <form class="inline" method="post" action="/settings/engine">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <input type="hidden" name="engine" value="docker">
+        <button type="submit">Use docker</button>
+      </form>
+      {{end}}
+    </div>
+    {{end}}
+  </div>
+  <p class="muted small">Switching applies to <strong>new</strong> projects; existing projects keep the engine they were created with.</p>
+</section>
+
+{{if .Projects}}
+  <div class="project-list">
+    {{range .Projects}}
+    <a class="card project" href="/projects/{{.Slug}}">
+      <div>
+        <strong>{{.Name}}</strong>
+        <div class="muted small">{{.BaseDomain}} · {{.Environment}}</div>
+      </div>
+      <span class="badge">{{.AppCount}} app{{if ne .AppCount 1}}s{{end}}</span>
+    </a>
+    {{end}}
+  </div>
+{{else}}
+  <div class="empty card">
+    <h2>No projects yet</h2>
+    <p class="muted">A project groups your apps — backend, frontend, WordPress, static sites — under one base domain and a shared network. Creating projects and apps arrives in Phase 1.</p>
+  </div>
+{{end}}
+{{end}}

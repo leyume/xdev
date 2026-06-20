@@ -1,0 +1,61 @@
+# Build and publish the release binaries when a version tag is pushed.
+#
+# Triggered by `git push origin vX.Y.Z`. Runs on a clean runner so the published
+# artifacts provably match the tagged commit. Normal pushes are untouched (see
+# ci.yml). install.sh fetches these assets from the GitHub Release.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # create the Release + upload assets (uses the built-in GITHUB_TOKEN)
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # so `git describe` can see the tag
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Cross-compile binaries
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${platform%/*}"; arch="${platform#*/}"
+            echo "building dist/xdev-${os}-${arch} (version ${VERSION})"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+              go build -ldflags "-X main.version=${VERSION}" \
+              -o "dist/xdev-${os}-${arch}" ./cmd/xdev
+          done
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum xdev-* > checksums.txt
+          cat checksums.txt
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

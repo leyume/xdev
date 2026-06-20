@@ -1,0 +1,22 @@
+{{define "content"}}
+<div class="crumbs">
+  <a href="/">Projects</a> /
+  <a href="/projects/{{.Project.Slug}}">{{.Project.Name}}</a> /
+  <strong>{{.App.Name}} .env</strong>
+</div>
+<section class="page-head">
+  <h1>{{.App.Name}} — .env</h1>
+  <a class="btn" href="/projects/{{.Project.Slug}}">← Back</a>
+</section>
+{{if .Saved}}<div class="alert ok">Saved and restarted the app.</div>{{end}}
+<div class="card">
+  <form method="post" action="/apps/{{.App.ID}}/env">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <textarea name="content" class="code" rows="18" spellcheck="false">{{.Content}}</textarea>
+    <div class="form-actions">
+      <button class="primary" type="submit">Save &amp; restart</button>
+    </div>
+  </form>
+  <p class="muted small">Written to the app's <code>app/.env</code>; the app restarts to apply changes.</p>
+</div>
+{{end}}

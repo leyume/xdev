@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchDaemon for xdev on macOS (optional). Installed by install.sh to
+  /Library/LaunchDaemons/com.leyume.xdev.plist when you opt into a background
+  service. Runs as root so xdev (and its child Caddy) can bind :443/:80.
+
+  launchd has no EnvironmentFile, so we source the canonical env file
+  (/usr/local/etc/xdev/xdev.env — see deploy/xdev.env.example) in a tiny bash
+  wrapper and then exec xdev. For local-only use you can skip the daemon and
+  just run `xdev` yourself.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.leyume.xdev</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>set -a; [ -f /usr/local/etc/xdev/xdev.env ] &amp;&amp; . /usr/local/etc/xdev/xdev.env; exec /usr/local/bin/xdev</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/usr/local/var/log/xdev.log</string>
+    <key>StandardErrorPath</key>
+    <string>/usr/local/var/log/xdev.log</string>
+</dict>
+</plist>

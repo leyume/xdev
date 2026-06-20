@@ -1,0 +1,16 @@
+{{define "content"}}
+<div class="auth-card card">
+  <h1>Sign in</h1>
+  <p class="muted">Welcome back.</p>
+  {{if .Error}}<div class="alert">{{.Error}}</div>{{end}}
+  <form method="post" action="/login">
+    <label>Email
+      <input type="email" name="email" required autofocus value="{{.Email}}">
+    </label>
+    <label>Password
+      <input type="password" name="password" required>
+    </label>
+    <button class="primary" type="submit">Sign in</button>
+  </form>
+</div>
+{{end}}

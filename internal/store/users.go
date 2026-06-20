@@ -1,0 +1,59 @@
+package store
+
+import (
+	"database/sql"
+	"errors"
+)
+
+// User is an account that can log into xdev. v1 has exactly one (the admin).
+type User struct {
+	ID           int64
+	Email        string
+	PasswordHash string
+	CreatedAt    string
+}
+
+// ErrNotFound is returned by lookups when no row matches.
+var ErrNotFound = errors.New("not found")
+
+// UserCount returns how many users exist. Used to decide whether the
+// first-run admin-setup flow should be shown.
+func (s *Store) UserCount() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
+	return n, err
+}
+
+// CreateUser inserts a new user with an already-hashed password.
+func (s *Store) CreateUser(email, passwordHash string) (User, error) {
+	res, err := s.db.Exec(
+		`INSERT INTO users (email, password_hash) VALUES (?, ?)`,
+		email, passwordHash,
+	)
+	if err != nil {
+		return User{}, err
+	}
+	id, _ := res.LastInsertId()
+	return s.UserByID(id)
+}
+
+// UserByEmail looks up a user for login.
+func (s *Store) UserByEmail(email string) (User, error) {
+	return s.scanUser(s.db.QueryRow(
+		`SELECT id, email, password_hash, created_at FROM users WHERE email = ?`, email))
+}
+
+// UserByID looks up a user by id (used to resolve the current session's user).
+func (s *Store) UserByID(id int64) (User, error) {
+	return s.scanUser(s.db.QueryRow(
+		`SELECT id, email, password_hash, created_at FROM users WHERE id = ?`, id))
+}
+
+func (s *Store) scanUser(row *sql.Row) (User, error) {
+	var u User
+	err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+	return u, err
+}

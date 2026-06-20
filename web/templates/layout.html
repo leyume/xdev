@@ -1,0 +1,30 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/alpine.min.js" defer></script>
+</head>
+<body>
+{{if .User}}
+  <header class="topbar">
+    <div class="brand">xdev</div>
+    <nav class="topnav">
+      <a href="/">Projects</a>
+      <a href="/events">Activity</a>
+      <span class="muted">{{.User.Email}}</span>
+      <form method="post" action="/logout" class="inline">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="link" type="submit">Log out</button>
+      </form>
+    </nav>
+  </header>
+{{end}}
+  <main class="container">
+    {{block "content" .}}{{end}}
+  </main>
+</body>
+</html>{{end}}

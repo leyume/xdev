@@ -1,0 +1,21 @@
+{{define "content"}}
+<section class="page-head">
+  <h1>Activity</h1>
+  <a class="btn" href="/">← Dashboard</a>
+</section>
+{{if .Events}}
+<div class="card">
+  <table class="table">
+    {{range .Events}}
+    <tr>
+      <td class="muted small nowrap">{{.TS}}</td>
+      <td><span class="lvl {{.Level}}">{{.Level}}</span></td>
+      <td>{{.Message}}</td>
+    </tr>
+    {{end}}
+  </table>
+</div>
+{{else}}
+<div class="empty card"><p class="muted">No activity yet.</p></div>
+{{end}}
+{{end}}

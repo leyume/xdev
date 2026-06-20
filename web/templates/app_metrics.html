@@ -1,0 +1,59 @@
+{{define "content"}}
+<div class="crumbs">
+  <a href="/">Projects</a> /
+  <a href="/projects/{{.Project.Slug}}">{{.Project.Name}}</a> /
+  <strong>{{.App.Name}} metrics</strong>
+</div>
+<section class="page-head">
+  <div>
+    <h1>{{.App.Name}} — metrics</h1>
+    <div class="muted small">{{.App.Type}} · last 3 hours · samples every 10s</div>
+  </div>
+  <a class="btn" href="/projects/{{.Project.Slug}}">← Back</a>
+</section>
+
+<div class="card">
+  <h3>CPU usage (%)</h3>
+  <div id="cpuChart"></div>
+</div>
+<div class="card">
+  <h3>Memory (MiB)</h3>
+  <div id="memChart"></div>
+</div>
+
+<link rel="stylesheet" href="/static/uPlot.min.css">
+<script src="/static/uPlot.iife.min.js"></script>
+<script>
+(async function () {
+  const id = {{.App.ID}};
+  const cpuEl = document.getElementById('cpuChart');
+  const memEl = document.getElementById('memChart');
+
+  async function load() {
+    const r = await fetch(`/apps/${id}/metrics.json`, { credentials: 'same-origin' });
+    return r.json();
+  }
+  function opts(label, color) {
+    return {
+      width: Math.min(760, cpuEl.clientWidth || 760), height: 220,
+      scales: { x: { time: true } },
+      series: [{}, { label: label, stroke: color, width: 2, fill: color + '22' }],
+      legend: { show: true },
+    };
+  }
+
+  let d = await load();
+  if (!d.t || d.t.length === 0) {
+    const msg = '<p class="muted">No samples yet — data appears within ~10s once the app is running.</p>';
+    cpuEl.innerHTML = msg; memEl.innerHTML = '';
+    return;
+  }
+  const cpu = new uPlot(opts('CPU %', '#4f8cff'), [d.t, d.cpu], cpuEl);
+  const mem = new uPlot(opts('MiB', '#36c46b'), [d.t, d.mem], memEl);
+  setInterval(async () => {
+    const n = await load();
+    if (n.t && n.t.length) { cpu.setData([n.t, n.cpu]); mem.setData([n.t, n.mem]); }
+  }, 10000);
+})();
+</script>
+{{end}}

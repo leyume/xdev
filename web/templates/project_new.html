@@ -1,0 +1,34 @@
+{{define "content"}}
+<div class="crumbs"><a href="/">Projects</a> / <strong>New</strong></div>
+<section class="page-head">
+  <h1>New project</h1>
+</section>
+
+<div class="card form-card">
+  {{if .Error}}<div class="alert">{{.Error}}</div>{{end}}
+  <form method="post" action="/projects">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label>Project name
+      <input type="text" name="name" required autofocus value="{{.Name}}" placeholder="e.g. bizepp">
+    </label>
+    <label>Environment
+      <select name="environment">
+        <option value="local" {{if eq .Environment "prod"}}{{else}}selected{{end}}>local</option>
+        <option value="prod" {{if eq .Environment "prod"}}selected{{end}}>prod</option>
+      </select>
+    </label>
+    <label>Base domain <span class="muted">(optional — defaults to &lt;slug&gt;.localhost)</span>
+      <input type="text" name="base_domain" value="{{.BaseDomain}}" placeholder="bizepp.localhost">
+    </label>
+    <p class="muted small">
+      <code>.localhost</code> domains resolve in the browser automatically (no setup).
+      <code>.test</code> needs an <code>/etc/hosts</code> entry (sudo). Avoid <code>.local</code> (conflicts with macOS mDNS).
+      For production, use a real domain and set environment to <em>prod</em>.
+    </p>
+    <div class="form-actions">
+      <a class="btn" href="/">Cancel</a>
+      <button class="primary" type="submit">Create project</button>
+    </div>
+  </form>
+</div>
+{{end}}

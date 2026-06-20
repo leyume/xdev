@@ -1,0 +1,18 @@
+{{define "content"}}
+<div class="crumbs">
+  <a href="/">Projects</a> /
+  <a href="/projects/{{.Project.Slug}}">{{.Project.Name}}</a> /
+  <strong>{{.App.Name}} logs</strong>
+</div>
+<section class="page-head">
+  <div>
+    <h1>{{.App.Name}} — logs</h1>
+    <div class="muted small">last 300 lines</div>
+  </div>
+  <div class="form-actions">
+    <a class="btn" href="/apps/{{.App.ID}}/logs">↻ Refresh</a>
+    <a class="btn" href="/projects/{{.Project.Slug}}">← Back</a>
+  </div>
+</section>
+<pre class="logs">{{.Logs}}</pre>
+{{end}}

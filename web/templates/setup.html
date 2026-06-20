@@ -1,0 +1,16 @@
+{{define "content"}}
+<div class="auth-card card">
+  <h1>Welcome to xdev</h1>
+  <p class="muted">Create your admin account to get started.</p>
+  {{if .Error}}<div class="alert">{{.Error}}</div>{{end}}
+  <form method="post" action="/setup">
+    <label>Email
+      <input type="email" name="email" required autofocus value="{{.Email}}">
+    </label>
+    <label>Password <span class="muted">(min 8 characters)</span>
+      <input type="password" name="password" required minlength="8">
+    </label>
+    <button class="primary" type="submit">Create admin</button>
+  </form>
+</div>
+{{end}}

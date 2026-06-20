@@ -1,0 +1,11 @@
+# Build output
+/xdev
+/dist/
+
+# Runtime data (sqlite db, sessions) and generated project dirs
+/data/
+/projects/
+
+# OS / editor noise
+.DS_Store
+*.swp
