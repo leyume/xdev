@@ -52,7 +52,7 @@ func (s *Server) Handler() http.Handler { return s.mux }
 // shared layout so {{block "content"}} resolves per page.
 func (s *Server) parseTemplates() error {
 	pages := []string{"setup", "login", "dashboard", "project_new", "project", "app_metrics",
-		"app_logs", "app_env", "app_backups", "events"}
+		"app_logs", "app_env", "app_backups", "events", "admins"}
 	s.tmpl = make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		t, err := template.New(p).Funcs(tmplFuncs()).ParseFS(web.TemplatesFS,
@@ -117,6 +117,12 @@ func (s *Server) routes() {
 	// Settings.
 	mux.HandleFunc("POST /settings/engine", s.auth.RequireAuth(s.handleSetEngine))
 	mux.HandleFunc("POST /settings/hosts-sync", s.auth.RequireAuth(s.handleHostsSync))
+
+	// Admins (multi-admin management).
+	mux.HandleFunc("GET /admins", s.auth.RequireAuth(s.handleAdmins))
+	mux.HandleFunc("POST /admins", s.auth.RequireAuth(s.handleAdminCreate))
+	mux.HandleFunc("POST /admins/{id}/password", s.auth.RequireAuth(s.handleAdminPassword))
+	mux.HandleFunc("POST /admins/{id}/delete", s.auth.RequireAuth(s.handleAdminDelete))
 
 	s.mux = mux
 }

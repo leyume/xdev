@@ -43,6 +43,50 @@ func (s *Store) UserByEmail(email string) (User, error) {
 		`SELECT id, email, password_hash, created_at FROM users WHERE email = ?`, email))
 }
 
+// ListUsers returns all accounts (admins), oldest first.
+func (s *Store) ListUsers() ([]User, error) {
+	rows, err := s.db.Query(`SELECT id, email, password_hash, created_at FROM users ORDER BY created_at, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}
+
+// UpdatePassword sets a new (already-hashed) password for the user with email.
+// Returns ErrNotFound if no such user exists.
+func (s *Store) UpdatePassword(email, passwordHash string) error {
+	res, err := s.db.Exec(`UPDATE users SET password_hash = ? WHERE email = ?`, passwordHash, email)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteUser removes an account by id. Their sessions cascade away (FK ON DELETE
+// CASCADE), logging them out everywhere. Returns ErrNotFound if no row matched.
+func (s *Store) DeleteUser(id int64) error {
+	res, err := s.db.Exec(`DELETE FROM users WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // UserByID looks up a user by id (used to resolve the current session's user).
 func (s *Store) UserByID(id int64) (User, error) {
 	return s.scanUser(s.db.QueryRow(

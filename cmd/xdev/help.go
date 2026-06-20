@@ -28,6 +28,7 @@ func printUsage(fs *flag.FlagSet) {
 	fmt.Fprintln(out, "  xdev <subcommand> [args]")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Subcommands:")
+	fmt.Fprintln(out, "  help                         print this help (same as -h)")
 	fmt.Fprintln(out, "  version                      print version and exit")
 	fmt.Fprintln(out, "  doctor                       preflight/health check (engine, caddy, ports, data dir, admin)")
 	fmt.Fprintln(out, "  create-admin <email>         create the first admin account (idempotent)")

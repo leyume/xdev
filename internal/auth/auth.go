@@ -40,7 +40,9 @@ func (s *Service) NeedsSetup() (bool, error) {
 	return n == 0, err
 }
 
-// CreateAdmin creates the first (admin) user. Refuses if one already exists.
+// CreateAdmin creates the first (admin) user. Refuses if one already exists —
+// this is the guard behind the web /setup first-run flow. To add *additional*
+// admins later, use CreateUser.
 func (s *Service) CreateAdmin(email, password string) (store.User, error) {
 	need, err := s.NeedsSetup()
 	if err != nil {
@@ -49,7 +51,14 @@ func (s *Service) CreateAdmin(email, password string) (store.User, error) {
 	if !need {
 		return store.User{}, errors.New("admin already exists")
 	}
-	email = strings.TrimSpace(strings.ToLower(email))
+	return s.CreateUser(email, password)
+}
+
+// CreateUser creates an account (admin) without the first-run guard, so the app
+// can have multiple admins. All users have equal access — there are no roles
+// yet, so every account is effectively an admin.
+func (s *Service) CreateUser(email, password string) (store.User, error) {
+	email = NormalizeEmail(email)
 	if email == "" || len(password) < 8 {
 		return store.User{}, errors.New("email required and password must be at least 8 characters")
 	}
@@ -60,9 +69,28 @@ func (s *Service) CreateAdmin(email, password string) (store.User, error) {
 	return s.store.CreateUser(email, string(hash))
 }
 
+// SetPassword resets an existing account's password (e.g. recovery, or an admin
+// resetting another's). Returns store.ErrNotFound if the email isn't known.
+func (s *Service) SetPassword(email, password string) error {
+	email = NormalizeEmail(email)
+	if len(password) < 8 {
+		return errors.New("password must be at least 8 characters")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return s.store.UpdatePassword(email, string(hash))
+}
+
+// NormalizeEmail lower-cases and trims an email so lookups and logins agree.
+func NormalizeEmail(email string) string {
+	return strings.TrimSpace(strings.ToLower(email))
+}
+
 // Authenticate verifies an email/password pair, returning the user on success.
 func (s *Service) Authenticate(email, password string) (store.User, error) {
-	email = strings.TrimSpace(strings.ToLower(email))
+	email = NormalizeEmail(email)
 	u, err := s.store.UserByEmail(email)
 	if err != nil {
 		// Run a dummy compare to keep timing roughly constant whether or not
