@@ -240,24 +240,32 @@ configure() {
 
 # --- 5. download the binary --------------------------------------------------
 download_binary() {
-  local base url tmp sums want got
+  local base tmp want got rc
   if [ "$XDEV_VERSION" = latest ]; then
     base="https://github.com/${XDEV_REPO}/releases/latest/download"
   else
     base="https://github.com/${XDEV_REPO}/releases/download/${XDEV_VERSION}"
   fi
-  tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
+  # NB: clean up $tmp explicitly on each exit path rather than via a RETURN trap
+  # — a RETURN trap set inside a function called from main() leaks to every
+  # later function return, where this local is unset (crashes under `set -u`).
+  tmp="$(mktemp -d)"
 
   info "downloading ${ASSET} (${XDEV_VERSION})…"
   if ! curl -fsSL "${base}/${ASSET}" -o "${tmp}/${ASSET}"; then
     warn "no release asset at ${base}/${ASSET}"
-    build_from_source "$tmp"; return $?
+    build_from_source "$tmp"; rc=$?
+    rm -rf "$tmp"
+    return $rc
   fi
   if curl -fsSL "${base}/checksums.txt" -o "${tmp}/checksums.txt"; then
     want="$(awk -v a="$ASSET" '$2==a || $2=="*"a {print $1}' "${tmp}/checksums.txt" | head -n1)"
     if [ -n "$want" ]; then
       got="$(sha256_of "${tmp}/${ASSET}")"
-      [ "$want" = "$got" ] || die "checksum mismatch for ${ASSET} (want ${want}, got ${got})"
+      if [ "$want" != "$got" ]; then
+        rm -rf "$tmp"
+        die "checksum mismatch for ${ASSET} (want ${want}, got ${got})"
+      fi
       ok "checksum verified"
     else
       warn "checksums.txt has no entry for ${ASSET} — skipping verification"
@@ -266,6 +274,7 @@ download_binary() {
     warn "no checksums.txt in release — skipping verification"
   fi
   as_root install -m 0755 "${tmp}/${ASSET}" "${BIN_PATH}"
+  rm -rf "$tmp"
   ok "installed ${BIN_PATH}"
 }
 
