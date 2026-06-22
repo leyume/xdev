@@ -15,14 +15,34 @@ import (
 	"xdev/internal/store"
 )
 
-// appDir returns an app's on-disk root: <project.Dir>/<app-slug>, which holds
-// _/ (compose) and app/ (content).
+// appDir returns an app's on-disk root: <project.Dir>/<app-slug>. For container
+// apps this is the parent of _/ and app/; for static apps it holds the code
+// directly. Derived from the compose path when present, else from the project.
 func (s *Service) appDir(app store.App) string {
-	return filepath.Dir(filepath.Dir(app.ComposePath))
+	if app.ComposePath != "" {
+		return filepath.Dir(filepath.Dir(app.ComposePath))
+	}
+	proj, err := s.store.ProjectByID(app.ProjectID)
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(proj.Dir, app.Slug)
 }
 
-// Logs returns the last `tail` lines of the app's container logs.
+// Logs returns the last `tail` lines of the app's logs: container logs for
+// container apps, the supervised process's log file for static command apps.
 func (s *Service) Logs(id int64, tail int) (string, error) {
+	app, err := s.store.AppByID(id)
+	if err != nil {
+		return "", err
+	}
+	if app.IsStatic() {
+		proj, err := s.store.ProjectByID(app.ProjectID)
+		if err != nil {
+			return "", err
+		}
+		return s.sup.Logs(proj.Slug+"_"+app.Slug, tail)
+	}
 	_, engine, workdir, pname, file, err := s.composeCtx(id)
 	if err != nil {
 		return "", err
@@ -32,11 +52,15 @@ func (s *Service) Logs(id int64, tail int) (string, error) {
 	return runtime.Logs(ctx, engine, workdir, pname, file, tail)
 }
 
-// envPath is the app's editable .env file (inside its content directory).
+// envPath is the app's editable .env file. Container apps keep it in the
+// bind-mounted app/ dir; static apps keep it at the app root (no app/ subdir).
 func (s *Service) envPath(id int64) (string, error) {
 	app, err := s.store.AppByID(id)
 	if err != nil {
 		return "", err
+	}
+	if app.IsStatic() {
+		return filepath.Join(s.appDir(app), ".env"), nil
 	}
 	return filepath.Join(s.appDir(app), "app", ".env"), nil
 }

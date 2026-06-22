@@ -2,10 +2,16 @@
 // from a template, scaffolding starter content, allocating a host port, and
 // driving start/stop/delete through the container runtime.
 //
-// Each app generates the bizepp-style layout:
+// Container apps (wordpress, laravel) generate the bizepp-style layout:
 //
 //	projects/<project>/<app>/_/compose.yml   (generated)
 //	projects/<project>/<app>/app/            (bind-mounted content)
+//
+// Static apps run on the host (system Node, or file-served by Caddy) with no
+// container, so their code lives directly in the app folder and their lifecycle
+// goes through the hostproc supervisor instead of compose:
+//
+//	projects/<project>/<app>/                (your code, directly here)
 package apps
 
 import (
@@ -19,11 +25,17 @@ import (
 	"strings"
 	"time"
 
+	"xdev/internal/hostproc"
 	"xdev/internal/naming"
 	"xdev/internal/runtime"
 	"xdev/internal/store"
 	"xdev/internal/templates"
 )
+
+// defaultStartCmd is the command-mode default: install deps then run the dev
+// server, binding the host port xdev allocated (expanded by the shell from the
+// PORT env var the supervisor sets).
+const defaultStartCmd = `npm install && npm run dev -- --host 127.0.0.1 --port $PORT`
 
 // Port range xdev allocates host ports from (Phase 1 exposes apps directly;
 // Phase 2 moves them behind the shared Caddy proxy).
@@ -39,17 +51,34 @@ const composeTimeout = 5 * time.Minute
 type Service struct {
 	store *store.Store
 	sel   *runtime.Selector
+	sup   *hostproc.Supervisor // supervises static (host) apps
 }
 
 // New creates an app Service.
-func New(st *store.Store, sel *runtime.Selector) *Service {
-	return &Service{store: st, sel: sel}
+func New(st *store.Store, sel *runtime.Selector, sup *hostproc.Supervisor) *Service {
+	return &Service{store: st, sel: sel, sup: sup}
 }
 
-// Create renders and persists a new app, writes its files, and starts it.
-// It returns the saved app even if the initial start fails, with the error, so
-// the UI can show the app in an error state rather than losing it.
-func (s *Service) Create(projectID int64, name, appType, domain string, cpuLimit float64, memLimit int64) (store.App, error) {
+// CreateOpts carries the fields the UI collects for a new app. The static-only
+// fields are ignored for container types.
+type CreateOpts struct {
+	Name     string
+	Type     string
+	Domain   string
+	CPULimit float64 // cores; 0 = unlimited (container apps only)
+	MemLimit int64   // bytes; 0 = unlimited (container apps only)
+
+	// Static-app config (see store.App).
+	ServeMode string // serve | command (default serve)
+	RootDir   string
+	BuildCmd  string
+	StartCmd  string
+}
+
+// Create persists a new app, writes its files, and starts it. It returns the
+// saved app even if the initial start fails, with the error, so the UI can show
+// the app in an error state rather than losing it.
+func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 	proj, err := s.store.ProjectByID(projectID)
 	if err != nil {
 		return store.App{}, err
@@ -60,12 +89,12 @@ func (s *Service) Create(projectID int64, name, appType, domain string, cpuLimit
 	if appEngine == "" {
 		appEngine = string(s.sel.Current())
 	}
-	name = strings.TrimSpace(name)
+	name := strings.TrimSpace(opts.Name)
 	if name == "" {
 		return store.App{}, errors.New("app name is required")
 	}
-	if !templates.IsValidType(appType) {
-		return store.App{}, fmt.Errorf("app type %q is not available yet", appType)
+	if !templates.IsValidType(opts.Type) {
+		return store.App{}, fmt.Errorf("app type %q is not available yet", opts.Type)
 	}
 
 	slug := naming.Unique(name, func(c string) bool { return s.store.AppSlugExists(projectID, c) })
@@ -73,7 +102,7 @@ func (s *Service) Create(projectID int64, name, appType, domain string, cpuLimit
 	// Domain is free-form. If left blank, default to the project's base domain
 	// directly (so the first app is served at the bare domain); if that's
 	// already taken, fall back to <app-slug>.<base-domain>.
-	domain = normalizeHost(domain)
+	domain := normalizeHost(opts.Domain)
 	if domain == "" {
 		domain = proj.BaseDomain
 		if s.store.DomainOwner(domain) != 0 {
@@ -87,62 +116,29 @@ func (s *Service) Create(projectID int64, name, appType, domain string, cpuLimit
 		return store.App{}, fmt.Errorf("domain %q is already in use", domain)
 	}
 
-	port, err := s.allocPort()
-	if err != nil {
-		return store.App{}, err
+	// Build the app row + on-disk layout, branching on execution model.
+	appDir := filepath.Join(proj.Dir, slug)
+	app := store.App{
+		ProjectID: projectID,
+		Name:      name,
+		Slug:      slug,
+		Type:      opts.Type,
+		Status:    store.AppStopped,
+		Domain:    domain,
+		Runtime:   appEngine,
 	}
 
-	// Build the on-disk layout: <project.Dir>/<slug>/{_,app}.
-	appDir := filepath.Join(proj.Dir, slug)
-	underscore := filepath.Join(appDir, "_")
-	content := filepath.Join(appDir, "app")
-	for _, d := range []string{underscore, content} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
+	if opts.Type == store.TypeStatic {
+		if err := s.layoutStatic(&app, &opts, appDir); err != nil {
+			return store.App{}, err
+		}
+	} else {
+		if err := s.layoutContainer(&app, &opts, proj, appDir); err != nil {
 			return store.App{}, err
 		}
 	}
 
-	// Render compose.
-	composeStr, err := templates.RenderCompose(appType, templates.Data{
-		ProjectSlug: proj.Slug,
-		NetworkName: proj.NetworkName,
-		AppSlug:     slug,
-		AppType:     appType,
-		Env:         proj.Environment,
-		HostPort:    port,
-		CPULimit:    cpuLimit,
-		MemLimit:    memLimit,
-	})
-	if err != nil {
-		os.RemoveAll(appDir)
-		return store.App{}, err
-	}
-	composePath := filepath.Join(underscore, "compose.yml")
-	if err := os.WriteFile(composePath, []byte(composeStr), 0o644); err != nil {
-		os.RemoveAll(appDir)
-		return store.App{}, err
-	}
-
-	// Drop scaffold content (placeholder index.html etc.) without clobbering
-	// anything already present.
-	if err := s.writeScaffold(appType, content); err != nil {
-		os.RemoveAll(appDir)
-		return store.App{}, err
-	}
-
-	saved, err := s.store.CreateApp(store.App{
-		ProjectID:   projectID,
-		Name:        name,
-		Slug:        slug,
-		Type:        appType,
-		Status:      store.AppStopped,
-		Domain:      domain,
-		Port:        port,
-		CPULimit:    cpuLimit,
-		MemLimit:    memLimit,
-		Runtime:     appEngine,
-		ComposePath: composePath,
-	})
+	saved, err := s.store.CreateApp(app)
 	if err != nil {
 		os.RemoveAll(appDir)
 		return store.App{}, err
@@ -165,9 +161,122 @@ func (s *Service) Create(projectID int64, name, appType, domain string, cpuLimit
 	return s.store.AppByID(saved.ID)
 }
 
-// Start (re)creates and starts the app's containers (idempotent: uses up -d).
+// layoutContainer builds a container app's _/compose.yml + app/ layout and sets
+// the port, limits, and compose path on the app row.
+func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.Project, appDir string) error {
+	port, err := s.allocPort()
+	if err != nil {
+		return err
+	}
+	underscore := filepath.Join(appDir, "_")
+	content := filepath.Join(appDir, "app")
+	for _, d := range []string{underscore, content} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return err
+		}
+	}
+	composeStr, err := templates.RenderCompose(opts.Type, templates.Data{
+		ProjectSlug: proj.Slug,
+		NetworkName: proj.NetworkName,
+		AppSlug:     app.Slug,
+		AppType:     opts.Type,
+		Env:         proj.Environment,
+		HostPort:    port,
+		CPULimit:    opts.CPULimit,
+		MemLimit:    opts.MemLimit,
+	})
+	if err != nil {
+		os.RemoveAll(appDir)
+		return err
+	}
+	composePath := filepath.Join(underscore, "compose.yml")
+	if err := os.WriteFile(composePath, []byte(composeStr), 0o644); err != nil {
+		os.RemoveAll(appDir)
+		return err
+	}
+	// Drop scaffold content (placeholder index.html etc.) without clobbering
+	// anything already present.
+	if err := s.writeScaffold(opts.Type, content); err != nil {
+		os.RemoveAll(appDir)
+		return err
+	}
+	app.Port = port
+	app.CPULimit = opts.CPULimit
+	app.MemLimit = opts.MemLimit
+	app.ComposePath = composePath
+	return nil
+}
+
+// layoutStatic builds a static app's folder — code lives directly inside, with
+// no _/ or app/ subdirectories — and records its serve config. Command-mode
+// apps get a host port for their dev server; serve-mode apps are file-served by
+// Caddy and need none.
+func (s *Service) layoutStatic(app *store.App, opts *CreateOpts, appDir string) error {
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		return err
+	}
+	mode := opts.ServeMode
+	if mode != store.ServeCommand {
+		mode = store.ServeStatic
+	}
+	app.ServeMode = mode
+	app.RootDir = strings.Trim(strings.TrimSpace(opts.RootDir), "/")
+	app.BuildCmd = strings.TrimSpace(opts.BuildCmd)
+
+	switch mode {
+	case store.ServeCommand:
+		app.StartCmd = strings.TrimSpace(opts.StartCmd)
+		if app.StartCmd == "" {
+			app.StartCmd = defaultStartCmd
+		}
+		port, err := s.allocPort()
+		if err != nil {
+			os.RemoveAll(appDir)
+			return err
+		}
+		app.Port = port
+		// Drop a runnable Vite starter directly in the folder (skipping any files
+		// the user already added) so `npm install && npm run dev` works on first
+		// start; the user can replace it with their own project.
+		if err := s.writeScaffold(store.TypeStatic, appDir); err != nil {
+			os.RemoveAll(appDir)
+			return err
+		}
+	case store.ServeStatic:
+		// Drop a friendly placeholder if the served dir has no index yet, so the
+		// domain shows something before the user adds their files.
+		s.writeStaticPlaceholder(filepath.Join(appDir, app.RootDir), app.Name)
+	}
+	return nil
+}
+
+// writeStaticPlaceholder drops a minimal index.html into dir if one isn't there.
+func (s *Service) writeStaticPlaceholder(dir, appName string) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	index := filepath.Join(dir, "index.html")
+	if _, err := os.Stat(index); err == nil {
+		return // don't clobber existing content
+	}
+	html := "<!doctype html>\n<meta charset=utf-8>\n<title>" + appName + "</title>\n" +
+		"<h1>" + appName + "</h1>\n" +
+		"<p>Static app served by xdev. Replace this file with your site.</p>\n"
+	os.WriteFile(index, []byte(html), 0o644)
+}
+
+// Start (re)launches the app. Container apps recreate their compose stack
+// (idempotent: up -d); static apps run their build step and, in command mode,
+// (re)spawn their host process.
 func (s *Service) Start(id int64) error {
-	app, engine, workdir, pname, file, err := s.composeCtx(id)
+	app, err := s.store.AppByID(id)
+	if err != nil {
+		return err
+	}
+	if app.IsStatic() {
+		return s.startStatic(app)
+	}
+	_, engine, workdir, pname, file, err := s.composeCtx(id)
 	if err != nil {
 		return err
 	}
@@ -180,9 +289,88 @@ func (s *Service) Start(id int64) error {
 	return s.store.SetAppStatus(app.ID, store.AppRunning)
 }
 
-// Stop stops the app's containers but keeps them for a quick restart.
+// startStatic runs a static app's optional build step and, for command mode,
+// (re)spawns its host process. Serve-mode apps need no process — Caddy serves
+// their files — so a successful build (if any) is enough to mark them running.
+func (s *Service) startStatic(app store.App) error {
+	proj, err := s.store.ProjectByID(app.ProjectID)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(proj.Dir, app.Slug)
+	env := s.staticEnv(app, dir)
+
+	needsNode := app.ServeMode == store.ServeCommand || strings.TrimSpace(app.BuildCmd) != ""
+	if needsNode && !hostproc.HasNode() {
+		s.store.SetAppStatus(app.ID, store.AppError)
+		return errors.New("system Node not found on PATH — install Node (e.g. `brew install node`) or re-run the xdev installer")
+	}
+
+	if cmd := strings.TrimSpace(app.BuildCmd); cmd != "" {
+		if _, err := s.sup.RunBuild(dir, cmd, env); err != nil {
+			s.store.SetAppStatus(app.ID, store.AppError)
+			return err
+		}
+	}
+
+	if app.ServeMode == store.ServeCommand {
+		name := proj.Slug + "_" + app.Slug
+		if err := s.sup.Start(app.ID, name, dir, app.StartCmd, env); err != nil {
+			s.store.SetAppStatus(app.ID, store.AppError)
+			return err
+		}
+	}
+	return s.store.SetAppStatus(app.ID, store.AppRunning)
+}
+
+// staticEnv builds the environment for a static app's process or build step: the
+// host environment (so node/npm and PATH resolve), the allocated PORT/HOST, and
+// the app's own .env file (KEY=VALUE lines) layered on top.
+func (s *Service) staticEnv(app store.App, dir string) []string {
+	env := os.Environ()
+	if app.Port > 0 {
+		env = append(env, fmt.Sprintf("PORT=%d", app.Port), "HOST=127.0.0.1")
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, ".env")); err == nil {
+		for _, line := range strings.Split(string(b), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			env = append(env, line)
+		}
+	}
+	return env
+}
+
+// ResumeStatic respawns command-mode static apps that were running before xdev
+// restarted — their host processes die with xdev, unlike containers the engine
+// keeps alive. Called once on boot.
+func (s *Service) ResumeStatic() {
+	apps, err := s.store.ResumableStaticApps()
+	if err != nil {
+		log.Printf("resume static apps: %v", err)
+		return
+	}
+	for _, app := range apps {
+		if err := s.startStatic(app); err != nil {
+			log.Printf("resume static app %s: %v", app.Slug, err)
+		}
+	}
+}
+
+// Stop stops the app: container apps stop their containers (kept for a quick
+// restart); static command-mode apps have their host process killed.
 func (s *Service) Stop(id int64) error {
-	app, engine, workdir, pname, file, err := s.composeCtx(id)
+	app, err := s.store.AppByID(id)
+	if err != nil {
+		return err
+	}
+	if app.IsStatic() {
+		s.sup.Stop(id)
+		return s.store.SetAppStatus(id, store.AppStopped)
+	}
+	_, engine, workdir, pname, file, err := s.composeCtx(id)
 	if err != nil {
 		return err
 	}
@@ -194,8 +382,23 @@ func (s *Service) Stop(id int64) error {
 	return s.store.SetAppStatus(app.ID, store.AppStopped)
 }
 
-// Delete brings the stack down, removes the app row, and deletes its directory.
+// Delete tears the app down, removes the app row, and deletes its directory.
 func (s *Service) Delete(id int64) error {
+	app, err := s.store.AppByID(id)
+	if err != nil {
+		return err
+	}
+	if app.IsStatic() {
+		s.sup.Stop(id)
+		dir := s.appDir(app)
+		if err := s.store.DeleteApp(id); err != nil {
+			return err
+		}
+		if dir != "" && dir != "." && dir != "/" {
+			os.RemoveAll(dir)
+		}
+		return nil
+	}
 	_, engine, workdir, pname, file, err := s.composeCtx(id)
 	if err != nil {
 		return err
@@ -214,10 +417,29 @@ func (s *Service) Delete(id int64) error {
 	return nil
 }
 
-// RefreshStatus reconciles the stored status with the runtime and returns the
+// RefreshStatus reconciles the stored status with reality and returns the
 // up-to-date status string.
 func (s *Service) RefreshStatus(id int64) (string, error) {
-	app, engine, workdir, pname, file, err := s.composeCtx(id)
+	app, err := s.store.AppByID(id)
+	if err != nil {
+		return "", err
+	}
+	if app.IsStatic() {
+		// Serve-mode apps have no process; their state is whatever create/start
+		// set. Command-mode apps reflect the live host process.
+		status := app.Status
+		if app.ServeMode == store.ServeCommand {
+			status = store.AppStopped
+			if s.sup.Running(id) {
+				status = store.AppRunning
+			}
+		}
+		if status != app.Status {
+			s.store.SetAppStatus(app.ID, status)
+		}
+		return status, nil
+	}
+	_, engine, workdir, pname, file, err := s.composeCtx(id)
 	if err != nil {
 		return "", err
 	}

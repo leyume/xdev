@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -33,6 +34,7 @@ import (
 	"xdev/internal/auth"
 	"xdev/internal/config"
 	"xdev/internal/domains"
+	"xdev/internal/hostproc"
 	"xdev/internal/metrics"
 	"xdev/internal/platform"
 	"xdev/internal/projects"
@@ -164,7 +166,10 @@ func runServer(o *options) error {
 	engine := runtime.NewSelector(rt, override)
 
 	projSvc := projects.New(st, cfg, engine)
-	appSvc := apps.New(st, engine)
+	// Supervisor for static (host) apps; their log files live under the data dir.
+	sup := hostproc.NewSupervisor(filepath.Join(cfg.DataDir, "run"))
+	defer sup.StopAll()
+	appSvc := apps.New(st, engine, sup)
 
 	// --- reverse proxy (Caddy) ----------------------------------------------
 	pm := proxy.NewManager(o.caddyAdmin, o.httpsPort, o.httpPort, o.acmeEmail, o.localCertTTL)
@@ -234,6 +239,10 @@ func runServer(o *options) error {
 		log.Printf("  first run:   create your admin at http://%s/setup (or run: xdev create-admin you@example.com)", cfg.Addr)
 	}
 	log.Printf("  listening:   http://%s", cfg.Addr)
+
+	// Respawn static command-mode apps that were running before this restart
+	// (their host processes, unlike containers, don't survive an xdev restart).
+	appSvc.ResumeStatic()
 
 	// --- serve with graceful shutdown ---------------------------------------
 	errCh := make(chan error, 1)

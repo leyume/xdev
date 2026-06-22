@@ -17,10 +17,13 @@ import (
 	"time"
 )
 
-// Route maps a hostname to a local upstream (the app's published host port).
+// Route maps a hostname to how Caddy should serve it. Either Upstream (reverse
+// proxy to a host port — containers and command-mode static apps) or Root
+// (file-server a directory directly — serve-mode static apps) is set.
 type Route struct {
 	Host     string // e.g. frontend.demo.test
 	Upstream string // e.g. 127.0.0.1:20000
+	Root     string // e.g. /…/projects/demo/frontend/dist (file_server)
 	Internal bool   // true = local CA (.test); false = public ACME/Let's Encrypt
 }
 
@@ -125,12 +128,24 @@ func (m *Manager) buildConfig(routes []Route) map[string]any {
 		} else {
 			publicHosts = append(publicHosts, r.Host)
 		}
-		httpRoutes = append(httpRoutes, map[string]any{
-			"match": []any{map[string]any{"host": []string{r.Host}}},
-			"handle": []any{map[string]any{
+		// Serve a directory directly when Root is set (the `vars` handler sets the
+		// file_server root, mirroring the Caddyfile `root` directive); otherwise
+		// reverse-proxy to the app's host port.
+		var handle []any
+		if r.Root != "" {
+			handle = []any{
+				map[string]any{"handler": "vars", "root": r.Root},
+				map[string]any{"handler": "file_server"},
+			}
+		} else {
+			handle = []any{map[string]any{
 				"handler":   "reverse_proxy",
 				"upstreams": []any{map[string]any{"dial": r.Upstream}},
-			}},
+			}}
+		}
+		httpRoutes = append(httpRoutes, map[string]any{
+			"match":    []any{map[string]any{"host": []string{r.Host}}},
+			"handle":   handle,
 			"terminal": true,
 		})
 	}

@@ -194,6 +194,30 @@ install_caddy() {
   have caddy && ok "caddy ready" || die "caddy still not on PATH after install"
 }
 
+# Static apps run on the host's system Node (no container), so make sure node +
+# npm are present. Skipped when XDEV_NODE=false.
+install_node() {
+  if [ "$MANAGE_NODE" != "true" ]; then
+    info "skipping Node install (static apps need it; XDEV_NODE=false)"; return 0
+  fi
+  if have node && have npm; then ok "node present ($(node --version 2>/dev/null))"; return 0; fi
+  info "installing node…"
+  if [ "$OS" = linux ]; then
+    export DEBIAN_FRONTEND=noninteractive
+    # Prefer NodeSource LTS (current Node); fall back to the distro packages.
+    if curl -fsSL https://deb.nodesource.com/setup_lts.x | as_root bash - >/dev/null 2>&1; then
+      as_root apt-get install -y -qq nodejs || die "could not install nodejs via NodeSource"
+    else
+      warn "NodeSource setup failed; falling back to distro nodejs/npm (may be older)"
+      as_root apt-get update -qq && as_root apt-get install -y -qq nodejs npm || die "could not install nodejs/npm"
+    fi
+  else
+    have brew || die "Homebrew required to install node on macOS"
+    brew install node || die "brew install node failed"
+  fi
+  have node && have npm && ok "node ready ($(node --version 2>/dev/null))" || die "node still not on PATH after install"
+}
+
 # --- 4. interactive configuration -------------------------------------------
 configure() {
   # Re-run / non-fresh box: detect an existing install so we upgrade in place
@@ -210,6 +234,7 @@ configure() {
   ask XDEV_ENGINE "Container engine? [docker/podman]" "$engine_default"
   ENGINE="$XDEV_ENGINE"
   yesno XDEV_CADDY "Let xdev manage Caddy for you?" "Y"; MANAGE_CADDY="$XDEV_CADDY"
+  yesno XDEV_NODE "Install Node for static apps (host Node, no container)?" "Y"; MANAGE_NODE="$XDEV_NODE"
 
   if [ "$XDEV_MODE" = prod ]; then
     : "${XDEV_SECURE:=true}"; : "${XDEV_MANAGE_HOSTS:=false}"
@@ -461,6 +486,7 @@ main() {
 
   install_engine
   install_caddy
+  install_node
   download_binary
   write_config
   if [ "$OS" = linux ]; then install_service_linux; else install_service_macos; fi

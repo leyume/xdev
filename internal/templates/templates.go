@@ -49,12 +49,12 @@ type TypeInfo struct {
 	Available   bool // false types are shown but not yet selectable
 }
 
-// Catalog lists the app types. Only static-prebuilt is wired up in Phase 1; the
-// rest are placeholders so the UI can show the roadmap.
+// Catalog lists the app types offered in the UI. The single "static" type runs
+// on the host's system Node (or is file-served by Caddy) with no container; the
+// rest are container/compose stacks.
 func Catalog() []TypeInfo {
 	return []TypeInfo{
-		{"static-prebuilt", "Static (prebuilt)", "Serve a built dist/ folder (Vue/React/plain HTML).", true},
-		{"static-build", "Static (build)", "Run a Vite dev server with HMR from your source.", true},
+		{"static", "Static", "Static site/app served by xdev with your system Node — no container. Code lives directly in the app folder.", true},
 		{"wordpress", "WordPress", "WordPress + MariaDB, code in app/.", true},
 		{"laravel", "Laravel", "Laravel on Octane/Swoole + MariaDB + Redis (drop your app in app/).", true},
 	}
