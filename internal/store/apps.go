@@ -12,32 +12,52 @@ const (
 	AppError   = "error"
 )
 
-// App is one deployable component (compose stack) inside a project.
+// Static app types and serve modes.
+const (
+	TypeStatic = "static" // runs on system Node / served by Caddy, no container
+
+	ServeStatic  = "serve"   // Caddy file-servers RootDir directly (no process)
+	ServeCommand = "command" // xdev supervises StartCmd as a host process on Port
+)
+
+// App is one deployable component inside a project. Container apps (wordpress,
+// laravel) are a compose stack; static apps run on the host (system Node or
+// Caddy file-server) and carry the serve_mode/*_cmd fields instead.
 type App struct {
 	ID          int64
 	ProjectID   int64
 	Name        string
 	Slug        string
-	Type        string // wordpress | laravel | static-prebuilt | static-build
+	Type        string // wordpress | laravel | static
 	Runtime     string // podman | docker ("" = use default)
 	Status      string
-	Domain      string // full hostname this app is served at (e.g. aa.test, api.aa.test)
+	Domain      string  // full hostname this app is served at (e.g. aa.test, api.aa.test)
 	CPULimit    float64 // cores; 0 = unlimited
 	MemLimit    int64   // bytes; 0 = unlimited
 	Port        int     // host port (0 = none)
 	ComposePath string
-	CreatedAt   string
-	UpdatedAt   string
+	// Static-app config (blank for container apps; see migration 0004).
+	ServeMode string // serve | command
+	RootDir   string // served subdir for serve mode ("" = the app folder)
+	BuildCmd  string // optional one-shot build step (system Node)
+	StartCmd  string // long-lived command for command mode (system Node)
+	CreatedAt string
+	UpdatedAt string
 }
+
+// IsStatic reports whether the app runs on the host rather than in a container.
+func (a App) IsStatic() bool { return a.Type == TypeStatic }
 
 // CreateApp inserts an app and returns it with its assigned id.
 func (s *Store) CreateApp(a App) (App, error) {
 	res, err := s.db.Exec(
 		`INSERT INTO apps (project_id, name, slug, type, runtime, status, subdomain,
-		                   cpu_limit, mem_limit, port, compose_path)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   cpu_limit, mem_limit, port, compose_path,
+		                   serve_mode, root_dir, build_cmd, start_cmd)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ProjectID, a.Name, a.Slug, a.Type, a.Runtime, statusOr(a.Status),
 		a.Domain, a.CPULimit, a.MemLimit, a.Port, a.ComposePath,
+		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd,
 	)
 	if err != nil {
 		return App{}, err
@@ -114,14 +134,36 @@ func (s *Store) DeleteApp(id int64) error {
 	return err
 }
 
+// ResumableStaticApps returns command-mode static apps that were running when
+// xdev last stopped — their host processes died with xdev and must be respawned
+// on boot (unlike containers, which the engine keeps alive).
+func (s *Store) ResumableStaticApps() ([]App, error) {
+	rows, err := s.db.Query(appSelect+` WHERE type = ? AND serve_mode = ? AND status = ?`,
+		TypeStatic, ServeCommand, AppRunning)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []App
+	for rows.Next() {
+		a, err := scanAppRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 const appSelect = `SELECT id, project_id, name, slug, type, runtime, status, subdomain,
-	cpu_limit, mem_limit, port, compose_path, created_at, updated_at FROM apps`
+	cpu_limit, mem_limit, port, compose_path,
+	serve_mode, root_dir, build_cmd, start_cmd, created_at, updated_at FROM apps`
 
 func (s *Store) scanApp(row *sql.Row) (App, error) {
 	var a App
 	err := row.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Slug, &a.Type, &a.Runtime,
 		&a.Status, &a.Domain, &a.CPULimit, &a.MemLimit, &a.Port, &a.ComposePath,
-		&a.CreatedAt, &a.UpdatedAt)
+		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.CreatedAt, &a.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return App{}, ErrNotFound
 	}
@@ -132,7 +174,7 @@ func scanAppRows(rows *sql.Rows) (App, error) {
 	var a App
 	err := rows.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Slug, &a.Type, &a.Runtime,
 		&a.Status, &a.Domain, &a.CPULimit, &a.MemLimit, &a.Port, &a.ComposePath,
-		&a.CreatedAt, &a.UpdatedAt)
+		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.CreatedAt, &a.UpdatedAt)
 	return a, err
 }
 

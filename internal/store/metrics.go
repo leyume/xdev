@@ -57,7 +57,8 @@ func (s *Store) PruneMetricsBefore(t time.Time) error {
 func (s *Store) AppPrefixes() ([]AppPrefix, error) {
 	rows, err := s.db.Query(
 		`SELECT a.id, p.slug || '_' || a.slug, a.mem_limit
-		 FROM apps a JOIN projects p ON p.id = a.project_id`)
+		 FROM apps a JOIN projects p ON p.id = a.project_id
+		 WHERE a.type != 'static'`) // static apps run on the host, not in containers
 	if err != nil {
 		return nil, err
 	}

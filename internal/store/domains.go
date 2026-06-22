@@ -1,11 +1,16 @@
 package store
 
-// RouteInfo is a hostname paired with the host port its app publishes — the
-// pair the reverse proxy needs to route traffic.
+import "path/filepath"
+
+// RouteInfo is a hostname paired with the upstream its app is served from — the
+// pair the reverse proxy needs to route traffic. Exactly one of Port (a host
+// port to reverse-proxy to) or Root (a directory for Caddy to file-server) is
+// set; Root is used by serve-mode static apps that have no process.
 type RouteInfo struct {
 	Host  string
 	Port  int
-	Local bool // local (.test, internal CA) vs public (ACME)
+	Root  string // filesystem dir to serve directly (serve-mode static apps)
+	Local bool   // local (.test, internal CA) vs public (ACME)
 }
 
 // DomainOwner returns the app id that owns a hostname, or 0 if it's free.
@@ -62,14 +67,17 @@ func (s *Store) CreateDomain(appID int64, hostname string, isLocal bool, sslMode
 	return err
 }
 
-// ProxyRoutes returns every domain whose app has a published port, for building
-// the reverse-proxy config.
+// ProxyRoutes returns every domain whose app has a routable upstream, for
+// building the reverse-proxy config: a published host port (containers and
+// command-mode static apps), or — for serve-mode static apps — the on-disk
+// directory Caddy should file-server directly.
 func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 	rows, err := s.db.Query(`
-		SELECT d.hostname, a.port, d.is_local
+		SELECT d.hostname, a.port, d.is_local, a.type, a.serve_mode, a.root_dir, a.slug, p.dir
 		FROM domains d
 		JOIN apps a ON a.id = d.app_id
-		WHERE a.port > 0
+		JOIN projects p ON p.id = a.project_id
+		WHERE a.port > 0 OR (a.type = 'static' AND a.serve_mode = 'serve')
 		ORDER BY d.hostname`)
 	if err != nil {
 		return nil, err
@@ -80,10 +88,17 @@ func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 	for rows.Next() {
 		var r RouteInfo
 		var isLocal int
-		if err := rows.Scan(&r.Host, &r.Port, &isLocal); err != nil {
+		var appType, serveMode, rootDir, slug, projDir string
+		if err := rows.Scan(&r.Host, &r.Port, &isLocal, &appType, &serveMode, &rootDir, &slug, &projDir); err != nil {
 			return nil, err
 		}
 		r.Local = isLocal == 1
+		// Serve-mode static apps have no upstream port; Caddy serves their files
+		// from <project.dir>/<slug>/<root_dir> directly.
+		if appType == TypeStatic && serveMode == ServeStatic {
+			r.Port = 0
+			r.Root = filepath.Join(projDir, slug, rootDir)
+		}
 		out = append(out, r)
 	}
 	return out, rows.Err()

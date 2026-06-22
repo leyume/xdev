@@ -21,9 +21,10 @@ curl -fsSL https://raw.githubusercontent.com/leyume/xdev/main/deploy/install.sh 
 curl -fsSL https://raw.githubusercontent.com/leyume/xdev/main/deploy/install.sh | bash
 ```
 
-The installer detects your OS + CPU arch, installs a container engine and Caddy
-if they're missing, downloads the matching prebuilt binary (verifying its
-checksum), writes config, installs a service, and creates your admin account.
+The installer detects your OS + CPU arch, installs a container engine, Caddy,
+and Node (for static apps) if they're missing, downloads the matching prebuilt
+binary (verifying its checksum), writes config, installs a service, and creates
+your admin account.
 Full details — non-interactive/automated install, manual steps, uninstall — are
 in [`deploy/README.md`](deploy/README.md).
 
@@ -31,8 +32,9 @@ in [`deploy/README.md`](deploy/README.md).
 
 - **Projects & apps** — group apps under a project with a shared base domain and
   a dedicated container network.
-- **App templates** — static (prebuilt or Vite-built), WordPress, Laravel; add
-  your own by dropping in a Compose template.
+- **App templates** — Static (runs on your system Node, no container — serve a
+  folder or run a build/dev command), WordPress, Laravel; add your own by
+  dropping in a Compose template.
 - **Automatic HTTPS** — Caddy obtains/renews certs; local domains use a trusted
   internal CA (`sudo caddy trust` once for green locks).
 - **One web UI** — create/start/stop/delete apps, edit `.env`, stream logs, set

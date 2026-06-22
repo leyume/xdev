@@ -92,9 +92,9 @@ The generated `projects/<project>/<app>/_/` layout intentionally mirrors
 - **settings** — key, value  *(default runtime, hosts-mgmt on/off, base TLD, ...)*
 - **projects** — id, name, slug, base_domain, environment (local|prod),
   network_name, dir, created_at
-- **apps** — id, project_id (FK), name, slug, type
-  (wordpress|laravel|static-prebuilt|static-build), runtime (podman|docker),
-  status, subdomain, cpu_limit, mem_limit, port, compose_path, created_at, updated_at
+- **apps** — id, project_id (FK), name, slug, type (wordpress|laravel|static),
+  runtime (podman|docker), status, subdomain, cpu_limit, mem_limit, port,
+  compose_path, serve_mode/root_dir/build_cmd/start_cmd (static apps), created_at, updated_at
 - **app_env** — app_id, key, value  *(written to the app's .env)*
 - **domains** — id, app_id (FK), hostname, is_local, ssl_mode
   (internal|letsencrypt), cert_status
@@ -106,17 +106,20 @@ The generated `projects/<project>/<app>/_/` layout intentionally mirrors
 
 ## 5. App templates (modeled on bizepp's `_/`)
 
-Each template renders into `projects/<project>/<app>/` with `_/compose.yml`
+Container templates render into `projects/<project>/<app>/` with `_/compose.yml`
 (dev), `_/compose.prod.yml` (prod), bind-mounted `app/`, and `_volumes/`.
 Conventions carried over from bizepp: prefixed service names, `COMPOSE_PROJECT_NAME`
 namespacing, healthchecks, `logging` rotation, prod resource limits.
 
-1. **static-prebuilt** *(built first — simplest)* — Caddy serves a `dist/`
-   folder. May be served directly by the main Caddy with no container.
-2. **static-build** — node container runs Vite dev server (HMR) *or* builds
-   `dist/` then serves it. Covers "before and after build".
-3. **wordpress** — wordpress + mariadb (+ optional redis).
-4. **laravel** — ports bizepp's Swoole/Octane image (app + db + redis +
+1. **static** *(no container)* — runs on the host's **system Node**. Code lives
+   directly in `projects/<project>/<app>/` (no `_/` or `app/`). Two modes:
+   *serve* — the main Caddy file-serves a folder directly (no process; the
+   "prebuilt" case); *command* — xdev supervises a host Node process
+   (e.g. `npm run dev`) on an allocated port (the "build/dev" case). An optional
+   build command (system Node) covers "after build". The installer ensures Node
+   is present.
+2. **wordpress** — wordpress + mariadb (+ optional redis).
+3. **laravel** — ports bizepp's Swoole/Octane image (app + db + redis +
    adminer) with the dev/prod split.
 
 Templates live in `apptemplates/` and are extensible — drop in a new template

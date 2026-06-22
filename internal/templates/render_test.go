@@ -20,15 +20,19 @@ func TestRenderAllAvailableTypes(t *testing.T) {
 		if !ti.Available {
 			continue
 		}
+		// Static apps run on the host and have no compose template to render.
+		if ti.Type == "static" {
+			continue
+		}
 		d.AppType = ti.Type
 		out, err := RenderCompose(ti.Type, d)
 		if err != nil {
 			t.Fatalf("%s: render error: %v", ti.Type, err)
 		}
 		for _, want := range []string{
-			"demo_site",          // container_name prefix
-			"20000",              // host port
-			"name: xdev_demo",    // external project network
+			"demo_site",       // container_name prefix
+			"20000",           // host port
+			"name: xdev_demo", // external project network
 		} {
 			if !strings.Contains(out, want) {
 				t.Errorf("%s: rendered compose missing %q\n%s", ti.Type, want, out)
@@ -59,9 +63,9 @@ func TestProdComposeSelection(t *testing.T) {
 // TestRenderWithLimits verifies the deploy/resources block appears only when
 // limits are set.
 func TestRenderWithLimits(t *testing.T) {
-	base := Data{ProjectSlug: "p", NetworkName: "xdev_p", AppSlug: "a", AppType: "static-prebuilt", HostPort: 21000}
+	base := Data{ProjectSlug: "p", NetworkName: "xdev_p", AppSlug: "a", AppType: "wordpress", HostPort: 21000}
 
-	out, _ := RenderCompose("static-prebuilt", base)
+	out, _ := RenderCompose("wordpress", base)
 	if strings.Contains(out, "deploy:") {
 		t.Errorf("expected no deploy block without limits:\n%s", out)
 	}
@@ -69,7 +73,7 @@ func TestRenderWithLimits(t *testing.T) {
 	withLimits := base
 	withLimits.CPULimit = 1.5
 	withLimits.MemLimit = 512 * 1024 * 1024
-	out, _ = RenderCompose("static-prebuilt", withLimits)
+	out, _ = RenderCompose("wordpress", withLimits)
 	for _, want := range []string{"deploy:", `cpus: "1.5"`, "memory: 512m"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("limits: missing %q\n%s", want, out)

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"xdev/internal/apps"
 	"xdev/internal/templates"
 )
 
@@ -110,9 +111,6 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	name := r.FormValue("name")
-	appType := r.FormValue("type")
-	domain := r.FormValue("domain")
 	cpu, _ := strconv.ParseFloat(r.FormValue("cpu_cores"), 64)
 	memMB, _ := strconv.ParseInt(r.FormValue("memory_mb"), 10, 64)
 	var memBytes int64
@@ -120,7 +118,17 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		memBytes = memMB * 1024 * 1024
 	}
 
-	app, err := s.apps.Create(proj.ID, name, appType, domain, cpu, memBytes)
+	app, err := s.apps.Create(proj.ID, apps.CreateOpts{
+		Name:      r.FormValue("name"),
+		Type:      r.FormValue("type"),
+		Domain:    r.FormValue("domain"),
+		CPULimit:  cpu,
+		MemLimit:  memBytes,
+		ServeMode: r.FormValue("serve_mode"),
+		RootDir:   r.FormValue("root_dir"),
+		BuildCmd:  r.FormValue("build_cmd"),
+		StartCmd:  r.FormValue("start_cmd"),
+	})
 	if err != nil {
 		redirectWithError(w, r, "/projects/"+proj.Slug, err)
 		return

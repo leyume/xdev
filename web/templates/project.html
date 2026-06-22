@@ -99,13 +99,13 @@
 
 <h3 class="mt">Add app</h3>
 <div class="card form-card">
-  <form method="post" action="/projects/{{.Project.Slug}}/apps">
+  <form method="post" action="/projects/{{.Project.Slug}}/apps" x-data="{type:'static', serve:'serve'}">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
     <label>App name
       <input type="text" name="name" required placeholder="e.g. frontend">
     </label>
     <label>Type
-      <select name="type">
+      <select name="type" x-model="type">
         {{range .Catalog}}
         <option value="{{.Type}}" {{if not .Available}}disabled{{end}}>{{.Name}}{{if not .Available}} — soon{{end}}
         </option>
@@ -115,7 +115,30 @@
     <label>Domain <span class="muted">(optional — blank serves this app at <code>{{.Project.BaseDomain}}</code>)</span>
       <input type="text" name="domain" placeholder="{{.Project.BaseDomain}}  ·  or  api.{{.Project.BaseDomain}}">
     </label>
-    <div class="row2">
+
+    <!-- Static apps: run on the host's system Node, no container. -->
+    <template x-if="type==='static'">
+      <div>
+        <label>How to serve
+          <select name="serve_mode" x-model="serve">
+            <option value="serve">Serve files — Caddy serves a folder directly (no process)</option>
+            <option value="command">Run a command — system Node dev/build server</option>
+          </select>
+        </label>
+        <label x-show="serve==='serve'">Folder to serve <span class="muted">(subdir, optional — e.g. <code>dist</code>; blank = app folder)</span>
+          <input type="text" name="root_dir" placeholder="dist" spellcheck="false">
+        </label>
+        <label>Build command <span class="muted">(optional, runs once with system Node — e.g. <code>npm ci &amp;&amp; npm run build</code>)</span>
+          <input type="text" name="build_cmd" placeholder="npm ci &amp;&amp; npm run build" spellcheck="false">
+        </label>
+        <label x-show="serve==='command'">Start command <span class="muted">(long-running; <code>$PORT</code> is set for you)</span>
+          <input type="text" name="start_cmd" placeholder="npm install &amp;&amp; npm run dev -- --host 127.0.0.1 --port $PORT" spellcheck="false">
+        </label>
+      </div>
+    </template>
+
+    <!-- Container apps: resource limits apply (not host processes). -->
+    <div class="row2" x-show="type!=='static'">
       <label>CPU limit <span class="muted">(cores, optional)</span>
         <input type="number" name="cpu_cores" step="0.25" min="0" placeholder="e.g. 1.0">
       </label>

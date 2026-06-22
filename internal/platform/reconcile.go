@@ -47,11 +47,13 @@ func (r *Reconciler) Sync() error {
 	routes := make([]proxy.Route, 0, len(infos))
 	hostnames := make([]string, 0, len(infos))
 	for _, in := range infos {
-		routes = append(routes, proxy.Route{
-			Host:     in.Host,
-			Upstream: fmt.Sprintf("127.0.0.1:%d", in.Port),
-			Internal: in.Local,
-		})
+		route := proxy.Route{Host: in.Host, Internal: in.Local}
+		if in.Root != "" {
+			route.Root = in.Root // serve-mode static app: file-served, no port
+		} else {
+			route.Upstream = fmt.Sprintf("127.0.0.1:%d", in.Port)
+		}
+		routes = append(routes, route)
 		// Local domains need a hosts entry — except *.localhost, which browsers
 		// resolve to loopback automatically. Public domains resolve via real DNS.
 		if in.Local && !strings.HasSuffix(in.Host, ".localhost") {
