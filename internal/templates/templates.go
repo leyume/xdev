@@ -28,6 +28,7 @@ type Data struct {
 	AppType     string
 	Env         string // local | prod (selects compose.prod.yml.tmpl when prod)
 	HostPort    int
+	AdminerPort int     // published host port for Adminer (laravel); 0 = none
 	CPULimit    float64 // cores; 0 = unlimited
 	MemLimit    int64   // bytes; 0 = unlimited
 }
@@ -102,14 +103,27 @@ func RenderCompose(appType string, d Data) (string, error) {
 }
 
 // ScaffoldFiles returns the relative path -> contents of every file under
-// files/<type>/scaffold/, to be written into the app's app/ directory. Returns
-// an empty map if the type has no scaffold.
+// files/<type>/scaffold/, to be written into the app's content directory.
+// Returns an empty map if the type has no scaffold.
 func ScaffoldFiles(appType string) (map[string][]byte, error) {
-	root := "files/" + appType + "/scaffold"
+	return embeddedFiles(appType, "scaffold")
+}
+
+// InfraFiles returns the relative path -> contents of every file under
+// files/<type>/infra/, to be written into the app's _/ directory (compose
+// support files like init.sh and db config). Empty map if the type has none.
+func InfraFiles(appType string) (map[string][]byte, error) {
+	return embeddedFiles(appType, "infra")
+}
+
+// embeddedFiles walks files/<type>/<sub>/ and returns each file's path (relative
+// to that root) -> contents. A missing subdir yields an empty map.
+func embeddedFiles(appType, sub string) (map[string][]byte, error) {
+	root := "files/" + appType + "/" + sub
 	out := map[string][]byte{}
 	err := fs.WalkDir(filesFS, root, func(p string, de fs.DirEntry, err error) error {
 		if err != nil {
-			// No scaffold dir for this type is fine.
+			// No such dir for this type is fine.
 			if strings.Contains(err.Error(), "file does not exist") {
 				return fs.SkipAll
 			}

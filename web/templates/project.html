@@ -57,6 +57,15 @@
           {{end}}
           {{if .Port}} · <a href="http://127.0.0.1:{{.Port}}" target="_blank">:{{.Port}} direct</a>{{end}}
         </div>
+        {{$adm := index $.AdminerDomains .ID}}
+        {{if $adm}}
+        <div class="muted small">Adminer:
+          {{if $.ProxyEnabled}}
+          {{if eq $.HTTPSPort 443}}<a href="https://{{$adm}}" target="_blank">https://{{$adm}}</a>
+          {{else}}<a href="https://{{$adm}}:{{$.HTTPSPort}}" target="_blank">https://{{$adm}}:{{$.HTTPSPort}}</a>{{end}}
+          {{else}}{{$adm}}{{end}}
+        </div>
+        {{end}}
         <div class="app-links small">
           <a href="/apps/{{.ID}}/metrics">Metrics</a> ·
           <a href="/apps/{{.ID}}/logs">Logs</a> ·
@@ -135,6 +144,13 @@
           <input type="text" name="start_cmd" placeholder="npm install &amp;&amp; npm run dev -- --host 127.0.0.1 --port $PORT" spellcheck="false">
         </label>
       </div>
+    </template>
+
+    <!-- Laravel: pick the hostname for the bundled Adminer DB UI. -->
+    <template x-if="type==='laravel'">
+      <label>Adminer domain <span class="muted">(DB UI — blank = <code>adminer.&lt;app-domain&gt;</code>)</span>
+        <input type="text" name="adminer_domain" placeholder="adminer.{{.Project.BaseDomain}}" spellcheck="false">
+      </label>
     </template>
 
     <!-- Container apps: resource limits apply (not host processes). -->

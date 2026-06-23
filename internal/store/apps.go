@@ -109,10 +109,13 @@ func (s *Store) SetAppStatus(id int64, status string) error {
 	return err
 }
 
-// UsedPorts returns every non-zero host port currently assigned to an app, so
-// the allocator can avoid collisions.
+// UsedPorts returns every non-zero host port currently assigned — both app
+// ports and secondary-service domain ports (e.g. Adminer) — so the allocator
+// can avoid collisions.
 func (s *Store) UsedPorts() ([]int, error) {
-	rows, err := s.db.Query(`SELECT port FROM apps WHERE port > 0`)
+	rows, err := s.db.Query(
+		`SELECT port FROM apps WHERE port > 0
+		 UNION SELECT port FROM domains WHERE port > 0`)
 	if err != nil {
 		return nil, err
 	}

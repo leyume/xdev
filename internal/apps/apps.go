@@ -73,7 +73,14 @@ type CreateOpts struct {
 	RootDir   string
 	BuildCmd  string
 	StartCmd  string
+
+	// Laravel-only: hostname for the Adminer DB UI (blank = adminer.<app-domain>).
+	AdminerDomain string
 }
+
+// usesAdminer reports whether an app type ships an Adminer service (its own
+// routed hostname + host port).
+func usesAdminer(appType string) bool { return appType == "laravel" }
 
 // Create persists a new app, writes its files, and starts it. It returns the
 // saved app even if the initial start fails, with the error, so the UI can show
@@ -128,13 +135,34 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 		Runtime:   appEngine,
 	}
 
+	// adminerPort is allocated by layoutContainer for types that ship Adminer.
+	var adminerPort int
 	if opts.Type == store.TypeStatic {
 		if err := s.layoutStatic(&app, &opts, appDir); err != nil {
 			return store.App{}, err
 		}
 	} else {
-		if err := s.layoutContainer(&app, &opts, proj, appDir); err != nil {
+		adminerPort, err = s.layoutContainer(&app, &opts, proj, appDir)
+		if err != nil {
 			return store.App{}, err
+		}
+	}
+
+	// Resolve the Adminer hostname up front so a collision fails before we
+	// persist anything.
+	var adminerDomain string
+	if adminerPort > 0 {
+		adminerDomain = normalizeHost(opts.AdminerDomain)
+		if adminerDomain == "" {
+			adminerDomain = "adminer." + domain
+		}
+		if err := validHost(adminerDomain); err != nil {
+			os.RemoveAll(appDir)
+			return store.App{}, err
+		}
+		if owner := s.store.DomainOwner(adminerDomain); owner != 0 {
+			os.RemoveAll(appDir)
+			return store.App{}, fmt.Errorf("domain %q is already in use", adminerDomain)
 		}
 	}
 
@@ -154,6 +182,12 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 		// Non-fatal: the app still runs on its host port even without a domain.
 		log.Printf("attach domain %s to app %d: %v", domain, saved.ID, err)
 	}
+	// Attach the Adminer hostname → its own host port (a secondary route).
+	if adminerDomain != "" {
+		if err := s.store.CreateDomain(saved.ID, adminerDomain, isLocal, sslMode, adminerPort); err != nil {
+			log.Printf("attach adminer domain %s to app %d: %v", adminerDomain, saved.ID, err)
+		}
+	}
 
 	if err := s.Start(saved.ID); err != nil {
 		return saved, err
@@ -162,19 +196,38 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 }
 
 // layoutContainer builds a container app's _/compose.yml + app/ layout and sets
-// the port, limits, and compose path on the app row.
-func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.Project, appDir string) error {
-	port, err := s.allocPort()
-	if err != nil {
-		return err
+// the port, limits, and compose path on the app row. For types that ship extra
+// infra (Adminer, db config, an init.sh entrypoint) it also writes those into
+// _/, creates the _volumes/ bind-mount dirs, and allocates a second host port
+// for Adminer — returned so the caller can attach its route.
+func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.Project, appDir string) (adminerPort int, err error) {
+	ports := 1
+	if usesAdminer(opts.Type) {
+		ports = 2
 	}
+	alloc, err := s.allocPorts(ports)
+	if err != nil {
+		return 0, err
+	}
+	port := alloc[0]
+	if usesAdminer(opts.Type) {
+		adminerPort = alloc[1]
+	}
+
 	underscore := filepath.Join(appDir, "_")
 	content := filepath.Join(appDir, "app")
-	for _, d := range []string{underscore, content} {
+	dirs := []string{underscore, content}
+	if usesAdminer(opts.Type) {
+		// MariaDB/Redis persist under _volumes/ (bizepp format); podman needs the
+		// host dirs to pre-exist.
+		dirs = append(dirs, filepath.Join(appDir, "_volumes", "mysql"), filepath.Join(appDir, "_volumes", "redis"))
+	}
+	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			return err
+			return 0, err
 		}
 	}
+
 	composeStr, err := templates.RenderCompose(opts.Type, templates.Data{
 		ProjectSlug: proj.Slug,
 		NetworkName: proj.NetworkName,
@@ -182,28 +235,58 @@ func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.P
 		AppType:     opts.Type,
 		Env:         proj.Environment,
 		HostPort:    port,
+		AdminerPort: adminerPort,
 		CPULimit:    opts.CPULimit,
 		MemLimit:    opts.MemLimit,
 	})
 	if err != nil {
 		os.RemoveAll(appDir)
-		return err
+		return 0, err
 	}
 	composePath := filepath.Join(underscore, "compose.yml")
 	if err := os.WriteFile(composePath, []byte(composeStr), 0o644); err != nil {
 		os.RemoveAll(appDir)
-		return err
+		return 0, err
+	}
+	// Write compose support files (init.sh, db config) into _/, preserving their
+	// subdirs. init.sh must be executable.
+	if err := s.writeInfra(opts.Type, underscore); err != nil {
+		os.RemoveAll(appDir)
+		return 0, err
 	}
 	// Drop scaffold content (placeholder index.html etc.) without clobbering
 	// anything already present.
 	if err := s.writeScaffold(opts.Type, content); err != nil {
 		os.RemoveAll(appDir)
-		return err
+		return 0, err
 	}
 	app.Port = port
 	app.CPULimit = opts.CPULimit
 	app.MemLimit = opts.MemLimit
 	app.ComposePath = composePath
+	return adminerPort, nil
+}
+
+// writeInfra copies an app type's infra files into its _/ directory (init.sh
+// gets the executable bit). No-op for types without an infra/ dir.
+func (s *Service) writeInfra(appType, underscore string) error {
+	files, err := templates.InfraFiles(appType)
+	if err != nil {
+		return err
+	}
+	for rel, data := range files {
+		dest := filepath.Join(underscore, rel)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return err
+		}
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(rel, ".sh") {
+			mode = 0o755
+		}
+		if err := os.WriteFile(dest, data, mode); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -497,26 +580,42 @@ func (s *Service) writeScaffold(appType, contentDir string) error {
 	return nil
 }
 
-// allocPort returns a free host port in [portMin, portMax] not already assigned
-// to another app and not currently bound on the host.
+// allocPort returns a single free host port (see allocPorts).
 func (s *Service) allocPort() (int, error) {
-	used, err := s.store.UsedPorts()
+	ports, err := s.allocPorts(1)
 	if err != nil {
 		return 0, err
+	}
+	return ports[0], nil
+}
+
+// allocPorts returns n distinct free host ports in [portMin, portMax] not
+// already assigned (apps + secondary-service domains) and not currently bound on
+// the host. The ports avoid each other so a multi-service app (e.g. Laravel +
+// Adminer) gets a clean set in one pass.
+func (s *Service) allocPorts(n int) ([]int, error) {
+	used, err := s.store.UsedPorts()
+	if err != nil {
+		return nil, err
 	}
 	taken := make(map[int]bool, len(used))
 	for _, p := range used {
 		taken[p] = true
 	}
-	for p := portMin; p <= portMax; p++ {
+	out := make([]int, 0, n)
+	for p := portMin; p <= portMax && len(out) < n; p++ {
 		if taken[p] {
 			continue
 		}
 		if portFree(p) {
-			return p, nil
+			out = append(out, p)
+			taken[p] = true // don't hand the same port out twice in this pass
 		}
 	}
-	return 0, errors.New("no free host port available in range")
+	if len(out) < n {
+		return nil, errors.New("no free host port available in range")
+	}
+	return out, nil
 }
 
 // portFree reports whether a host port is available. It binds the wildcard

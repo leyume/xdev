@@ -54,14 +54,26 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not load apps", http.StatusInternalServerError)
 		return
 	}
+	// Secondary-service hostnames (e.g. Adminer) per app, for the app-row link.
+	adminerDomains := map[int64]string{}
+	for _, a := range apps {
+		if h := s.store.AppServiceDomain(a.ID); h != "" {
+			adminerDomains[a.ID] = h
+		}
+	}
 	// Local domains that aren't *.localhost need a hosts-file entry to resolve;
-	// collect them so the page can show the exact lines to add.
+	// collect them (primary + secondary services like Adminer) so the page can
+	// show the exact lines to add.
 	var candidates []string
+	addCandidate := func(h string) {
+		if h != "" && !strings.HasSuffix(h, ".localhost") {
+			candidates = append(candidates, h)
+		}
+	}
 	if s.proxyEnabled() && proj.Environment == "local" {
 		for _, a := range apps {
-			if a.Domain != "" && !strings.HasSuffix(a.Domain, ".localhost") {
-				candidates = append(candidates, a.Domain)
-			}
+			addCandidate(a.Domain)
+			addCandidate(adminerDomains[a.ID])
 		}
 	}
 	// Only nag about hostnames actually missing from the hosts file, so the
@@ -71,15 +83,16 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		needsHosts = s.reconciler.MissingHosts(candidates)
 	}
 	s.render(w, r, "project", viewData{
-		"Title":        proj.Name + " · xdev",
-		"Project":      proj,
-		"Apps":         apps,
-		"Catalog":      templates.Catalog(),
-		"Error":        r.URL.Query().Get("error"),
-		"ProxyEnabled": s.proxyEnabled(),
-		"HTTPSPort":    s.httpsPort,
-		"NeedsHosts":   needsHosts,
-		"HostsMsg":     r.URL.Query().Get("hosts_msg"),
+		"Title":          proj.Name + " · xdev",
+		"Project":        proj,
+		"Apps":           apps,
+		"AdminerDomains": adminerDomains,
+		"Catalog":        templates.Catalog(),
+		"Error":          r.URL.Query().Get("error"),
+		"ProxyEnabled":   s.proxyEnabled(),
+		"HTTPSPort":      s.httpsPort,
+		"NeedsHosts":     needsHosts,
+		"HostsMsg":       r.URL.Query().Get("hosts_msg"),
 	})
 }
 
@@ -119,15 +132,16 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	app, err := s.apps.Create(proj.ID, apps.CreateOpts{
-		Name:      r.FormValue("name"),
-		Type:      r.FormValue("type"),
-		Domain:    r.FormValue("domain"),
-		CPULimit:  cpu,
-		MemLimit:  memBytes,
-		ServeMode: r.FormValue("serve_mode"),
-		RootDir:   r.FormValue("root_dir"),
-		BuildCmd:  r.FormValue("build_cmd"),
-		StartCmd:  r.FormValue("start_cmd"),
+		Name:          r.FormValue("name"),
+		Type:          r.FormValue("type"),
+		Domain:        r.FormValue("domain"),
+		CPULimit:      cpu,
+		MemLimit:      memBytes,
+		ServeMode:     r.FormValue("serve_mode"),
+		RootDir:       r.FormValue("root_dir"),
+		BuildCmd:      r.FormValue("build_cmd"),
+		StartCmd:      r.FormValue("start_cmd"),
+		AdminerDomain: r.FormValue("adminer_domain"),
 	})
 	if err != nil {
 		redirectWithError(w, r, "/projects/"+proj.Slug, err)

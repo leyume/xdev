@@ -33,7 +33,8 @@ in [`deploy/README.md`](deploy/README.md).
 - **Projects & apps** — group apps under a project with a shared base domain and
   a dedicated container network.
 - **App templates** — Static (runs on your system Node, no container — serve a
-  folder or run a build/dev command), WordPress, Laravel; add your own by
+  folder or run a build/dev command), WordPress, Laravel (auto-installs a fresh
+  Laravel + Octane/Swoole with MariaDB + Redis + Adminer); add your own by
   dropping in a Compose template.
 - **Automatic HTTPS** — Caddy obtains/renews certs; local domains use a trusted
   internal CA (`sudo caddy trust` once for green locks).
