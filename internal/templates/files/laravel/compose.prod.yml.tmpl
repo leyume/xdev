@@ -3,8 +3,9 @@
 # Project: {{.ProjectSlug}}   App: {{.AppSlug}}
 #
 # Uses the hardened Swoole prod image; app code is mounted read-only with
-# writable storage/cache carved out. Run `composer install --no-dev` and build
-# assets BEFORE deploying — do not run composer in production.
+# writable storage/cache carved out. Build your app (composer install --no-dev +
+# assets) and run migrations BEFORE deploying — do not bootstrap in production.
+# DB/Redis persist under _volumes/ (bind-mounts, bizepp format).
 services:
   app:
     image: docker.io/leyume/swoole:2.0.0-prod
@@ -15,6 +16,7 @@ services:
       - redis
     environment:
       APP_ENV: production
+      DB_CONNECTION: mysql
       DB_HOST: db
       DB_DATABASE: laravel
       DB_USERNAME: laravel
@@ -58,7 +60,8 @@ services:
       MYSQL_USER: laravel
       MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
     volumes:
-      - db_data:/var/lib/mysql
+      - ../_volumes/mysql:/var/lib/mysql
+      - ./db/my.cnf:/etc/mysql/conf.d/my.cnf:ro
     networks:
       - internal
 
@@ -68,13 +71,26 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     volumes:
-      - redis_data:/data
+      - ../_volumes/redis:/data
+    networks:
+      - internal
+
+  adminer:
+    image: docker.io/library/adminer
+    container_name: {{.ProjectSlug}}_{{.AppSlug}}_adminer
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    volumes:
+      - ./db/adminer.css:/var/www/html/adminer.css:ro
+    ports:
+      - "{{.AdminerPort}}:8080"
     networks:
       - internal
 
 volumes:
-  db_data:
-  redis_data:
   storage:
   cache:
 

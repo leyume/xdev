@@ -119,8 +119,11 @@ namespacing, healthchecks, `logging` rotation, prod resource limits.
    build command (system Node) covers "after build". The installer ensures Node
    is present.
 2. **wordpress** — wordpress + mariadb (+ optional redis).
-3. **laravel** — ports bizepp's Swoole/Octane image (app + db + redis +
-   adminer) with the dev/prod split.
+3. **laravel** — ports bizepp's Swoole/Octane stack (app + MariaDB + Redis +
+   Adminer, `_volumes/` bind-mounts) with the dev/prod split. On first start an
+   in-container `init.sh` auto-installs a fresh Laravel + Octane, generates the
+   key, and migrates — no business code. Adminer gets its own Caddy subdomain
+   (hostname chosen at create).
 
 Templates live in `apptemplates/` and are extensible — drop in a new template
 dir and it appears in the UI.

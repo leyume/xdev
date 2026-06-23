@@ -60,6 +60,41 @@ func TestProdComposeSelection(t *testing.T) {
 	}
 }
 
+// TestLaravelInfra checks the laravel stack renders its bizepp-style infra
+// (Adminer, _volumes bind-mounts, the init.sh entrypoint) and that its infra
+// support files are embedded.
+func TestLaravelInfra(t *testing.T) {
+	d := Data{ProjectSlug: "demo", NetworkName: "xdev_demo", AppSlug: "api",
+		AppType: "laravel", HostPort: 20000, AdminerPort: 20001}
+	out, err := RenderCompose("laravel", d)
+	if err != nil {
+		t.Fatalf("render laravel: %v", err)
+	}
+	for _, want := range []string{
+		"demo_api_adminer",                 // adminer service
+		"20001:8080",                       // adminer published port
+		"ADMINER_DEFAULT_SERVER: db",       // adminer prefilled server
+		"../_volumes/mysql:/var/lib/mysql", // bizepp-format db volume
+		"../_volumes/redis:/data",          // redis volume
+		"./init.sh:/init.sh:ro",            // bootstrap entrypoint mount
+		"DB_CONNECTION: mysql",             // not Laravel's sqlite default
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("laravel compose missing %q\n%s", want, out)
+		}
+	}
+
+	infra, err := InfraFiles("laravel")
+	if err != nil {
+		t.Fatalf("InfraFiles(laravel): %v", err)
+	}
+	for _, want := range []string{"init.sh", "db/my.cnf", "db/adminer.css"} {
+		if _, ok := infra[want]; !ok {
+			t.Errorf("laravel infra missing %q", want)
+		}
+	}
+}
+
 // TestRenderWithLimits verifies the deploy/resources block appears only when
 // limits are set.
 func TestRenderWithLimits(t *testing.T) {
