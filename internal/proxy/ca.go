@@ -16,13 +16,8 @@ func caddyDataDir() string {
 		return filepath.Join(x, "caddy")
 	}
 	home, _ := os.UserHomeDir()
-	switch runtime.GOOS {
-	case "darwin":
+	if runtime.GOOS == "darwin" {
 		return filepath.Join(home, "Library", "Application Support", "Caddy")
-	case "windows":
-		if ad := os.Getenv("AppData"); ad != "" {
-			return filepath.Join(ad, "Caddy")
-		}
 	}
 	return filepath.Join(home, ".local", "share", "caddy")
 }

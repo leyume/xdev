@@ -10,6 +10,7 @@ package templates
 import (
 	"bytes"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"strconv"
@@ -124,7 +125,7 @@ func embeddedFiles(appType, sub string) (map[string][]byte, error) {
 	err := fs.WalkDir(filesFS, root, func(p string, de fs.DirEntry, err error) error {
 		if err != nil {
 			// No such dir for this type is fine.
-			if strings.Contains(err.Error(), "file does not exist") {
+			if errors.Is(err, fs.ErrNotExist) {
 				return fs.SkipAll
 			}
 			return err
@@ -140,7 +141,7 @@ func embeddedFiles(appType, sub string) (map[string][]byte, error) {
 		out[rel] = data
 		return nil
 	})
-	if err != nil && !strings.Contains(err.Error(), "file does not exist") {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 	return out, nil

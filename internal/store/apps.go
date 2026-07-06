@@ -71,11 +71,6 @@ func (s *Store) AppByID(id int64) (App, error) {
 	return s.scanApp(s.db.QueryRow(appSelect+` WHERE id = ?`, id))
 }
 
-// AppBySlug looks up one app within a project.
-func (s *Store) AppBySlug(projectID int64, slug string) (App, error) {
-	return s.scanApp(s.db.QueryRow(appSelect+` WHERE project_id = ? AND slug = ?`, projectID, slug))
-}
-
 // AppSlugExists reports whether a slug is taken within a project.
 func (s *Store) AppSlugExists(projectID int64, slug string) bool {
 	var x int

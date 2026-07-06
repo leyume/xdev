@@ -77,12 +77,8 @@ func (c *Collector) collectOnce(ctx context.Context) {
 	}
 
 	now := time.Now()
-	limitByID := map[int64]int64{}
-	for _, p := range prefixes {
-		limitByID[p.ID] = p.MemLimit
-	}
 	for id, a := range byApp {
-		if err := c.store.InsertMetric(id, now, a.cpu, a.mem, limitByID[id]); err != nil {
+		if err := c.store.InsertMetric(id, now, a.cpu, a.mem); err != nil {
 			log.Printf("metrics insert: %v", err)
 		}
 	}

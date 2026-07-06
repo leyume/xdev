@@ -212,10 +212,6 @@ func redirectWithError(w http.ResponseWriter, r *http.Request, target string, er
 }
 
 func firstLine(s string) string {
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			return s[:i]
-		}
-	}
-	return s
+	line, _, _ := strings.Cut(s, "\n")
+	return line
 }

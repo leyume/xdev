@@ -40,11 +40,6 @@ func Down(ctx context.Context, engine Engine, workdir, project, file string) (st
 	return Compose(ctx, engine, workdir, project, file, "down")
 }
 
-// Start starts existing (stopped) containers without recreating them.
-func Start(ctx context.Context, engine Engine, workdir, project, file string) (string, error) {
-	return Compose(ctx, engine, workdir, project, file, "start")
-}
-
 // Stop stops containers but leaves them around for a quick start.
 func Stop(ctx context.Context, engine Engine, workdir, project, file string) (string, error) {
 	return Compose(ctx, engine, workdir, project, file, "stop")
