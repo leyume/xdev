@@ -113,6 +113,11 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /apps/{id}/backups", s.auth.RequireAuth(s.handleAppBackups))
 	mux.HandleFunc("GET /apps/{id}/backups/{name}", s.auth.RequireAuth(s.handleBackupDownload))
 
+	// App ops: inline HTML fragments for the lazily-loaded project-page tabs.
+	mux.HandleFunc("GET /apps/{id}/logs/partial", s.auth.RequireAuth(s.handleAppLogsPartial))
+	mux.HandleFunc("GET /apps/{id}/env/partial", s.auth.RequireAuth(s.handleAppEnvPartial))
+	mux.HandleFunc("GET /apps/{id}/backups/partial", s.auth.RequireAuth(s.handleAppBackupsPartial))
+
 	// Activity / audit log.
 	mux.HandleFunc("GET /events", s.auth.RequireAuth(s.handleEvents))
 

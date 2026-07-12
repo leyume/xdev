@@ -37,7 +37,11 @@
   <div class="app-cards">
     {{if .Apps}}
     {{range .Apps}}
-    <div class="card app-card" x-data="{tab:'metrics'}">
+    <div class="card app-card" x-data="{tab:'metrics', loaded:{},
+        open(t){ this.tab=t; if(t!=='metrics' && !this.loaded[t]){ this.loaded[t]=true; this.fetchPartial(t); } },
+        async fetchPartial(t){ const el=this.$refs[t];
+          try{ const r=await fetch('/apps/{{.ID}}/'+t+'/partial',{credentials:'same-origin'}); el.innerHTML=await r.text(); }
+          catch(e){ el.textContent='Could not load.'; } }}">
       <div class="app-card-head">
         <span class="status {{.Status}}" title="{{.Status}}"></span>
         <span class="app-card-name">{{.Name}}</span>
@@ -80,9 +84,9 @@
 
       <div class="tabs">
         <span class="tab" :class="{active: tab==='metrics'}" @click="tab='metrics'">Metrics</span>
-        <span class="tab" :class="{active: tab==='logs'}" @click="tab='logs'">Logs</span>
-        <span class="tab" :class="{active: tab==='env'}" @click="tab='env'">Env</span>
-        <span class="tab" :class="{active: tab==='backups'}" @click="tab='backups'">Backups</span>
+        <span class="tab" :class="{active: tab==='logs'}" @click="open('logs')">Logs</span>
+        <span class="tab" :class="{active: tab==='env'}" @click="open('env')">Env</span>
+        <span class="tab" :class="{active: tab==='backups'}" @click="open('backups')">Backups</span>
         <span class="spacer"></span>
         <form class="domain-edit" method="post" action="/apps/{{.ID}}/domain">
           <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
@@ -96,23 +100,16 @@
         <div id="memChart-{{.ID}}" class="mini-chart"></div>
       </div>
       <div class="tab-panel" x-show="tab==='logs'" style="display:none">
-        <pre class="logs">[12:04:01] INFO  starting server
-[12:04:01] INFO  connected to database
-[12:04:02] INFO  ready to accept connections</pre>
-        <div class="muted small">sample preview — <a href="/apps/{{.ID}}/logs">open full logs ↗</a></div>
+        <div x-ref="logs"><div class="muted small">Loading…</div></div>
+        <div class="muted small"><a href="/apps/{{.ID}}/logs">open full logs ↗</a></div>
       </div>
       <div class="tab-panel" x-show="tab==='env'" style="display:none">
-        <pre class="logs">APP_ENV=local
-APP_DEBUG=true
-DB_HOST=127.0.0.1</pre>
-        <div class="muted small">sample preview — <a href="/apps/{{.ID}}/env">edit .env ↗</a></div>
+        <div x-ref="env"><div class="muted small">Loading…</div></div>
+        <div class="muted small"><a href="/apps/{{.ID}}/env">edit .env ↗</a></div>
       </div>
       <div class="tab-panel" x-show="tab==='backups'" style="display:none">
-        <table class="table">
-          <tr><td class="muted small">{{.Slug}}-sample-1.tar.gz</td><td class="muted small right nowrap">3 days ago</td></tr>
-          <tr><td class="muted small">{{.Slug}}-sample-2.tar.gz</td><td class="muted small right nowrap">10 days ago</td></tr>
-        </table>
-        <div class="muted small">sample preview — <a href="/apps/{{.ID}}/backups">manage backups ↗</a></div>
+        <div x-ref="backups"><div class="muted small">Loading…</div></div>
+        <div class="muted small"><a href="/apps/{{.ID}}/backups">manage backups ↗</a></div>
       </div>
     </div>
     {{end}}
