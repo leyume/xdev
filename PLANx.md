@@ -82,12 +82,15 @@ projects," "one project's apps," or "one app's detail."
 /events                    Global audit log
 /admins                    Manage admin accounts
 
-POST /settings/nav-layout  Toggles topbar ↔ sidebar chrome (cookie, not per-user data)
 POST /settings/engine      Switch default container engine (redirects back to caller)
 ```
 
-Nav chrome is a single global preference (topbar or sidebar, `xdev_nav` cookie),
-switchable from a link in either chrome. Both render identical page content.
+Nav chrome is a single global preference (topbar or sidebar). The switch is now
+**client-side** (Alpine): the sidebar is a fixed slide-in drawer and the topbar
+toggles via `x-show`, so flipping between them animates with **no page reload**.
+The choice is written to the `xdev_nav` cookie in JS and read back by the server
+on the next hard load (to render the right initial chrome). Both modes render
+identical page content.
 
 ## Data → UI mapping (what each screen is really showing)
 
@@ -117,9 +120,14 @@ switchable from a link in either chrome. Both render identical page content.
   dependency-free/offline-friendly), ~14.5px base.
 - Charts are uPlot throughout — per-app Metrics and the Dashboard host
   utilization chart (both real, the latter fed by `/host/metrics.json`).
-- No component framework — one `web/static/app.css` plus Alpine for client
-  state (per-app tab switching, form toggles); a shared `partials.html`
-  holds the engine/host-resources/events fragments reused across pages.
+- Styling is **Tailwind CSS v4** via the *vendored browser build*
+  (`web/static/tailwind.js`, `@tailwindcss/browser`) — compiles utilities in the
+  browser at runtime, so the app stays build-step-free and offline. The Nova
+  design system (palette `@theme` tokens + component classes) lives in
+  `web/templates/twstyles.html`, inlined into every page as
+  `<style type="text/tailwindcss">`. Alpine still drives client state (nav
+  switch, per-app tabs, search, realtime toggle, add-app modal); a shared
+  `partials.html` holds the engine/host-resources/events fragments.
 
 ## Feature backlog from the Nova redesign
 
@@ -202,6 +210,7 @@ where noted; same server-rendered + Alpine constraint.
 
 - Templates: `web/templates/*.html` (one file per screen, `layout.html` is
   the shared shell)
-- Styles: `web/static/app.css` (single stylesheet, no preprocessor)
+- Styles: `web/templates/twstyles.html` (Tailwind v4 source: `@theme` + component
+  layer), compiled in-browser by `web/static/tailwind.js` (vendored, no build step)
 - Routes: `internal/server/server.go` (full route table)
 - Full engineering plan / roadmap: `PLAN.md`
