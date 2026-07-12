@@ -425,6 +425,13 @@ textarea.code {
   padding: 22px 16px;
   border-right: 1px solid var(--border-card);
   background: var(--chrome);
+  /* Pin to the viewport so the footer (engine/user/logout) is always visible
+     without scrolling the whole page; the sidebar scrolls on its own if tall. */
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
 }
 .sidebar .brand { padding: 4px 10px 20px; }
 .sidebar .spacer { flex: 1; }
@@ -457,6 +464,9 @@ textarea.code {
     padding: 12px 16px;
     border-right: none;
     border-bottom: 1px solid var(--border-card);
+    position: static;
+    height: auto;
+    overflow: visible;
   }
   .sidebar .brand { padding: 0; }
   .sidenav { flex-direction: row; flex-wrap: wrap; }
@@ -651,5 +661,7 @@ option { background: var(--bg); color: var(--text); }
 .tab { font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 6px 14px; border-radius: var(--radius-sm); cursor: pointer; }
 .tab.active { color: var(--accent); background: rgba(180, 140, 255, 0.12); }
 .tab-panel { margin-top: 14px; }
+.tab-panel a { color: var(--accent); text-decoration: none; }
+.tab-panel a:hover { text-decoration: underline; }
 .mini-chart { min-height: 100px; }
 .mini-chart + .mini-chart { margin-top: 10px; }

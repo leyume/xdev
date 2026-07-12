@@ -227,9 +227,11 @@
   loadAppChart({{.ID}});
   {{end}}
   function opts(label, color, width) {
+    const axis = { stroke: '#96909f', grid: { stroke: 'rgba(255,255,255,0.06)' }, ticks: { stroke: 'rgba(255,255,255,0.06)' } };
     return {
       width: width, height: 140,
       scales: { x: { time: true } },
+      axes: [axis, axis],
       series: [{}, { label: label, stroke: color, width: 2, fill: color + '22' }],
       legend: { show: false },
     };

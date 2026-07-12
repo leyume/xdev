@@ -127,9 +127,15 @@ function hostChart() {
         return;
       }
       el.innerHTML = '';
+      // Pin the x-axis to the selected window so 1h/24h/7d visibly differ even
+      // when only a little history exists (uPlot otherwise fits x to the data).
+      const now = Math.floor(Date.now() / 1000);
+      const secs = { '1h': 3600, '24h': 86400, '7d': 604800 }[this.range] || 86400;
+      const axis = { stroke: '#96909f', grid: { stroke: 'rgba(255,255,255,0.06)' }, ticks: { stroke: 'rgba(255,255,255,0.06)' } };
       this.chart = new uPlot({
         width: el.clientWidth || 1240, height: 180,
-        scales: { x: { time: true } },
+        scales: { x: { time: true, range: [now - secs, now] }, y: { range: [0, 100] } },
+        axes: [axis, axis],
         series: [
           {},
           { label: 'CPU %', stroke: '#b48cff', width: 2, fill: 'rgba(180,140,255,0.10)' },
