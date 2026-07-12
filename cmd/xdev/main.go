@@ -215,7 +215,7 @@ func runServer(o *options) error {
 	// --- metrics collector ---------------------------------------------------
 	metricsCtx, stopMetrics := context.WithCancel(context.Background())
 	defer stopMetrics()
-	go metrics.New(st, engine).Run(metricsCtx)
+	go metrics.New(st, engine, sup).Run(metricsCtx)
 
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,

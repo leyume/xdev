@@ -183,8 +183,11 @@ where noted; same server-rendered + Alpine constraint.
    and log-out should sit at the bottom of the sidebar — the spacer wasn't
    expanding (`.sidebar .spacer { flex:1 }`).
 6. **Realtime toggle on the Dashboard apps list.** An on/off switch that live-
-   polls CPU/memory for the apps table. Needs a small `/apps/metrics.json`
-   aggregate endpoint (reuse `allAppRows`) + an Alpine poll.
+   polls CPU/memory for the apps table via a small `/apps/metrics.json`
+   aggregate endpoint (reuse `allAppRows`) + an Alpine poll. The collector now
+   also samples **static apps** (host-process CPU/RSS across the `npm`→`node`
+   tree; CPU% derived from the CPU-time delta between ticks) so they report
+   real usage instead of "—" — containers were already sampled via the engine.
 7. **Stack the engine cards.** Container-engine card shows podman above docker,
    not side-by-side.
 8. **Trim the Projects page.** Remove the Container-engine and Host-resources
