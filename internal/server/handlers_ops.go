@@ -208,21 +208,6 @@ func (s *Server) handleSetEngine(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, base+"?engine_msg="+url.QueryEscape("Default engine is now "+string(eng)+" (applies to new projects)"), http.StatusSeeOther)
 }
 
-// handleSetNavLayout toggles the global topbar/sidebar chrome preference,
-// stored as a cookie (a per-browser UI preference, not app data).
-func (s *Server) handleSetNavLayout(w http.ResponseWriter, r *http.Request) {
-	layout := "topbar"
-	if r.FormValue("layout") == "sidebar" {
-		layout = "sidebar"
-	}
-	http.SetCookie(w, &http.Cookie{Name: "xdev_nav", Value: layout, Path: "/", MaxAge: 365 * 24 * 3600})
-	ref := r.Header.Get("Referer")
-	if ref == "" {
-		ref = "/"
-	}
-	http.Redirect(w, r, ref, http.StatusSeeOther)
-}
-
 // handleHostsSync writes the local domains into the hosts file, elevating via
 // the OS prompt if needed. Returns to the page the button was clicked from.
 func (s *Server) handleHostsSync(w http.ResponseWriter, r *http.Request) {

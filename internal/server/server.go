@@ -30,7 +30,7 @@ type Server struct {
 	projects   *projects.Service
 	apps       *apps.Service
 	reconciler *platform.Reconciler
-	httpsPort  int // public HTTPS port, for building site URLs
+	httpsPort  int                           // public HTTPS port, for building site URLs
 	tmpl       map[string]*template.Template // page name -> parsed template set
 	mux        *http.ServeMux
 }
@@ -56,7 +56,7 @@ func (s *Server) parseTemplates() error {
 	s.tmpl = make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		t, err := template.New(p).Funcs(tmplFuncs()).ParseFS(web.TemplatesFS,
-			"templates/layout.html", "templates/partials.html", "templates/"+p+".html")
+			"templates/layout.html", "templates/partials.html", "templates/twstyles.html", "templates/"+p+".html")
 		if err != nil {
 			return err
 		}
@@ -128,7 +128,6 @@ func (s *Server) routes() {
 	// Settings.
 	mux.HandleFunc("POST /settings/engine", s.auth.RequireAuth(s.handleSetEngine))
 	mux.HandleFunc("POST /settings/hosts-sync", s.auth.RequireAuth(s.handleHostsSync))
-	mux.HandleFunc("POST /settings/nav-layout", s.auth.RequireAuth(s.handleSetNavLayout))
 
 	// Admins (multi-admin management).
 	mux.HandleFunc("GET /admins", s.auth.RequireAuth(s.handleAdmins))
@@ -161,6 +160,14 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, page string, dat
 	data["NavLayout"] = "topbar"
 	if c, err := r.Cookie("xdev_nav"); err == nil && c.Value == "sidebar" {
 		data["NavLayout"] = "sidebar"
+	}
+	// Engine info backs the sidebar's engine mini-status on every page (cheap —
+	// s.engine.Info() is a cached field). Handlers may override for their cards.
+	if _, ok := data["Engine"]; !ok {
+		data["Engine"] = string(s.engine.Current())
+	}
+	if _, ok := data["Runtime"]; !ok {
+		data["Runtime"] = s.engine.Info()
 	}
 
 	t, ok := s.tmpl[page]

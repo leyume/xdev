@@ -1,3 +1,25 @@
+{{define "tw_source"}}<style type="text/tailwindcss">
+/* xdev design system — authored as a Tailwind v4 source, compiled in-browser by
+   the vendored @tailwindcss/browser build (inlined as <style type="text/tailwindcss">).
+   @theme exposes the Nova palette as utilities (bg-accent, text-muted, …); the
+   component classes below keep the templates readable. No build step. */
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0d0b12;
+  --color-chrome: #ffffff05;
+  --color-panel: #ffffff06;
+  --color-panel-2: #ffffff0a;
+  --color-text: #eceaf2;
+  --color-muted: #96909f;
+  --color-accent: #b48cff;
+  --color-accent-ink: #161022;
+  --color-ok: #8ce8b8;
+  --color-off: #96909f;
+  --color-danger: #f58c8c;
+  --color-warn: #f2c14e;
+}
+
 :root {
   --bg: #0d0b12;
   --code-bg: #08060c;
@@ -21,8 +43,6 @@
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px -12px rgba(0, 0, 0, 0.55);
 }
 
-* { box-sizing: border-box; }
-
 body {
   margin: 0;
   background:
@@ -35,6 +55,7 @@ body {
 }
 
 ::selection { background: rgba(180, 140, 255, 0.35); }
+[x-cloak] { display: none !important; }
 
 .muted { color: var(--muted); }
 .small { font-size: 12.5px; }
@@ -278,7 +299,7 @@ button.danger:hover { background: rgba(245, 140, 140, 0.12); border-color: rgba(
 
 /* Card-as-link (project cards) */
 a.card { text-decoration: none; color: inherit; transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s; }
-a.card.project:hover {
+a.card.project-card:hover {
   border-color: rgba(180, 140, 255, 0.35);
   transform: translateY(-1px);
   box-shadow: 0 4px 16px -4px rgba(0, 0, 0, 0.5);
@@ -338,12 +359,6 @@ code {
 
 /* uPlot charts adopt the dark theme */
 .uplot, .u-legend { color: var(--muted); font-size: 12px; }
-#cpuChart, #memChart { overflow-x: auto; }
-
-/* Per-app quick links */
-.app-links { margin-top: 4px; color: var(--muted); }
-.app-links a { color: var(--accent); text-decoration: none; }
-.app-links a:hover { text-decoration: underline; }
 
 /* Logs + code editor */
 pre.logs {
@@ -414,23 +429,22 @@ textarea.code {
   .runtime-grid, .host-grid, .row2 { grid-template-columns: 1fr; }
 }
 
-/* ---- Sidebar shell (alternate nav chrome, toggled via /settings/nav-layout) ---- */
-.shell { display: flex; align-items: stretch; min-height: 100vh; }
+/* ---- Sidebar: fixed slide-in drawer (nav switch is client-side, no reload) ---- */
 .sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
   width: 220px;
-  flex: none;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 22px 16px;
   border-right: 1px solid var(--border-card);
   background: var(--chrome);
-  /* Pin to the viewport so the footer (engine/user/logout) is always visible
-     without scrolling the whole page; the sidebar scrolls on its own if tall. */
-  position: sticky;
-  top: 0;
-  align-self: flex-start;
-  height: 100vh;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   overflow-y: auto;
 }
 .sidebar .brand { padding: 4px 10px 20px; }
@@ -448,36 +462,6 @@ textarea.code {
 .sidenav a.navlink:hover { background: rgba(255, 255, 255, 0.04); }
 .sidenav a.navlink.active { color: var(--accent); background: rgba(180, 140, 255, 0.12); font-weight: 600; }
 .sidenav-foot { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; margin-top: 4px; }
-.shell .container { flex: 1; min-width: 0; padding: 34px 44px 56px; margin: 0; max-width: none; }
-
-/* ponytail: lightweight mobile pass — stack the fixed sidebar into a full-width
-   top strip and let the topbar wrap, so narrow viewports stay usable. CSS-only,
-   scoped to the media query; desktop layout above is untouched. */
-@media (max-width: 760px) {
-  .shell { flex-direction: column; }
-  .sidebar {
-    width: auto;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px 14px;
-    padding: 12px 16px;
-    border-right: none;
-    border-bottom: 1px solid var(--border-card);
-    position: static;
-    height: auto;
-    overflow: visible;
-  }
-  .sidebar .brand { padding: 0; }
-  .sidenav { flex-direction: row; flex-wrap: wrap; }
-  .sidebar .spacer { display: none; }
-  .engine-mini, .user-mini { margin-top: 0; }
-  .sidenav-foot { flex-direction: row; margin-top: 0; }
-
-  .topbar { height: auto; flex-wrap: wrap; gap: 10px 18px; padding: 12px 20px; }
-  .topnav { flex-wrap: wrap; gap: 4px 6px; }
-  .searchbox { display: none; }
-}
 
 .engine-mini, .user-mini {
   display: flex;
@@ -508,7 +492,6 @@ textarea.code {
 }
 
 /* Topbar search box + live results dropdown */
-[x-cloak] { display: none !important; }
 .searchbox-wrap { position: relative; }
 .searchbox {
   display: flex;
@@ -565,6 +548,8 @@ textarea.code {
 .search-hit-label { font-size: 13.5px; font-weight: 600; }
 .search-empty { padding: 10px 11px; }
 
+@media (max-width: 760px) { .searchbox { display: none; } }
+
 /* Inline nav icons */
 .navlink { display: inline-flex; align-items: center; gap: 8px; }
 .ico { flex: none; }
@@ -603,7 +588,7 @@ option { background: var(--bg); color: var(--text); }
 
 .host-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 16px; }
 
-/* ---- Utilization chart (Dashboard, sample data) ---- */
+/* ---- Utilization chart (Dashboard) ---- */
 .chart-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .legend-dot { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
 .range-pills { display: flex; gap: 4px; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; margin-left: 16px; }
@@ -665,3 +650,4 @@ option { background: var(--bg); color: var(--text); }
 .tab-panel a:hover { text-decoration: underline; }
 .mini-chart { min-height: 100px; }
 .mini-chart + .mini-chart { margin-top: 10px; }
+</style>{{end}}
