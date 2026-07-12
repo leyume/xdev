@@ -1,0 +1,58 @@
+{{define "content"}}
+<section class="page-head">
+  <div>
+    <h1>Projects</h1>
+    <div class="muted small">{{len .Projects}} project{{if ne (len .Projects) 1}}s{{end}} · {{.TotalApps}} apps · {{.Running}} running · {{.Host.Hostname}}</div>
+  </div>
+  <a class="primary btn" href="/projects/new">+ New project</a>
+</section>
+
+<div class="row-16-10">
+  {{template "host_resources" .}}
+  {{template "engine_card" .}}
+</div>
+
+{{if .Projects}}
+<div class="project-grid">
+  {{range .Projects}}
+  <a class="card project-card" href="/projects/{{.Slug}}">
+    <div class="project-card-head">
+      <strong>{{.Name}}</strong>
+      <span class="spacer"></span>
+      {{if gt .Stopped 0}}
+      <span class="badge warn">{{.Stopped}} stopped</span>
+      {{else}}
+      <span class="badge">{{len .Apps}} app{{if ne (len .Apps) 1}}s{{end}}</span>
+      {{end}}
+    </div>
+    <div class="muted small">{{.BaseDomain}} · {{.Environment}} · {{.NetworkName}}</div>
+    {{if .Apps}}
+    <div class="project-card-apps">
+      {{range .Apps}}
+      <div class="project-card-app">
+        <span class="status {{.Status}}"></span>
+        <strong class="small">{{.Name}}</strong>
+        <span class="chip">{{.Type}}</span>
+        <span class="spacer"></span>
+        <span class="muted small">{{.Domain}}</span>
+      </div>
+      {{end}}
+    </div>
+    {{end}}
+  </a>
+  {{end}}
+  <a class="card project-card project-card-new" href="/projects/new">
+    <div class="new-plus">+</div>
+    <div style="font-weight:600">New project</div>
+    <div class="muted small">network + base domain + auto-SSL</div>
+  </a>
+</div>
+{{else}}
+<div class="empty card">
+  <h2>No projects yet</h2>
+  <p class="muted">A project groups your apps — backend, frontend, WordPress, static sites — under one base domain and a shared network.</p>
+</div>
+{{end}}
+
+{{template "events_card" .}}
+{{end}}

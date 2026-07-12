@@ -147,16 +147,39 @@ func (s *Server) handleAppDomain(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSetEngine switches the default container engine for new projects.
-// Existing projects/apps keep the engine they were created with.
+// Existing projects/apps keep the engine they were created with. The engine
+// card appears on both the Dashboard and Projects pages, so return to
+// whichever one the request came from.
 func (s *Server) handleSetEngine(w http.ResponseWriter, r *http.Request) {
+	ref := r.Header.Get("Referer")
+	if ref == "" {
+		ref = "/"
+	}
+	base, _, _ := strings.Cut(ref, "?")
+
 	eng := xruntime.Engine(r.FormValue("engine"))
 	if err := s.engine.Set(eng); err != nil {
-		http.Redirect(w, r, "/?engine_msg="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		http.Redirect(w, r, base+"?engine_msg="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
 	s.store.SetSetting("engine", string(eng))
 	s.store.AddEvent(0, 0, "info", "Default engine set to "+string(eng))
-	http.Redirect(w, r, "/?engine_msg="+url.QueryEscape("Default engine is now "+string(eng)+" (applies to new projects)"), http.StatusSeeOther)
+	http.Redirect(w, r, base+"?engine_msg="+url.QueryEscape("Default engine is now "+string(eng)+" (applies to new projects)"), http.StatusSeeOther)
+}
+
+// handleSetNavLayout toggles the global topbar/sidebar chrome preference,
+// stored as a cookie (a per-browser UI preference, not app data).
+func (s *Server) handleSetNavLayout(w http.ResponseWriter, r *http.Request) {
+	layout := "topbar"
+	if r.FormValue("layout") == "sidebar" {
+		layout = "sidebar"
+	}
+	http.SetCookie(w, &http.Cookie{Name: "xdev_nav", Value: layout, Path: "/", MaxAge: 365 * 24 * 3600})
+	ref := r.Header.Get("Referer")
+	if ref == "" {
+		ref = "/"
+	}
+	http.Redirect(w, r, ref, http.StatusSeeOther)
 }
 
 // handleHostsSync writes the local domains into the hosts file, elevating via

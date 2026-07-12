@@ -9,22 +9,69 @@
 </head>
 <body>
 {{if .User}}
+{{if eq .NavLayout "sidebar"}}
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">xdev</div>
+      <nav class="sidenav">
+        <a class="navlink{{if eq .Path "/"}} active{{end}}" href="/">Dashboard</a>
+        <a class="navlink{{if or (hasPrefix .Path "/projects") (hasPrefix .Path "/apps/")}} active{{end}}" href="/projects">Projects</a>
+        <a class="navlink{{if hasPrefix .Path "/events"}} active{{end}}" href="/events">Activity</a>
+        <a class="navlink{{if hasPrefix .Path "/admins"}} active{{end}}" href="/admins">Admins</a>
+      </nav>
+      <div class="spacer"></div>
+      {{template "engine_mini" .}}
+      <div class="user-mini">
+        <div class="avatar">{{initials .User.Email}}</div>
+        <div><div class="small" style="font-weight:600">{{.User.Email}}</div><div class="muted small">Administrator</div></div>
+      </div>
+      <div class="sidenav-foot">
+        <form method="post" action="/settings/nav-layout" class="inline">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          <input type="hidden" name="layout" value="topbar">
+          <button class="link small" type="submit">Switch to topbar</button>
+        </form>
+        <form method="post" action="/logout" class="inline">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          <button class="link small" type="submit">Log out</button>
+        </form>
+      </div>
+    </aside>
+    <main class="container">
+      {{block "content" .}}{{end}}
+    </main>
+  </div>
+{{else}}
   <header class="topbar">
     <div class="brand">xdev</div>
     <nav class="topnav">
-      <a href="/">Projects</a>
-      <a href="/events">Activity</a>
-      <a href="/admins">Admins</a>
-      <span class="muted">{{.User.Email}}</span>
+      <a class="navlink{{if eq .Path "/"}} active{{end}}" href="/">Dashboard</a>
+      <a class="navlink{{if or (hasPrefix .Path "/projects") (hasPrefix .Path "/apps/")}} active{{end}}" href="/projects">Projects</a>
+      <a class="navlink{{if hasPrefix .Path "/events"}} active{{end}}" href="/events">Activity</a>
+      <a class="navlink{{if hasPrefix .Path "/admins"}} active{{end}}" href="/admins">Admins</a>
+      <span class="spacer"></span>
+      <!-- ponytail: decorative only — no search backend yet, see PLANx.md feature list -->
+      <div class="searchbox"><span class="muted small">Search projects &amp; apps…</span><span class="kbd">⌘K</span></div>
+      <div class="avatar">{{initials .User.Email}}</div>
+      <form method="post" action="/settings/nav-layout" class="inline">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <input type="hidden" name="layout" value="sidebar">
+        <button class="link small" type="submit">Sidebar</button>
+      </form>
       <form method="post" action="/logout" class="inline">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <button class="link" type="submit">Log out</button>
+        <button class="link small" type="submit">Log out</button>
       </form>
     </nav>
   </header>
-{{end}}
   <main class="container">
     {{block "content" .}}{{end}}
   </main>
+{{end}}
+{{else}}
+  <main class="container">
+    {{block "content" .}}{{end}}
+  </main>
+{{end}}
 </body>
 </html>{{end}}

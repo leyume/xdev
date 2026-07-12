@@ -26,8 +26,18 @@ func (s *Store) AddEvent(projectID, appID int64, level, message string) error {
 
 // ListEvents returns the most recent events, newest first.
 func (s *Store) ListEvents(limit int) ([]Event, error) {
-	rows, err := s.db.Query(
-		`SELECT ts, level, message FROM events ORDER BY id DESC LIMIT ?`, limit)
+	return scanEvents(s.db.Query(
+		`SELECT ts, level, message FROM events ORDER BY id DESC LIMIT ?`, limit))
+}
+
+// ListEventsByProject returns the most recent events for one project, newest first.
+func (s *Store) ListEventsByProject(projectID int64, limit int) ([]Event, error) {
+	return scanEvents(s.db.Query(
+		`SELECT ts, level, message FROM events WHERE project_id = ? ORDER BY id DESC LIMIT ?`,
+		projectID, limit))
+}
+
+func scanEvents(rows *sql.Rows, err error) ([]Event, error) {
 	if err != nil {
 		return nil, err
 	}

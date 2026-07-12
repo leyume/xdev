@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"xdev/internal/apps"
+	"xdev/internal/store"
 	"xdev/internal/templates"
 )
 
@@ -82,10 +83,19 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	if len(candidates) > 0 {
 		needsHosts = s.reconciler.MissingHosts(candidates)
 	}
+	running := 0
+	for _, a := range apps {
+		if a.Status == store.AppRunning {
+			running++
+		}
+	}
+	activity, _ := s.store.ListEventsByProject(proj.ID, 8)
 	s.render(w, r, "project", viewData{
 		"Title":          proj.Name + " · xdev",
 		"Project":        proj,
 		"Apps":           apps,
+		"AppsRunning":    running,
+		"Activity":       activity,
 		"AdminerDomains": adminerDomains,
 		"Catalog":        templates.Catalog(),
 		"Error":          r.URL.Query().Get("error"),
@@ -114,7 +124,7 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.AddEvent(0, 0, "warn", "Deleted project "+name)
 	s.reconcile()
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, "/projects", http.StatusSeeOther)
 }
 
 // handleAppCreate adds an app to a project and starts it.

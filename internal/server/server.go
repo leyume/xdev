@@ -51,12 +51,12 @@ func (s *Server) Handler() http.Handler { return s.mux }
 // parseTemplates builds one template set per page, each combined with the
 // shared layout so {{block "content"}} resolves per page.
 func (s *Server) parseTemplates() error {
-	pages := []string{"setup", "login", "dashboard", "project_new", "project", "app_metrics",
+	pages := []string{"setup", "login", "dashboard", "projects", "project_new", "project", "app_metrics",
 		"app_logs", "app_env", "app_backups", "events", "admins"}
 	s.tmpl = make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		t, err := template.New(p).Funcs(tmplFuncs()).ParseFS(web.TemplatesFS,
-			"templates/layout.html", "templates/"+p+".html")
+			"templates/layout.html", "templates/partials.html", "templates/"+p+".html")
 		if err != nil {
 			return err
 		}
@@ -83,9 +83,10 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /logout", s.auth.RequireAuth(s.handleLogout))
 
 	// Dashboard (protected).
-	mux.HandleFunc("GET /{$}", s.auth.RequireAuth(s.handleDashboard))
+	mux.HandleFunc("GET /{$}", s.auth.RequireAuth(s.handleHomeDashboard))
 
 	// Projects.
+	mux.HandleFunc("GET /projects", s.auth.RequireAuth(s.handleProjectsList))
 	mux.HandleFunc("GET /projects/new", s.auth.RequireAuth(s.handleProjectNewForm))
 	mux.HandleFunc("POST /projects", s.auth.RequireAuth(s.handleProjectCreate))
 	mux.HandleFunc("GET /projects/{slug}", s.auth.RequireAuth(s.handleProjectDetail))
@@ -117,6 +118,7 @@ func (s *Server) routes() {
 	// Settings.
 	mux.HandleFunc("POST /settings/engine", s.auth.RequireAuth(s.handleSetEngine))
 	mux.HandleFunc("POST /settings/hosts-sync", s.auth.RequireAuth(s.handleHostsSync))
+	mux.HandleFunc("POST /settings/nav-layout", s.auth.RequireAuth(s.handleSetNavLayout))
 
 	// Admins (multi-admin management).
 	mux.HandleFunc("GET /admins", s.auth.RequireAuth(s.handleAdmins))
@@ -144,6 +146,11 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, page string, dat
 	}
 	if sess, ok := auth.SessionFrom(r); ok {
 		data["CSRF"] = sess.CSRFToken
+	}
+	data["Path"] = r.URL.Path
+	data["NavLayout"] = "topbar"
+	if c, err := r.Cookie("xdev_nav"); err == nil && c.Value == "sidebar" {
+		data["NavLayout"] = "sidebar"
 	}
 
 	t, ok := s.tmpl[page]
