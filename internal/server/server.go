@@ -85,6 +85,9 @@ func (s *Server) routes() {
 	// Dashboard (protected).
 	mux.HandleFunc("GET /{$}", s.auth.RequireAuth(s.handleHomeDashboard))
 
+	// Global search (topbar).
+	mux.HandleFunc("GET /search", s.auth.RequireAuth(s.handleSearch))
+
 	// Projects.
 	mux.HandleFunc("GET /projects", s.auth.RequireAuth(s.handleProjectsList))
 	mux.HandleFunc("GET /projects/new", s.auth.RequireAuth(s.handleProjectNewForm))

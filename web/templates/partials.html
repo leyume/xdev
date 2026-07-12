@@ -1,5 +1,53 @@
 {{/* Shared fragments included on every page (see server.go parseTemplates). */}}
 
+{{/* Inline nav icons (currentColor, 16px) — defined once, no external icon font. */}}
+{{define "icon_dashboard"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>{{end}}
+{{define "icon_projects"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>{{end}}
+{{define "icon_activity"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>{{end}}
+{{define "icon_admins"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>{{end}}
+{{define "icon_logout"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>{{end}}
+
+{{/* Real topbar search: debounced fetch of /search?q=, dropdown of results.
+     ⌘K / Ctrl-K focuses the input. Alpine + fetch only; x-text keeps hits escaped. */}}
+{{define "topbar_search"}}
+<div class="searchbox-wrap" x-data="{
+       q: '', results: [], open: false, t: null,
+       run() {
+         clearTimeout(this.t);
+         const q = this.q.trim();
+         if (!q) { this.results = []; this.open = false; return; }
+         this.t = setTimeout(async () => {
+           try {
+             const r = await fetch('/search?q=' + encodeURIComponent(q));
+             this.results = await r.json();
+             this.open = true;
+           } catch (e) { this.results = []; this.open = false; }
+         }, 150);
+       }
+     }"
+     @keydown.window.meta.k.prevent="$refs.input.focus()"
+     @keydown.window.ctrl.k.prevent="$refs.input.focus()"
+     @keydown.escape="open = false"
+     @click.outside="open = false">
+  <div class="searchbox">
+    <input x-ref="input" type="text" x-model="q" @input="run()" @focus="if (results.length) open = true"
+           placeholder="Search projects & apps…" autocomplete="off" spellcheck="false">
+    <span class="kbd">⌘K</span>
+  </div>
+  <div class="search-results" x-show="open" x-cloak>
+    <template x-if="results.length === 0">
+      <div class="search-empty muted small">No matches</div>
+    </template>
+    <template x-for="r in results" :key="r.url + r.label">
+      <a class="search-hit" :href="r.url">
+        <span class="search-hit-label" x-text="r.label"></span>
+        <span class="muted small" x-text="r.sub"></span>
+      </a>
+    </template>
+  </div>
+</div>
+{{end}}
+
 {{define "engine_card"}}
 <section class="card">
   <h3>Container engine</h3>
