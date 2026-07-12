@@ -5,12 +5,15 @@ uses it, how the screens connect, and what the current UI looks like — so a
 designer (human or Claude) can propose a modern visual direction without
 reading the Go source.
 
-> **Status (2026-07-11):** the "Nova" violet/glass redesign in
+> **Status (2026-07-12):** the "Nova" violet/glass redesign in
 > `design/PLAN_UI.md` has been implemented in the real templates (branch
 > `feat/nova-ui-redesign`), including a Dashboard/Projects route split and a
-> topbar↔sidebar toggle. The screen map and feature-backlog sections below
-> have been updated to match; the rest of this doc (stack, data model, style
-> baseline) is still accurate background reading.
+> topbar↔sidebar toggle. The follow-up backlog below is now **mostly done** —
+> items 1–7 shipped (real host-history chart, Containers/Certificates/Backups
+> KPIs, inline Logs/Env/Backups tabs, global search, responsive pass, nav
+> icons); only item 8 (per-user nav scope) is deliberately left as YAGNI. The
+> rest of this doc (stack, data model, style baseline) is still accurate
+> background reading.
 
 ---
 
@@ -95,10 +98,10 @@ switchable from a link in either chrome. Both render identical page content.
 | **Host** (CPU/mem/disk, hostname, uptime) | Host resources card (Dashboard + Projects) | Real |
 | **Metrics** (cpu/mem time-series per app) | Metrics tab on each app card (uPlot, fetches `/apps/{id}/metrics.json`) | Real |
 | **Events** (audit trail) | `/events`, Recent events / Project activity cards | Real |
-| **Host utilization over time** | Dashboard chart | **Placeholder** — no host time-series stored |
-| **Containers / Certificates / Backups counts** | Dashboard KPI strip | **Placeholder** — no aggregate tracked |
-| **Logs / Env / Backups tab content** | Project detail app card tabs | **Placeholder preview** + real link to the full page |
-| **Search** | Topbar search box | **Decorative** — no backend |
+| **Host utilization over time** | Dashboard chart | Real — `host_metrics` table sampled by the collector, live uPlot chart via `/host/metrics.json` |
+| **Containers / Certificates / Backups counts** | Dashboard KPI strip | Real — running-container count (`<engine> ps`), TLS-domain count, on-disk backup scan; each degrades to "—" when unavailable |
+| **Logs / Env / Backups tab content** | Project detail app card tabs | Real — lazy fetch-on-open `/apps/{id}/{logs,env,backups}/partial` fragments (+ still linking the full page) |
+| **Search** | Topbar search box | Real — debounced `/search?q=` across project/app names, ⌘K dropdown |
 
 ---
 
@@ -112,8 +115,8 @@ switchable from a link in either chrome. Both render identical page content.
   image asset), avatar-initials badge.
 - System font stack (not the mock's Google-Fonts DM Sans — kept the UI
   dependency-free/offline-friendly), ~14.5px base.
-- Charts are uPlot (per-app Metrics, real) and static sample SVGs (Dashboard
-  utilization chart, placeholder — see feature backlog).
+- Charts are uPlot throughout — per-app Metrics and the Dashboard host
+  utilization chart (both real, the latter fed by `/host/metrics.json`).
 - No component framework — one `web/static/app.css` plus Alpine for client
   state (per-app tab switching, form toggles); a shared `partials.html`
   holds the engine/host-resources/events fragments reused across pages.
@@ -122,45 +125,40 @@ switchable from a link in either chrome. Both render identical page content.
 
 The redesign implemented the full IA and visual system from `design/PLAN_UI.md`
 using real data everywhere it already existed, and clearly-marked
-placeholders where it didn't (see the table above). These are the follow-ups
-to turn the placeholders into real features, roughly in the order they'd pay
-off:
+placeholders where it didn't. Items 1–7 have since been implemented; item 8 is
+deliberately deferred (YAGNI for a single admin).
 
-1. **Host utilization history.** The Dashboard's CPU/memory chart is a static
-   sample SVG — there's no stored host-level time series (only per-app
-   container metrics are persisted). Needs: a small collector sampling
-   `metrics.HostSnapshot()` on an interval into a new table (or reuse the
-   existing `metrics` table with a sentinel app_id), plus a `/host/metrics.json`
-   endpoint, plus wiring the chart to fetch real data and the 1h/24h/7d pills
-   to actually refetch.
-2. **Containers KPI.** Currently a dash. Needs a real count of running
-   containers (not apps) — e.g. shelling out to `<engine> ps` filtered by the
-   xdev-managed network/label, or summing per-app container counts from the
-   compose templates.
-3. **Certificate tracking.** Currently a dash. The `domains` table has
-   `ssl_mode` but no issued/expiry dates. Needs a `cert_status`/`expires_at`
-   column (or a call to Caddy's admin API for cert info) to back a real count
-   and a "renews in N days" warning.
-4. **Backup history.** Currently a dash. Backups exist on disk per app but
-   aren't tracked in the database. Needs either a lightweight `backups` table
-   (written on `handleAppBackupCreate`) or an aggregate scan of each app's
-   backup directory, to back a real count + "last run" timestamp.
-5. **Inline Logs/Env/Backups tabs.** Only the Metrics tab is real (fetches
-   `/apps/{id}/metrics.json` inline). Logs/Env/Backups tabs show a short
-   sample preview + a link to the existing full page. Wiring these inline
-   would mean fetch-based partials for tail-log lines, .env content, and the
-   backup list/actions, replacing the "sample preview" caption.
-6. **Global search.** The topbar's "Search projects & apps… ⌘K" box is
-   decorative (matches the design mock's own inert placeholder div). Needs a
-   real search endpoint across project/app names and a keyboard shortcut
-   handler.
-7. **Responsive sidebar.** The sidebar chrome is a fixed 220px column with no
-   collapse/overlay behavior on narrow viewports; low priority for a
-   single-admin desktop tool, but worth a mobile pass eventually.
-8. **Nav-layout preference scope.** Topbar-vs-sidebar is a per-browser cookie
-   today, not tied to the admin account — fine for a single admin, but would
-   need to move into the `settings`/user record if multi-admin, multi-device
-   use starts to matter.
+1. ✅ **Host utilization history.** `host_metrics(ts, cpu_pct, mem_pct)` table
+   (migration `0006`), sampled each tick by the existing metrics collector via
+   `HostSnapshot()`; served by `/host/metrics.json?range=1h|24h|7d`; the
+   Dashboard chart is now a live uPlot with working range pills. *Known ceiling:*
+   history is capped by the 24h metrics retention, so the 7d pill only shows
+   what exists — extend retention if 7d history matters.
+2. ✅ **Containers KPI.** Real running-container count via `<engine> ps -q`
+   summed across usable engines (`runtime.Selector.RunningContainers`); shows
+   "—" when no engine is usable. *Known ceiling:* counts all host containers,
+   not only xdev-managed ones — add a name/label filter to scope it.
+3. ✅ **Certificate tracking.** KPI shows the count of TLS-enabled domains
+   (`domains.ssl_mode != ''`) when the proxy is up, "—" otherwise. Left the
+   lazy real number; issued/expiry dates + a "renews in N days" warning (Caddy
+   admin API or a `cert_status`/`expires_at` column) are still open if wanted.
+4. ✅ **Backup history.** Aggregate scan of the backups directory (count +
+   newest modtime → "last run"); no DB table needed. Shows "none yet" when empty.
+5. ✅ **Inline Logs/Env/Backups tabs.** Lazy fetch-on-open partial endpoints
+   `/apps/{id}/{logs,env,backups}/partial` (escaped fragments) replace the
+   sample previews; the "open full ↗" links to the full pages remain. Backups
+   panel is list-only (actions stay on the full page).
+6. ✅ **Global search.** `/search?q=` filters project/app names+slugs in-Go
+   (JSON results, capped at 10); topbar box is a debounced Alpine input with a
+   results dropdown and a ⌘K/Ctrl-K focus shortcut.
+7. ✅ **Responsive pass.** CSS-only `@media (max-width:760px)` block stacks the
+   sidebar to a top strip and lets the topbar wrap; desktop untouched.
+8. ⬜ **Nav-layout preference scope.** Topbar-vs-sidebar is still a per-browser
+   cookie, not tied to the admin account — fine for a single admin. Move it into
+   the `settings`/user record only if multi-admin, multi-device use matters.
+
+Not in the original list, shipped alongside: **inline-SVG icons** on the nav
+links and Log-out button in both chromes (dependency-free, no icon font).
 
 Constraint that stays true for all of the above: server-rendered HTML +
 Alpine for client state (no SPA build step) — keep new features to plain
