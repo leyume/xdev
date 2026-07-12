@@ -55,11 +55,11 @@
       <form method="post" action="/settings/nav-layout" class="inline">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <input type="hidden" name="layout" value="sidebar">
-        <button class="link small" type="submit">Sidebar</button>
+        <button class="link iconbtn" type="submit" title="Switch to sidebar" aria-label="Switch to sidebar">{{template "icon_sidebar" .}}</button>
       </form>
       <form method="post" action="/logout" class="inline">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <button class="link small" type="submit">{{template "icon_logout" .}}Log out</button>
+        <button class="link iconbtn" type="submit" title="Log out" aria-label="Log out">{{template "icon_logout" .}}</button>
       </form>
     </nav>
   </header>

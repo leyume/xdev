@@ -37,7 +37,7 @@
 
 {{template "host_resources" .}}
 
-<section class="card" x-data="hostChart()" x-init="init()">
+<section class="card" x-data="hostChart()">
   <div class="chart-head">
     <div>
       <h2>Host utilization</h2>
@@ -56,10 +56,15 @@
 </section>
 
 <div class="grid-main">
-  <section class="card apps-table-card">
+  <section class="card apps-table-card" x-data="appsRealtime()">
     <div class="apps-table-head">
       <h2>Apps</h2>
       <span class="spacer"></span>
+      <label class="switch" title="Live-poll CPU &amp; memory">
+        <input type="checkbox" @change="toggle($event.target.checked)">
+        <span class="slider"></span>
+      </label>
+      <span class="muted small" style="margin:0 14px 0 8px">Realtime</span>
       <a href="/projects" class="small" style="color:var(--accent);text-decoration:none;font-weight:600">All projects →</a>
     </div>
     {{if .Apps}}
@@ -69,8 +74,8 @@
       <tr>
         <td><a href="/projects/{{.ProjectSlug}}" style="color:var(--text);text-decoration:none;font-weight:600">{{.ProjectName}}<span class="muted">/</span>{{.Name}}</a></td>
         <td class="muted">{{.Type}}</td>
-        <td>{{if .HasMetrics}}{{f1 .CPUPct}}%{{else}}<span class="muted">—</span>{{end}}</td>
-        <td class="muted">{{if .HasMetrics}}{{.MemMiB}} MiB{{else}}—{{end}}</td>
+        <td><span id="cpu-{{.ID}}">{{if .HasMetrics}}{{f1 .CPUPct}}%{{else}}—{{end}}</span></td>
+        <td class="muted"><span id="mem-{{.ID}}">{{if .HasMetrics}}{{.MemMiB}} MiB{{else}}—{{end}}</span></td>
         <td>
           <span class="status-label {{.Status}}"><span class="status"></span>{{.Status}}</span>
           {{if ne .Status "running"}}
@@ -132,6 +137,30 @@ function hostChart() {
         ],
         legend: { show: false },
       }, [d.t, d.cpu, d.mem], el);
+    },
+  };
+}
+
+// Realtime toggle for the apps table: polls /apps/metrics.json and updates the
+// CPU/Memory cells in place. Off by default; interval cleared when switched off.
+function appsRealtime() {
+  return {
+    on: false,
+    timer: null,
+    toggle(v) {
+      this.on = v;
+      clearInterval(this.timer);
+      if (v) { this.tick(); this.timer = setInterval(() => this.tick(), 5000); }
+    },
+    async tick() {
+      try {
+        const r = await fetch('/apps/metrics.json', { credentials: 'same-origin' });
+        for (const m of await r.json()) {
+          const c = document.getElementById('cpu-' + m.id), me = document.getElementById('mem-' + m.id);
+          if (c) c.textContent = m.has ? m.cpu.toFixed(1) + '%' : '—';
+          if (me) me.textContent = m.has ? m.mem + ' MiB' : '—';
+        }
+      } catch (e) { /* transient; next tick retries */ }
     },
   };
 }

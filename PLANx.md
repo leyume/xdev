@@ -164,6 +164,35 @@ Constraint that stays true for all of the above: server-rendered HTML +
 Alpine for client state (no SPA build step) — keep new features to plain
 fetch-and-swap patterns like the Metrics tab already uses.
 
+## UI refinements — round 2 (2026-07-12)
+
+Post-review polish on the shipped Nova UI. All CSS/template-level except
+where noted; same server-rendered + Alpine constraint.
+
+1. **Fix host-utilization ranges.** The 1h/24h/7d pills didn't visibly change
+   the chart — host metrics were pruned at 24h (so 7d never had data) and the
+   chart double-initialised (`x-init` + Alpine's implicit `init()`). Give host
+   metrics their own 7-day retention and load once.
+2. **Topbar log-out is icon-only.** Drop the "Log out" text on the topbar
+   (keep the icon + an aria-label).
+3. **Topbar sidebar-toggle is an icon.** Replace the "Sidebar" text button
+   with a panel icon.
+4. **Sidebar nav links are white.** In the sidebar chrome the links read as
+   the default link colour; make them `--text` with proper hover/active.
+5. **Sidebar footer sinks to the bottom.** Engine mini-status, admin identity,
+   and log-out should sit at the bottom of the sidebar — the spacer wasn't
+   expanding (`.sidebar .spacer { flex:1 }`).
+6. **Realtime toggle on the Dashboard apps list.** An on/off switch that live-
+   polls CPU/memory for the apps table. Needs a small `/apps/metrics.json`
+   aggregate endpoint (reuse `allAppRows`) + an Alpine poll.
+7. **Stack the engine cards.** Container-engine card shows podman above docker,
+   not side-by-side.
+8. **Trim the Projects page.** Remove the Container-engine and Host-resources
+   cards from the Projects list (also drops a per-load `HostSnapshot()`).
+9. **Project detail: readability + Add-app modal.** Ensure all text meets the
+   dark-theme contrast, and move the "Add app" form into a modal triggered by
+   the "+ Add app" button (frees the side column).
+
 ---
 
 ## Source pointers (for whoever implements the design)

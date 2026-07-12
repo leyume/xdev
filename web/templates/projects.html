@@ -2,15 +2,10 @@
 <section class="page-head">
   <div>
     <h1>Projects</h1>
-    <div class="muted small">{{len .Projects}} project{{if ne (len .Projects) 1}}s{{end}} · {{.TotalApps}} apps · {{.Running}} running · {{.Host.Hostname}}</div>
+    <div class="muted small">{{len .Projects}} project{{if ne (len .Projects) 1}}s{{end}} · {{.TotalApps}} apps · {{.Running}} running</div>
   </div>
   <a class="primary btn" href="/projects/new">+ New project</a>
 </section>
-
-<div class="row-16-10">
-  {{template "host_resources" .}}
-  {{template "engine_card" .}}
-</div>
 
 {{if .Projects}}
 <div class="project-grid">

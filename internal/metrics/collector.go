@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	interval  = 10 * time.Second
-	retention = 24 * time.Hour
+	interval      = 10 * time.Second
+	retention     = 24 * time.Hour     // per-app container samples
+	hostRetention = 7 * 24 * time.Hour // host samples — backs the dashboard 7d pill
 )
 
 // Collector periodically samples container stats into the store.
@@ -58,9 +59,7 @@ func (c *Collector) collectOnce(ctx context.Context) {
 	if err := c.store.InsertHostMetric(now, h.CPUPct, h.MemPct()); err != nil {
 		log.Printf("host metrics insert: %v", err)
 	}
-	// ponytail: the 7d dashboard pill is capped by this 24h retention; extend
-	// retention if 7d host history actually matters.
-	c.store.PruneHostMetricsBefore(now.Add(-retention))
+	c.store.PruneHostMetricsBefore(now.Add(-hostRetention))
 
 	prefixes, err := c.store.AppPrefixes()
 	if err != nil || len(prefixes) == 0 {

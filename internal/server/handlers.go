@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -125,10 +126,8 @@ func (s *Server) allAppRows() ([]appRow, error) {
 }
 
 // handleHomeDashboard renders the home Dashboard: KPI overview, host
-// resources, apps needing attention, and recent activity across every
-// project. Some KPI cells (containers/certificates/backups counts, the
-// utilization chart) aren't backed by real aggregates yet — see PLANx.md's
-// feature list.
+// resources + utilization history, apps across every project, and recent
+// activity.
 func (s *Server) handleHomeDashboard(w http.ResponseWriter, r *http.Request) {
 	projects, err := s.store.ListProjects()
 	if err != nil {
@@ -187,8 +186,30 @@ func (s *Server) handleHomeDashboard(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleProjectsList renders the Projects overview: host resources, engine
-// status, and one card per project with its apps.
+// handleAppsMetricsJSON returns the latest CPU/memory sample per app for the
+// Dashboard's realtime toggle to poll. Shape mirrors the apps table columns.
+func (s *Server) handleAppsMetricsJSON(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.allAppRows()
+	if err != nil {
+		http.Error(w, "could not load apps", http.StatusInternalServerError)
+		return
+	}
+	type appMetric struct {
+		ID         int64   `json:"id"`
+		HasMetrics bool    `json:"has"`
+		CPUPct     float64 `json:"cpu"`
+		MemMiB     int64   `json:"mem"`
+	}
+	out := make([]appMetric, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, appMetric{ID: a.ID, HasMetrics: a.HasMetrics, CPUPct: a.CPUPct, MemMiB: a.MemMiB})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
+// handleProjectsList renders the Projects overview: one card per project with
+// its apps, plus recent activity.
 func (s *Server) handleProjectsList(w http.ResponseWriter, r *http.Request) {
 	projects, err := s.store.ListProjects()
 	if err != nil {
@@ -226,10 +247,6 @@ func (s *Server) handleProjectsList(w http.ResponseWriter, r *http.Request) {
 		"TotalApps": totalApps,
 		"Running":   running,
 		"Events":    events,
-		"Runtime":   s.engine.Info(),
-		"Engine":    string(s.engine.Current()),
-		"Host":      metrics.HostSnapshot(),
-		"EngineMsg": r.URL.Query().Get("engine_msg"),
 	})
 }
 

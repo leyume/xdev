@@ -234,8 +234,8 @@ button.danger:hover { background: rgba(245, 140, 140, 0.12); border-color: rgba(
   color: #f2c14e;
 }
 
-/* Runtime status */
-.runtime-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* Runtime status — engines stacked (podman above docker), not side by side. */
+.runtime-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .runtime {
   display: flex;
   gap: 12px;
@@ -427,8 +427,19 @@ textarea.code {
   background: var(--chrome);
 }
 .sidebar .brand { padding: 4px 10px 20px; }
+.sidebar .spacer { flex: 1; }
 .sidenav { display: flex; flex-direction: column; gap: 2px; }
-.sidenav .navlink { padding: 10px 12px; }
+.sidenav a.navlink {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13.5px;
+  font-weight: 500;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s, background 0.15s;
+}
+.sidenav a.navlink:hover { background: rgba(255, 255, 255, 0.04); }
+.sidenav a.navlink.active { color: var(--accent); background: rgba(180, 140, 255, 0.12); font-weight: 600; }
 .sidenav-foot { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; margin-top: 4px; }
 .shell .container { flex: 1; min-width: 0; padding: 34px 44px 56px; margin: 0; max-width: none; }
 
@@ -548,6 +559,28 @@ textarea.code {
 .navlink { display: inline-flex; align-items: center; gap: 8px; }
 .ico { flex: none; }
 button.link .ico { vertical-align: -3px; margin-right: 6px; }
+/* Icon-only chrome buttons (topbar logout / sidebar toggle) */
+.iconbtn { display: inline-flex; align-items: center; justify-content: center; padding: 7px; border-radius: var(--radius-sm); color: var(--muted); }
+.iconbtn:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+.iconbtn .ico { margin-right: 0; vertical-align: 0; }
+
+/* Native select options render with OS colors; force dark-theme-readable ones. */
+option { background: var(--bg); color: var(--text); }
+
+/* Realtime toggle switch (Dashboard apps table) */
+.switch { position: relative; display: inline-block; width: 34px; height: 20px; flex: none; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch .slider { position: absolute; inset: 0; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); transition: background 0.15s, border-color 0.15s; }
+.switch .slider::before { content: ""; position: absolute; width: 14px; height: 14px; left: 2px; top: 2px; border-radius: 50%; background: var(--muted); transition: transform 0.15s, background 0.15s; }
+.switch input:checked + .slider { background: rgba(180, 140, 255, 0.25); border-color: var(--accent); }
+.switch input:checked + .slider::before { transform: translateX(14px); background: var(--accent); }
+.switch input:focus-visible + .slider { box-shadow: var(--ring); }
+
+/* Modal (Add-app on project detail) */
+.modal-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding: 8vh 20px 40px; background: rgba(6, 4, 10, 0.6); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); overflow-y: auto; }
+.modal { width: 100%; max-width: 560px; margin: 0; max-height: none; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.modal-head .iconbtn { font-size: 15px; }
 
 /* ---- KPI strip (Dashboard) ---- */
 .kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); padding: 0; overflow: hidden; }

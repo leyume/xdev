@@ -8,8 +8,8 @@ import (
 
 // handleHostMetricsJSON returns recent host samples for the dashboard chart as
 // parallel arrays: t (unix seconds), cpu (percent), mem (percent). The range
-// query param is 1h|24h|7d (default 24h); 7d is capped by the collector's 24h
-// retention today, so it just returns whatever exists.
+// query param is 1h|24h|7d (default 24h); the collector keeps 7d of host
+// samples, so each range shows a distinct window.
 func (s *Server) handleHostMetricsJSON(w http.ResponseWriter, r *http.Request) {
 	dur := 24 * time.Hour
 	switch r.URL.Query().Get("range") {

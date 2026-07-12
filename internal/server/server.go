@@ -103,6 +103,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /apps/{id}/refresh", s.auth.RequireAuth(s.handleAppRefresh))
 
 	// App metrics.
+	mux.HandleFunc("GET /apps/metrics.json", s.auth.RequireAuth(s.handleAppsMetricsJSON))
 	mux.HandleFunc("GET /apps/{id}/metrics", s.auth.RequireAuth(s.handleAppMetrics))
 	mux.HandleFunc("GET /apps/{id}/metrics.json", s.auth.RequireAuth(s.handleAppMetricsJSON))
 	mux.HandleFunc("GET /host/metrics.json", s.auth.RequireAuth(s.handleHostMetricsJSON))
