@@ -47,8 +47,21 @@ func (c *Collector) Run(ctx context.Context) {
 	}
 }
 
-// collectOnce reads `stats` once, aggregates per app, and stores a row each.
+// collectOnce samples the host once, then reads `stats`, aggregates per app,
+// and stores a row each.
 func (c *Collector) collectOnce(ctx context.Context) {
+	now := time.Now()
+
+	// Host-level snapshot, independent of whether any apps exist. HostSnapshot
+	// blocks ~200ms measuring CPU — fine at the 10s interval.
+	h := HostSnapshot()
+	if err := c.store.InsertHostMetric(now, h.CPUPct, h.MemPct()); err != nil {
+		log.Printf("host metrics insert: %v", err)
+	}
+	// ponytail: the 7d dashboard pill is capped by this 24h retention; extend
+	// retention if 7d host history actually matters.
+	c.store.PruneHostMetricsBefore(now.Add(-retention))
+
 	prefixes, err := c.store.AppPrefixes()
 	if err != nil || len(prefixes) == 0 {
 		return
@@ -76,7 +89,6 @@ func (c *Collector) collectOnce(ctx context.Context) {
 		}
 	}
 
-	now := time.Now()
 	for id, a := range byApp {
 		if err := c.store.InsertMetric(id, now, a.cpu, a.mem); err != nil {
 			log.Printf("metrics insert: %v", err)

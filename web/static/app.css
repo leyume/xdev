@@ -489,7 +489,7 @@ textarea.code {
 .chart-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .legend-dot { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
 .range-pills { display: flex; gap: 4px; background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; margin-left: 16px; }
-.range-pills span { font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 6px; color: var(--muted); }
+.range-pills span { font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 6px; color: var(--muted); cursor: pointer; }
 .range-pills span.active { background: rgba(180, 140, 255, 0.15); color: var(--accent); }
 .chart-axis { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); margin-top: 4px; }
 

@@ -1,11 +1,14 @@
 package server
 
 import (
+	"fmt"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	xruntime "xdev/internal/runtime"
 	"xdev/internal/store"
@@ -14,6 +17,44 @@ import (
 // backupsRoot is where per-app backup archives live.
 func (s *Server) backupsRoot() string {
 	return filepath.Join(s.cfg.DataDir, "backups")
+}
+
+// backupStats scans the backups root (across all apps) and returns the total
+// archive count and the most-recent archive modtime (zero if none exist).
+func backupStats(root string) (int, time.Time) {
+	var count int
+	var latest time.Time
+	filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil // missing root or unreadable entry: just skip
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		count++
+		if info.ModTime().After(latest) {
+			latest = info.ModTime()
+		}
+		return nil
+	})
+	return count, latest
+}
+
+// humanizeSince renders how long ago t was, coarsely ("just now", "5m ago",
+// "3h ago", "2d ago").
+func humanizeSince(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours())/24)
+	}
 }
 
 // appAndProject loads an app and its project, or writes a 404/500.

@@ -102,6 +102,7 @@ func (s *Server) routes() {
 	// App metrics.
 	mux.HandleFunc("GET /apps/{id}/metrics", s.auth.RequireAuth(s.handleAppMetrics))
 	mux.HandleFunc("GET /apps/{id}/metrics.json", s.auth.RequireAuth(s.handleAppMetricsJSON))
+	mux.HandleFunc("GET /host/metrics.json", s.auth.RequireAuth(s.handleHostMetricsJSON))
 
 	// App ops: logs, env editor, backups.
 	mux.HandleFunc("GET /apps/{id}/logs", s.auth.RequireAuth(s.handleAppLogs))

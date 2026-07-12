@@ -151,6 +151,20 @@ func (s *Server) handleHomeDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	events, _ := s.store.ListEvents(6)
+
+	// KPI aggregates: real container/cert/backup counts, degrading to "—".
+	containers, containersOK := s.engine.RunningContainers()
+	certOK := s.proxyEnabled()
+	certCount := 0
+	if certOK {
+		certCount, _ = s.store.CountTLSDomains()
+	}
+	backupCount, backupLatest := backupStats(s.backupsRoot())
+	backupLast := ""
+	if backupCount > 0 {
+		backupLast = humanizeSince(backupLatest)
+	}
+
 	s.render(w, r, "dashboard", viewData{
 		"Title":        "Dashboard · xdev",
 		"Projects":     projects,
@@ -164,6 +178,12 @@ func (s *Server) handleHomeDashboard(w http.ResponseWriter, r *http.Request) {
 		"Engine":       string(s.engine.Current()),
 		"Host":         metrics.HostSnapshot(),
 		"EngineMsg":    r.URL.Query().Get("engine_msg"),
+		"Containers":   containers,
+		"ContainersOK": containersOK,
+		"Certificates": certCount,
+		"CertsOK":      certOK,
+		"Backups":      backupCount,
+		"BackupLast":   backupLast,
 	})
 }
 
