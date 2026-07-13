@@ -127,6 +127,57 @@ func TestMailPorts(t *testing.T) {
 	}
 }
 
+// TestSharedDBCompose verifies shared-database mode: the compose drops its own
+// db service, joins the external xdev_shared network, and injects the xdev-db
+// host + per-app credentials — while dedicated mode keeps today's per-app db.
+func TestSharedDBCompose(t *testing.T) {
+	dbHostKey := map[string]string{"wordpress": "WORDPRESS_DB_HOST", "laravel": "DB_HOST"}
+	for _, typ := range []string{"wordpress", "laravel"} {
+		for _, env := range []string{"local", "prod"} {
+			d := Data{ProjectSlug: "demo", NetworkName: "xdev_demo", AppSlug: "site",
+				AppType: typ, Env: env, HostPort: 20000, AdminerPort: 20001,
+				SharedDB: true, DBName: "demo_site", DBPass: "p4ss"}
+			out, err := RenderCompose(typ, d)
+			if err != nil {
+				t.Fatalf("%s/%s shared: render error: %v", typ, env, err)
+			}
+			for _, want := range []string{
+				dbHostKey[typ] + ": xdev-db", // DB host points at the platform server
+				"demo_site",                  // db/user name injected
+				"p4ss",                       // generated password injected
+				"name: xdev_shared",          // joins the external shared network
+			} {
+				if !strings.Contains(out, want) {
+					t.Errorf("%s/%s shared: missing %q\n%s", typ, env, want, out)
+				}
+			}
+			for _, not := range []string{
+				"demo_site_db",          // no per-app db container
+				"MARIADB_ROOT_PASSWORD", // no per-app db env
+				"MYSQL_ROOT_PASSWORD",   //
+				"_volumes/mysql",        // no per-app db volume
+			} {
+				if strings.Contains(out, not) {
+					t.Errorf("%s/%s shared: must not contain %q\n%s", typ, env, not, out)
+				}
+			}
+
+			// Dedicated mode: today's per-app db service, no shared network.
+			d.SharedDB, d.DBName, d.DBPass = false, "", ""
+			out, err = RenderCompose(typ, d)
+			if err != nil {
+				t.Fatalf("%s/%s dedicated: render error: %v", typ, env, err)
+			}
+			if !strings.Contains(out, "demo_site_db") {
+				t.Errorf("%s/%s dedicated: missing per-app db service\n%s", typ, env, out)
+			}
+			if strings.Contains(out, "xdev_shared") || strings.Contains(out, "xdev-db") {
+				t.Errorf("%s/%s dedicated: must not reference the shared server\n%s", typ, env, out)
+			}
+		}
+	}
+}
+
 // TestRenderWithLimits verifies the deploy/resources block appears only when
 // limits are set.
 func TestRenderWithLimits(t *testing.T) {

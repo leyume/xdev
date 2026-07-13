@@ -115,7 +115,7 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	apps, _ := s.store.ListAppsByProject(proj.ID)
 	for _, a := range apps {
-		_ = s.apps.Delete(a.ID)
+		_ = s.apps.Delete(a.ID, s.backupsRoot())
 	}
 	name := proj.Name
 	if err := s.projects.Delete(proj.ID); err != nil {
@@ -153,6 +153,7 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		StartCmd:      r.FormValue("start_cmd"),
 		Upstream:      r.FormValue("upstream"),
 		AdminerDomain: r.FormValue("adminer_domain"),
+		DBMode:        r.FormValue("db_mode"),
 	})
 	if err != nil {
 		redirectWithError(w, r, "/projects/"+proj.Slug, err)
@@ -174,9 +175,10 @@ func (s *Server) handleAppRefresh(w http.ResponseWriter, r *http.Request) {
 	s.appAction(w, r, "", func(id int64) error { _, err := s.apps.RefreshStatus(id); return err })
 }
 
-// handleAppDelete removes an app and returns to its project page.
+// handleAppDelete removes an app (dumping its shared database into the backups
+// dir first, if it has one) and returns to its project page.
 func (s *Server) handleAppDelete(w http.ResponseWriter, r *http.Request) {
-	s.appAction(w, r, "Deleted", s.apps.Delete)
+	s.appAction(w, r, "Deleted", func(id int64) error { return s.apps.Delete(id, s.backupsRoot()) })
 }
 
 // appAction is the shared plumbing for per-app POST actions: parse the id,

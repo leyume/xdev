@@ -80,7 +80,15 @@ type CreateOpts struct {
 
 	// Laravel-only: hostname for the Adminer DB UI (blank = adminer.<app-domain>).
 	AdminerDomain string
+
+	// Database mode for wordpress/laravel: "shared" (default — one platform
+	// xdev-db MariaDB) or "dedicated" (per-app db service).
+	DBMode string
 }
+
+// usesDB reports whether an app type carries a MariaDB (and can therefore opt
+// into the shared server).
+func usesDB(appType string) bool { return appType == "wordpress" || appType == "laravel" }
 
 // secondaryPrefix returns the default hostname prefix for a type's extra
 // proxied HTTP UI (Adminer for laravel, the Stalwart admin for mail);
@@ -235,13 +243,33 @@ func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.P
 		adminerPort = alloc[1]
 	}
 
+	// Shared-database mode (default for db-backed types): provision the app's
+	// database/user on the platform xdev-db server before writing any files, so
+	// a provisioning failure leaves nothing to clean up. The rendered compose
+	// then drops its db service and joins xdev_shared instead.
+	shared := usesDB(opts.Type) && opts.DBMode != "dedicated"
+	var dbName, dbPass string
+	if shared {
+		ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
+		defer cancel()
+		dbName = sharedDBName(proj.Slug, app.Slug)
+		dbPass, err = s.provisionSharedDB(ctx, runtime.Engine(app.Runtime), dbName)
+		if err != nil {
+			return 0, err
+		}
+		app.DBMode = store.DBShared
+	}
+
 	underscore := filepath.Join(appDir, "_")
 	content := filepath.Join(appDir, "app")
 	dirs := []string{underscore, content}
 	if opts.Type == "laravel" {
-		// MariaDB/Redis persist under _volumes/ (bizepp format); podman needs the
-		// host dirs to pre-exist.
-		dirs = append(dirs, filepath.Join(appDir, "_volumes", "mysql"), filepath.Join(appDir, "_volumes", "redis"))
+		// Redis (and the dedicated MariaDB, if any) persist under _volumes/
+		// (bizepp format); podman needs the host dirs to pre-exist.
+		dirs = append(dirs, filepath.Join(appDir, "_volumes", "redis"))
+		if !shared {
+			dirs = append(dirs, filepath.Join(appDir, "_volumes", "mysql"))
+		}
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -259,6 +287,9 @@ func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.P
 		AdminerPort: adminerPort,
 		CPULimit:    opts.CPULimit,
 		MemLimit:    opts.MemLimit,
+		SharedDB:    shared,
+		DBName:      dbName,
+		DBPass:      dbPass,
 	})
 	if err != nil {
 		os.RemoveAll(appDir)
@@ -495,7 +526,9 @@ func (s *Service) Stop(id int64) error {
 }
 
 // Delete tears the app down, removes the app row, and deletes its directory.
-func (s *Service) Delete(id int64) error {
+// Shared-database apps get their database dumped into backupsRoot first, then
+// dropped (with its user) from the shared server.
+func (s *Service) Delete(id int64, backupsRoot string) error {
 	app, err := s.store.AppByID(id)
 	if err != nil {
 		return err
@@ -520,6 +553,18 @@ func (s *Service) Delete(id int64) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
 	defer cancel()
+	if app.DBMode == store.DBShared {
+		if proj, err := s.store.ProjectByID(app.ProjectID); err == nil {
+			db := sharedDBName(proj.Slug, app.Slug)
+			// Dump first; only drop when the dump landed, so a hiccup (shared
+			// server down, disk full) can't silently lose the data.
+			if _, err := s.dumpSharedDB(ctx, engine, app, db, backupsRoot); err != nil {
+				log.Printf("dump shared db %s: %v (leaving database in place)", db, err)
+			} else if err := s.dropSharedDB(ctx, engine, db); err != nil {
+				log.Printf("drop shared db %s: %v", db, err)
+			}
+		}
+	}
 	// Best-effort container teardown; proceed with row/dir removal regardless.
 	runtime.Down(ctx, engine, workdir, pname, file)
 	if err := s.store.DeleteApp(id); err != nil {

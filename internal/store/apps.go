@@ -21,6 +21,10 @@ const (
 	ServeCommand = "command" // xdev supervises StartCmd as a host process on Port
 )
 
+// DBShared marks an app whose database lives on the shared xdev-db MariaDB
+// server instead of a per-app db service ("" = dedicated / not applicable).
+const DBShared = "shared"
+
 // App is one deployable component inside a project. Container apps (wordpress,
 // laravel) are a compose stack; static apps run on the host (system Node or
 // Caddy file-server) and carry the serve_mode/*_cmd fields instead.
@@ -43,7 +47,8 @@ type App struct {
 	BuildCmd  string // optional one-shot build step (system Node)
 	StartCmd  string // long-lived command for command mode (system Node)
 	// Proxy-app config (see migration 0007).
-	Upstream  string // URL the domain forwards to (http(s)://host[:port])
+	Upstream string // URL the domain forwards to (http(s)://host[:port])
+	DBMode   string // "shared" = uses xdev-db; "" = dedicated / n/a (migration 0008)
 	CreatedAt string
 	UpdatedAt string
 }
@@ -59,11 +64,11 @@ func (s *Store) CreateApp(a App) (App, error) {
 	res, err := s.db.Exec(
 		`INSERT INTO apps (project_id, name, slug, type, runtime, status, subdomain,
 		                   cpu_limit, mem_limit, port, compose_path,
-		                   serve_mode, root_dir, build_cmd, start_cmd, upstream)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   serve_mode, root_dir, build_cmd, start_cmd, upstream, db_mode)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ProjectID, a.Name, a.Slug, a.Type, a.Runtime, statusOr(a.Status),
 		a.Domain, a.CPULimit, a.MemLimit, a.Port, a.ComposePath,
-		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd, a.Upstream,
+		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd, a.Upstream, a.DBMode,
 	)
 	if err != nil {
 		return App{}, err
@@ -161,13 +166,13 @@ func (s *Store) ResumableStaticApps() ([]App, error) {
 
 const appSelect = `SELECT id, project_id, name, slug, type, runtime, status, subdomain,
 	cpu_limit, mem_limit, port, compose_path,
-	serve_mode, root_dir, build_cmd, start_cmd, upstream, created_at, updated_at FROM apps`
+	serve_mode, root_dir, build_cmd, start_cmd, upstream, db_mode, created_at, updated_at FROM apps`
 
 func (s *Store) scanApp(row *sql.Row) (App, error) {
 	var a App
 	err := row.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Slug, &a.Type, &a.Runtime,
 		&a.Status, &a.Domain, &a.CPULimit, &a.MemLimit, &a.Port, &a.ComposePath,
-		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.CreatedAt, &a.UpdatedAt)
+		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.DBMode, &a.CreatedAt, &a.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return App{}, ErrNotFound
 	}
@@ -178,7 +183,7 @@ func scanAppRows(rows *sql.Rows) (App, error) {
 	var a App
 	err := rows.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Slug, &a.Type, &a.Runtime,
 		&a.Status, &a.Domain, &a.CPULimit, &a.MemLimit, &a.Port, &a.ComposePath,
-		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.CreatedAt, &a.UpdatedAt)
+		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.DBMode, &a.CreatedAt, &a.UpdatedAt)
 	return a, err
 }
 
