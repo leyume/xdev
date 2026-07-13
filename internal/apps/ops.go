@@ -36,6 +36,9 @@ func (s *Service) Logs(id int64, tail int) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if app.IsProxy() {
+		return "Proxy app — traffic is forwarded upstream; there are no local logs.", nil
+	}
 	if app.IsStatic() {
 		proj, err := s.store.ProjectByID(app.ProjectID)
 		if err != nil {

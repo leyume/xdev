@@ -13,16 +13,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
 // Route maps a hostname to how Caddy should serve it. Either Upstream (reverse
-// proxy to a host port — containers and command-mode static apps) or Root
-// (file-server a directory directly — serve-mode static apps) is set.
+// proxy to a host port, or — for proxy apps — a full URL to another server) or
+// Root (file-server a directory directly — serve-mode static apps) is set.
 type Route struct {
 	Host     string // e.g. frontend.demo.test
-	Upstream string // e.g. 127.0.0.1:20000
+	Upstream string // e.g. 127.0.0.1:20000, or https://other-server.example (proxy apps)
 	Root     string // e.g. /…/projects/demo/frontend/dist (file_server)
 	Internal bool   // true = local CA (.test); false = public ACME/Let's Encrypt
 }
@@ -113,6 +116,40 @@ func (m *Manager) url(path string) string {
 	return "http://" + m.adminAddr + path
 }
 
+// reverseProxyHandler builds the reverse_proxy handler JSON for an upstream:
+// either a plain host:port (a local app port) or, for proxy apps, a full URL
+// (http(s)://host[:port]) to another server. An https upstream gets a TLS
+// transport, with SNI (server_name) when it's named rather than an IP so cert
+// verification against the origin works. The incoming Host header passes
+// through untouched (Caddy's default), keeping name-based vhosts — and
+// websockets — on the other server working.
+func reverseProxyHandler(upstream string) map[string]any {
+	h := map[string]any{"handler": "reverse_proxy"}
+	dial := upstream
+	if strings.Contains(upstream, "://") {
+		if u, err := url.Parse(upstream); err == nil && u.Host != "" {
+			host, port := u.Hostname(), u.Port()
+			if port == "" {
+				if u.Scheme == "https" {
+					port = "443"
+				} else {
+					port = "80"
+				}
+			}
+			dial = net.JoinHostPort(host, port)
+			if u.Scheme == "https" {
+				tls := map[string]any{}
+				if net.ParseIP(host) == nil {
+					tls["server_name"] = host
+				}
+				h["transport"] = map[string]any{"protocol": "http", "tls": tls}
+			}
+		}
+	}
+	h["upstreams"] = []any{map[string]any{"dial": dial}}
+	return h
+}
+
 // buildConfig assembles a full Caddy JSON config: one HTTP server listening on
 // the configured http+https ports, a route per host reverse-proxying to its
 // upstream, and a TLS automation policy using the internal (local) CA.
@@ -138,10 +175,7 @@ func (m *Manager) buildConfig(routes []Route) map[string]any {
 				map[string]any{"handler": "file_server"},
 			}
 		} else {
-			handle = []any{map[string]any{
-				"handler":   "reverse_proxy",
-				"upstreams": []any{map[string]any{"dial": r.Upstream}},
-			}}
+			handle = []any{reverseProxyHandler(r.Upstream)}
 		}
 		httpRoutes = append(httpRoutes, map[string]any{
 			"match":    []any{map[string]any{"host": []string{r.Host}}},

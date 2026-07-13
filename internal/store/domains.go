@@ -4,13 +4,14 @@ import "path/filepath"
 
 // RouteInfo is a hostname paired with the upstream its app is served from — the
 // pair the reverse proxy needs to route traffic. Exactly one of Port (a host
-// port to reverse-proxy to) or Root (a directory for Caddy to file-server) is
-// set; Root is used by serve-mode static apps that have no process.
+// port to reverse-proxy to), Root (a directory for Caddy to file-server), or
+// Upstream (a proxy app's remote URL) is set.
 type RouteInfo struct {
-	Host  string
-	Port  int
-	Root  string // filesystem dir to serve directly (serve-mode static apps)
-	Local bool   // local (.test, internal CA) vs public (ACME)
+	Host     string
+	Port     int
+	Root     string // filesystem dir to serve directly (serve-mode static apps)
+	Upstream string // remote URL to forward to (proxy apps)
+	Local    bool   // local (.test, internal CA) vs public (ACME)
 }
 
 // AppServiceDomain returns the hostname of an app's secondary-service route
@@ -84,15 +85,17 @@ func (s *Store) CreateDomain(appID int64, hostname string, isLocal bool, sslMode
 
 // ProxyRoutes returns every domain whose app has a routable upstream, for
 // building the reverse-proxy config: a published host port (containers and
-// command-mode static apps), or — for serve-mode static apps — the on-disk
-// directory Caddy should file-server directly.
+// command-mode static apps), a serve-mode static app's on-disk directory to
+// file-server, or a proxy app's remote upstream URL. Proxy apps only route
+// while running (stop = drop the route; there is nothing else to stop).
 func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 	rows, err := s.db.Query(`
-		SELECT d.hostname, d.port, a.port, d.is_local, a.type, a.serve_mode, a.root_dir, a.slug, p.dir
+		SELECT d.hostname, d.port, a.port, d.is_local, a.type, a.serve_mode, a.root_dir, a.upstream, a.slug, p.dir
 		FROM domains d
 		JOIN apps a ON a.id = d.app_id
 		JOIN projects p ON p.id = a.project_id
 		WHERE d.port > 0 OR a.port > 0 OR (a.type = 'static' AND a.serve_mode = 'serve')
+		   OR (a.type = 'proxy' AND a.status = 'running')
 		ORDER BY d.hostname`)
 	if err != nil {
 		return nil, err
@@ -103,8 +106,8 @@ func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 	for rows.Next() {
 		var r RouteInfo
 		var isLocal, domainPort, appPort int
-		var appType, serveMode, rootDir, slug, projDir string
-		if err := rows.Scan(&r.Host, &domainPort, &appPort, &isLocal, &appType, &serveMode, &rootDir, &slug, &projDir); err != nil {
+		var appType, serveMode, rootDir, upstream, slug, projDir string
+		if err := rows.Scan(&r.Host, &domainPort, &appPort, &isLocal, &appType, &serveMode, &rootDir, &upstream, &slug, &projDir); err != nil {
 			return nil, err
 		}
 		r.Local = isLocal == 1
@@ -112,6 +115,9 @@ func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 		case domainPort > 0:
 			// Secondary service domain (e.g. Adminer): route straight to its port.
 			r.Port = domainPort
+		case appType == TypeProxy:
+			// Proxy apps forward to a remote URL instead of a local port.
+			r.Upstream = upstream
 		case appType == TypeStatic && serveMode == ServeStatic:
 			// Serve-mode static apps have no upstream port; Caddy serves their
 			// files from <project.dir>/<slug>/<root_dir> directly.

@@ -73,6 +73,7 @@
           {{else}}<a href="https://{{$host}}:{{$.HTTPSPort}}" target="_blank">https://{{$host}}:{{$.HTTPSPort}}</a>{{end}}
         {{else}}{{$host}}{{end}}
         {{if .Port}}<span class="muted">·</span><a href="http://127.0.0.1:{{.Port}}" target="_blank" class="muted">:{{.Port}} direct</a>{{end}}
+        {{if .Upstream}}<span class="muted">→ {{.Upstream}}</span>{{end}}
         {{$adm := index $.AdminerDomains .ID}}
         {{$admLabel := "Adminer"}}{{if eq .Type "mail"}}{{$admLabel = "Mail admin"}}{{end}}
         {{if $adm}}<span class="muted">·</span>
@@ -85,10 +86,12 @@
       </div>
 
       <div class="tabs">
+        {{if ne .Type "proxy"}}{{/* proxy apps have nothing local to measure, log, or back up */}}
         <span class="tab" :class="{active: tab==='metrics'}" @click="tab='metrics'">Metrics</span>
         <span class="tab" :class="{active: tab==='logs'}" @click="open('logs')">Logs</span>
         <span class="tab" :class="{active: tab==='env'}" @click="open('env')">Env</span>
         <span class="tab" :class="{active: tab==='backups'}" @click="open('backups')">Backups</span>
+        {{end}}
         <span class="spacer"></span>
         <form class="domain-edit" method="post" action="/apps/{{.ID}}/domain">
           <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
@@ -97,6 +100,7 @@
         </form>
       </div>
 
+      {{if ne .Type "proxy"}}
       <div class="tab-panel" x-show="tab==='metrics'">
         <div id="cpuChart-{{.ID}}" class="mini-chart"></div>
         <div id="memChart-{{.ID}}" class="mini-chart"></div>
@@ -113,6 +117,7 @@
         <div x-ref="backups"><div class="muted small">Loading…</div></div>
         <div class="muted small"><a href="/apps/{{.ID}}/backups">manage backups ↗</a></div>
       </div>
+      {{end}}
     </div>
     {{end}}
     {{else}}
@@ -199,6 +204,13 @@
         </div>
       </template>
 
+      <!-- Proxy: just a Caddy route forwarding the domain to another server. -->
+      <template x-if="type==='proxy'">
+        <label>Upstream URL <span class="muted">(the server to forward to — e.g. <code>http://10.0.0.5:3000</code>)</span>
+          <input type="text" name="upstream" required placeholder="https://other-server.example" spellcheck="false">
+        </label>
+      </template>
+
       <!-- Laravel: pick the hostname for the bundled Adminer DB UI. -->
       <template x-if="type==='laravel'">
         <label>Adminer domain <span class="muted">(DB UI — blank = <code>adminer.&lt;app-domain&gt;</code>)</span>
@@ -213,8 +225,8 @@
         </label>
       </template>
 
-      <!-- Container apps: resource limits apply (not host processes). -->
-      <div class="row2" x-show="type!=='static'">
+      <!-- Container apps: resource limits apply (not host processes or routes). -->
+      <div class="row2" x-show="type!=='static' && type!=='proxy'">
         <label>CPU limit <span class="muted">(cores, optional)</span>
           <input type="number" name="cpu_cores" step="0.25" min="0" placeholder="e.g. 1.0">
         </label>

@@ -20,8 +20,9 @@ func TestRenderAllAvailableTypes(t *testing.T) {
 		if !ti.Available {
 			continue
 		}
-		// Static apps run on the host and have no compose template to render.
-		if ti.Type == "static" {
+		// Static apps run on the host and proxy apps are just a Caddy route —
+		// neither has a compose template to render.
+		if ti.Type == "static" || ti.Type == "proxy" {
 			continue
 		}
 		d.AppType = ti.Type

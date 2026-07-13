@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,6 +74,9 @@ type CreateOpts struct {
 	RootDir   string
 	BuildCmd  string
 	StartCmd  string
+
+	// Proxy-only: URL the domain forwards to (http(s)://host[:port]).
+	Upstream string
 
 	// Laravel-only: hostname for the Adminer DB UI (blank = adminer.<app-domain>).
 	AdminerDomain string
@@ -146,11 +150,19 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 
 	// adminerPort is allocated by layoutContainer for types that ship Adminer.
 	var adminerPort int
-	if opts.Type == store.TypeStatic {
+	switch opts.Type {
+	case store.TypeProxy:
+		// Proxy apps are only a Caddy route to another server: no container,
+		// process, port, or on-disk layout — just a validated upstream URL.
+		app.Upstream, err = validUpstream(opts.Upstream)
+		if err != nil {
+			return store.App{}, err
+		}
+	case store.TypeStatic:
 		if err := s.layoutStatic(&app, &opts, appDir); err != nil {
 			return store.App{}, err
 		}
-	} else {
+	default:
 		adminerPort, err = s.layoutContainer(&app, &opts, proj, appDir)
 		if err != nil {
 			return store.App{}, err
@@ -359,11 +371,15 @@ func (s *Service) writeStaticPlaceholder(dir, appName string) {
 
 // Start (re)launches the app. Container apps recreate their compose stack
 // (idempotent: up -d); static apps run their build step and, in command mode,
-// (re)spawn their host process.
+// (re)spawn their host process; proxy apps have nothing to run — running just
+// means their route exists (the caller reconciles the proxy afterwards).
 func (s *Service) Start(id int64) error {
 	app, err := s.store.AppByID(id)
 	if err != nil {
 		return err
+	}
+	if app.IsProxy() {
+		return s.store.SetAppStatus(app.ID, store.AppRunning)
 	}
 	if app.IsStatic() {
 		return s.startStatic(app)
@@ -452,11 +468,15 @@ func (s *Service) ResumeStatic() {
 }
 
 // Stop stops the app: container apps stop their containers (kept for a quick
-// restart); static command-mode apps have their host process killed.
+// restart); static command-mode apps have their host process killed; proxy
+// apps just go stopped (the caller's reconcile drops their route).
 func (s *Service) Stop(id int64) error {
 	app, err := s.store.AppByID(id)
 	if err != nil {
 		return err
+	}
+	if app.IsProxy() {
+		return s.store.SetAppStatus(id, store.AppStopped)
 	}
 	if app.IsStatic() {
 		s.sup.Stop(id)
@@ -479,6 +499,9 @@ func (s *Service) Delete(id int64) error {
 	app, err := s.store.AppByID(id)
 	if err != nil {
 		return err
+	}
+	if app.IsProxy() {
+		return s.store.DeleteApp(id) // nothing on disk or in a runtime to tear down
 	}
 	if app.IsStatic() {
 		s.sup.Stop(id)
@@ -515,6 +538,9 @@ func (s *Service) RefreshStatus(id int64) (string, error) {
 	app, err := s.store.AppByID(id)
 	if err != nil {
 		return "", err
+	}
+	if app.IsProxy() {
+		return app.Status, nil // no process or container to check
 	}
 	if app.IsStatic() {
 		// Serve-mode apps have no process; their state is whatever create/start
@@ -666,6 +692,22 @@ func (s *Service) SetDomain(id int64, domain string) error {
 		return err
 	}
 	return s.store.ReplaceAppDomain(id, domain, isLocal, sslMode)
+}
+
+// validUpstream validates a proxy app's upstream at the trust boundary: it must
+// parse as a bare http(s) URL — scheme + host[:port], nothing else (no path,
+// query, or credentials). Returns the normalized scheme://host[:port] form.
+func validUpstream(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", errors.New("upstream URL is required")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
+		u.User != nil || u.RawQuery != "" || (u.Path != "" && u.Path != "/") {
+		return "", fmt.Errorf("invalid upstream %q — use http(s)://host[:port]", raw)
+	}
+	return u.Scheme + "://" + u.Host, nil
 }
 
 // normalizeHost lowercases and trims a hostname.

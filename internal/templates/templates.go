@@ -57,6 +57,7 @@ type TypeInfo struct {
 func Catalog() []TypeInfo {
 	return []TypeInfo{
 		{"static", "Static", "Static site/app served by xdev with your system Node — no container. Code lives directly in the app folder.", true},
+		{"proxy", "Proxy", "Forward this domain to another server — just a Caddy route to an upstream URL. No container, process, or files.", true},
 		{"wordpress", "WordPress", "WordPress + MariaDB, code in app/.", true},
 		{"laravel", "Laravel", "Laravel on Octane/Swoole + MariaDB + Redis (drop your app in app/).", true},
 		{"mail", "Mail", "Full mail server — Stalwart (SMTP/IMAP, admin UI for domains, mailboxes, DKIM) + SnappyMail webmail. Prod needs port 25 open and MX/SPF/DKIM DNS records.", true},

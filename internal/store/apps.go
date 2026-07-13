@@ -15,6 +15,7 @@ const (
 // Static app types and serve modes.
 const (
 	TypeStatic = "static" // runs on system Node / served by Caddy, no container
+	TypeProxy  = "proxy"  // a Caddy route to another server — no container/process/port
 
 	ServeStatic  = "serve"   // Caddy file-servers RootDir directly (no process)
 	ServeCommand = "command" // xdev supervises StartCmd as a host process on Port
@@ -41,6 +42,8 @@ type App struct {
 	RootDir   string // served subdir for serve mode ("" = the app folder)
 	BuildCmd  string // optional one-shot build step (system Node)
 	StartCmd  string // long-lived command for command mode (system Node)
+	// Proxy-app config (see migration 0007).
+	Upstream  string // URL the domain forwards to (http(s)://host[:port])
 	CreatedAt string
 	UpdatedAt string
 }
@@ -48,16 +51,19 @@ type App struct {
 // IsStatic reports whether the app runs on the host rather than in a container.
 func (a App) IsStatic() bool { return a.Type == TypeStatic }
 
+// IsProxy reports whether the app is only a route to another server.
+func (a App) IsProxy() bool { return a.Type == TypeProxy }
+
 // CreateApp inserts an app and returns it with its assigned id.
 func (s *Store) CreateApp(a App) (App, error) {
 	res, err := s.db.Exec(
 		`INSERT INTO apps (project_id, name, slug, type, runtime, status, subdomain,
 		                   cpu_limit, mem_limit, port, compose_path,
-		                   serve_mode, root_dir, build_cmd, start_cmd)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   serve_mode, root_dir, build_cmd, start_cmd, upstream)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ProjectID, a.Name, a.Slug, a.Type, a.Runtime, statusOr(a.Status),
 		a.Domain, a.CPULimit, a.MemLimit, a.Port, a.ComposePath,
-		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd,
+		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd, a.Upstream,
 	)
 	if err != nil {
 		return App{}, err
@@ -155,13 +161,13 @@ func (s *Store) ResumableStaticApps() ([]App, error) {
 
 const appSelect = `SELECT id, project_id, name, slug, type, runtime, status, subdomain,
 	cpu_limit, mem_limit, port, compose_path,
-	serve_mode, root_dir, build_cmd, start_cmd, created_at, updated_at FROM apps`
+	serve_mode, root_dir, build_cmd, start_cmd, upstream, created_at, updated_at FROM apps`
 
 func (s *Store) scanApp(row *sql.Row) (App, error) {
 	var a App
 	err := row.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Slug, &a.Type, &a.Runtime,
 		&a.Status, &a.Domain, &a.CPULimit, &a.MemLimit, &a.Port, &a.ComposePath,
-		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.CreatedAt, &a.UpdatedAt)
+		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.CreatedAt, &a.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return App{}, ErrNotFound
 	}
@@ -172,7 +178,7 @@ func scanAppRows(rows *sql.Rows) (App, error) {
 	var a App
 	err := rows.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Slug, &a.Type, &a.Runtime,
 		&a.Status, &a.Domain, &a.CPULimit, &a.MemLimit, &a.Port, &a.ComposePath,
-		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.CreatedAt, &a.UpdatedAt)
+		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.CreatedAt, &a.UpdatedAt)
 	return a, err
 }
 

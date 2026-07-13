@@ -48,9 +48,12 @@ func (r *Reconciler) Sync() error {
 	hostnames := make([]string, 0, len(infos))
 	for _, in := range infos {
 		route := proxy.Route{Host: in.Host, Internal: in.Local}
-		if in.Root != "" {
+		switch {
+		case in.Upstream != "":
+			route.Upstream = in.Upstream // proxy app: forwards to another server (URL)
+		case in.Root != "":
 			route.Root = in.Root // serve-mode static app: file-served, no port
-		} else {
+		default:
 			route.Upstream = fmt.Sprintf("127.0.0.1:%d", in.Port)
 		}
 		routes = append(routes, route)

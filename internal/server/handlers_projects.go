@@ -151,6 +151,7 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		RootDir:       r.FormValue("root_dir"),
 		BuildCmd:      r.FormValue("build_cmd"),
 		StartCmd:      r.FormValue("start_cmd"),
+		Upstream:      r.FormValue("upstream"),
 		AdminerDomain: r.FormValue("adminer_domain"),
 	})
 	if err != nil {
