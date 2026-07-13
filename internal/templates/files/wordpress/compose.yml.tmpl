@@ -2,20 +2,34 @@
 # Project: {{.ProjectSlug}}   App: {{.AppSlug}}
 #
 # WordPress core + your themes/plugins live in the bind-mounted app/ directory
-# (the official image populates it on first run). Database data persists in a
-# named volume. The reverse proxy fronts the web service on its host port.
+# (the official image populates it on first run). The reverse proxy fronts the
+# web service on its host port.
+{{- if .SharedDB}}
+#
+# Shared-database mode: no db service here — this app's database lives on the
+# platform xdev-db MariaDB, reached over the external xdev_shared network.
+{{- end}}
 services:
   web:
     image: docker.io/library/wordpress:6-php8.3-apache
     container_name: {{.ProjectSlug}}_{{.AppSlug}}_web
     restart: unless-stopped
+{{- if not .SharedDB}}
     depends_on:
       - db
+{{- end}}
     environment:
+{{- if .SharedDB}}
+      WORDPRESS_DB_HOST: xdev-db
+      WORDPRESS_DB_USER: {{.DBName}}
+      WORDPRESS_DB_PASSWORD: {{.DBPass}}
+      WORDPRESS_DB_NAME: {{.DBName}}
+{{- else}}
       WORDPRESS_DB_HOST: db
       WORDPRESS_DB_USER: wp
       WORDPRESS_DB_PASSWORD: wp_secret
       WORDPRESS_DB_NAME: wordpress
+{{- end}}
     volumes:
       - ../app:/var/www/html
     ports:
@@ -34,6 +48,9 @@ services:
     networks:
       - internal
       - projectnet
+{{- if .SharedDB}}
+      - shareddb
+{{- else}}
 
   db:
     image: docker.io/library/mariadb:11
@@ -51,6 +68,7 @@ services:
 
 volumes:
   db_data:
+{{- end}}
 
 networks:
   # internal: private to this app (web <-> db by service name).
@@ -60,3 +78,9 @@ networks:
   projectnet:
     name: {{.NetworkName}}
     external: true
+{{- if .SharedDB}}
+  # shareddb: platform-wide network where the single xdev-db MariaDB lives.
+  shareddb:
+    name: xdev_shared
+    external: true
+{{- end}}

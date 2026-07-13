@@ -32,6 +32,12 @@ type Data struct {
 	AdminerPort int     // published host port for the secondary HTTP UI (laravel Adminer, mail admin); 0 = none
 	CPULimit    float64 // cores; 0 = unlimited
 	MemLimit    int64   // bytes; 0 = unlimited
+
+	// Shared-database mode (PLANx §B): the app uses the platform xdev-db MariaDB
+	// on the external xdev_shared network instead of its own db service.
+	SharedDB bool
+	DBName   string // database AND user name on xdev-db (<project>_<app>)
+	DBPass   string // generated password for that user
 }
 
 // HasLimits reports whether any resource limit is set (drives the deploy block).

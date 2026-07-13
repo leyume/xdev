@@ -199,6 +199,16 @@
         </div>
       </template>
 
+      <!-- WordPress/Laravel: one shared xdev MariaDB (saves RAM) or a per-app one. -->
+      <template x-if="type==='wordpress' || type==='laravel'">
+        <label>Database
+          <select name="db_mode">
+            <option value="shared">Shared — one xdev-managed MariaDB for all apps (saves RAM)</option>
+            <option value="dedicated">Dedicated — this app runs its own MariaDB container</option>
+          </select>
+        </label>
+      </template>
+
       <!-- Laravel: pick the hostname for the bundled Adminer DB UI. -->
       <template x-if="type==='laravel'">
         <label>Adminer domain <span class="muted">(DB UI — blank = <code>adminer.&lt;app-domain&gt;</code>)</span>

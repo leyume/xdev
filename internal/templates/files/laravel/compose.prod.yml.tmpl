@@ -5,22 +5,38 @@
 # Uses the hardened Swoole prod image; app code is mounted read-only with
 # writable storage/cache carved out. Build your app (composer install --no-dev +
 # assets) and run migrations BEFORE deploying — do not bootstrap in production.
-# DB/Redis persist under _volumes/ (bind-mounts, bizepp format).
+# Redis persists under _volumes/ (bind-mounts, bizepp format).
+{{- if .SharedDB}}
+#
+# Shared-database mode: no db service here — this app's database lives on the
+# platform xdev-db MariaDB, reached over the external xdev_shared network.
+{{- else}}
+# The dedicated MariaDB persists under _volumes/mysql.
+{{- end}}
 services:
   app:
     image: docker.io/leyume/swoole:2.0.0-prod
     container_name: {{.ProjectSlug}}_{{.AppSlug}}_app
     restart: unless-stopped
     depends_on:
+{{- if not .SharedDB}}
       - db
+{{- end}}
       - redis
     environment:
       APP_ENV: production
       DB_CONNECTION: mysql
+{{- if .SharedDB}}
+      DB_HOST: xdev-db
+      DB_DATABASE: {{.DBName}}
+      DB_USERNAME: {{.DBName}}
+      DB_PASSWORD: {{.DBPass}}
+{{- else}}
       DB_HOST: db
       DB_DATABASE: laravel
       DB_USERNAME: laravel
       DB_PASSWORD: ${DB_PASSWORD:-secret}
+{{- end}}
       REDIS_HOST: redis
     volumes:
       - ../app:/var/www/html:ro
@@ -49,6 +65,10 @@ services:
     networks:
       - internal
       - projectnet
+{{- if .SharedDB}}
+      - shareddb
+{{- end}}
+{{- if not .SharedDB}}
 
   db:
     image: docker.io/leyume/mariadb
@@ -64,6 +84,7 @@ services:
       - ./db/my.cnf:/etc/mysql/conf.d/my.cnf:ro
     networks:
       - internal
+{{- end}}
 
   redis:
     image: docker.io/library/redis:7-alpine
@@ -79,16 +100,21 @@ services:
     image: docker.io/library/adminer
     container_name: {{.ProjectSlug}}_{{.AppSlug}}_adminer
     restart: unless-stopped
+{{- if not .SharedDB}}
     depends_on:
       - db
+{{- end}}
     environment:
-      ADMINER_DEFAULT_SERVER: db
+      ADMINER_DEFAULT_SERVER: {{if .SharedDB}}xdev-db{{else}}db{{end}}
     volumes:
       - ./db/adminer.css:/var/www/html/adminer.css:ro
     ports:
       - "{{.AdminerPort}}:8080"
     networks:
       - internal
+{{- if .SharedDB}}
+      - shareddb
+{{- end}}
 
 volumes:
   storage:
@@ -99,3 +125,9 @@ networks:
   projectnet:
     name: {{.NetworkName}}
     external: true
+{{- if .SharedDB}}
+  # shareddb: platform-wide network where the single xdev-db MariaDB lives.
+  shareddb:
+    name: xdev_shared
+    external: true
+{{- end}}

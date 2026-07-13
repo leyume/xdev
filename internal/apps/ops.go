@@ -103,12 +103,29 @@ func (s *Service) backupsDirFor(app store.App, backupsRoot string) (string, erro
 }
 
 // Backup writes a timestamped .tar.gz of the app's directory (compose + content)
-// under backupsRoot and returns the archive path. Named volumes (e.g. databases)
-// are not included — back those up separately.
+// under backupsRoot and returns the archive path. Dedicated per-app databases
+// (named volumes / _volumes) are not included — back those up separately; a
+// shared-mode app additionally gets a mariadb-dump of its database written next
+// to the archive.
 func (s *Service) Backup(id int64, backupsRoot string) (string, error) {
 	app, err := s.store.AppByID(id)
 	if err != nil {
 		return "", err
+	}
+	if app.DBMode == store.DBShared {
+		proj, err := s.store.ProjectByID(app.ProjectID)
+		if err != nil {
+			return "", err
+		}
+		engine := s.sel.Current()
+		if app.Runtime != "" {
+			engine = runtime.Engine(app.Runtime)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
+		defer cancel()
+		if _, err := s.dumpSharedDB(ctx, engine, app, sharedDBName(proj.Slug, app.Slug), backupsRoot); err != nil {
+			return "", err
+		}
 	}
 	dir, err := s.backupsDirFor(app, backupsRoot)
 	if err != nil {
