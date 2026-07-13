@@ -25,6 +25,11 @@ const (
 // server instead of a per-app db service ("" = dedicated / not applicable).
 const DBShared = "shared"
 
+// WPShared marks a WordPress app served by the shared platform wp-host (the
+// xdev-wp PHP-FPM container) from data/wp/sites/ — no container, compose file,
+// or port of its own ("" = separate container / not applicable).
+const WPShared = "shared"
+
 // App is one deployable component inside a project. Container apps (wordpress,
 // laravel) are a compose stack; static apps run on the host (system Node or
 // Caddy file-server) and carry the serve_mode/*_cmd fields instead.
@@ -47,8 +52,9 @@ type App struct {
 	BuildCmd  string // optional one-shot build step (system Node)
 	StartCmd  string // long-lived command for command mode (system Node)
 	// Proxy-app config (see migration 0007).
-	Upstream string // URL the domain forwards to (http(s)://host[:port])
-	DBMode   string // "shared" = uses xdev-db; "" = dedicated / n/a (migration 0008)
+	Upstream  string // URL the domain forwards to (http(s)://host[:port])
+	DBMode    string // "shared" = uses xdev-db; "" = dedicated / n/a (migration 0008)
+	WPMode    string // "shared" = served by wp-host; "" = own container / n/a (migration 0009)
 	CreatedAt string
 	UpdatedAt string
 }
@@ -59,16 +65,21 @@ func (a App) IsStatic() bool { return a.Type == TypeStatic }
 // IsProxy reports whether the app is only a route to another server.
 func (a App) IsProxy() bool { return a.Type == TypeProxy }
 
+// IsSharedWP reports whether the app is a shared-host WordPress site: a docroot
+// served by the platform wp-host, with no container of its own (route-only
+// lifecycle, like proxy apps).
+func (a App) IsSharedWP() bool { return a.Type == "wordpress" && a.WPMode == WPShared }
+
 // CreateApp inserts an app and returns it with its assigned id.
 func (s *Store) CreateApp(a App) (App, error) {
 	res, err := s.db.Exec(
 		`INSERT INTO apps (project_id, name, slug, type, runtime, status, subdomain,
 		                   cpu_limit, mem_limit, port, compose_path,
-		                   serve_mode, root_dir, build_cmd, start_cmd, upstream, db_mode)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   serve_mode, root_dir, build_cmd, start_cmd, upstream, db_mode, wp_mode)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ProjectID, a.Name, a.Slug, a.Type, a.Runtime, statusOr(a.Status),
 		a.Domain, a.CPULimit, a.MemLimit, a.Port, a.ComposePath,
-		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd, a.Upstream, a.DBMode,
+		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd, a.Upstream, a.DBMode, a.WPMode,
 	)
 	if err != nil {
 		return App{}, err
@@ -115,13 +126,16 @@ func (s *Store) SetAppStatus(id int64, status string) error {
 	return err
 }
 
-// UsedPorts returns every non-zero host port currently assigned — both app
-// ports and secondary-service domain ports (e.g. Adminer) — so the allocator
-// can avoid collisions.
+// UsedPorts returns every non-zero host port currently assigned — app ports,
+// secondary-service domain ports (e.g. Adminer), and the wp-host fpm port (a
+// settings row, not an app) — so the allocator can avoid collisions even while
+// the owning container is stopped.
 func (s *Store) UsedPorts() ([]int, error) {
 	rows, err := s.db.Query(
 		`SELECT port FROM apps WHERE port > 0
-		 UNION SELECT port FROM domains WHERE port > 0`)
+		 UNION SELECT port FROM domains WHERE port > 0
+		 UNION SELECT CAST(value AS INTEGER) FROM settings WHERE key = ? AND CAST(value AS INTEGER) > 0`,
+		WPHostFPMPortKey)
 	if err != nil {
 		return nil, err
 	}
@@ -166,13 +180,13 @@ func (s *Store) ResumableStaticApps() ([]App, error) {
 
 const appSelect = `SELECT id, project_id, name, slug, type, runtime, status, subdomain,
 	cpu_limit, mem_limit, port, compose_path,
-	serve_mode, root_dir, build_cmd, start_cmd, upstream, db_mode, created_at, updated_at FROM apps`
+	serve_mode, root_dir, build_cmd, start_cmd, upstream, db_mode, wp_mode, created_at, updated_at FROM apps`
 
 func (s *Store) scanApp(row *sql.Row) (App, error) {
 	var a App
 	err := row.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Slug, &a.Type, &a.Runtime,
 		&a.Status, &a.Domain, &a.CPULimit, &a.MemLimit, &a.Port, &a.ComposePath,
-		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.DBMode, &a.CreatedAt, &a.UpdatedAt)
+		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.DBMode, &a.WPMode, &a.CreatedAt, &a.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return App{}, ErrNotFound
 	}
@@ -183,7 +197,7 @@ func scanAppRows(rows *sql.Rows) (App, error) {
 	var a App
 	err := rows.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Slug, &a.Type, &a.Runtime,
 		&a.Status, &a.Domain, &a.CPULimit, &a.MemLimit, &a.Port, &a.ComposePath,
-		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.DBMode, &a.CreatedAt, &a.UpdatedAt)
+		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.DBMode, &a.WPMode, &a.CreatedAt, &a.UpdatedAt)
 	return a, err
 }
 

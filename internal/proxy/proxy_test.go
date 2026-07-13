@@ -54,6 +54,37 @@ func TestLocalPortRouteUnchanged(t *testing.T) {
 	}
 }
 
+// TestWPSharedSiteRoute checks the shared-WP php-site route: file_server rooted
+// at the site dir, the try_files permalink rewrite falling back to index.php,
+// and *.php handed to the wp-host fpm port over fastcgi — while a plain Root
+// route (serve-mode static app) stays a bare file_server.
+func TestWPSharedSiteRoute(t *testing.T) {
+	cfg := configJSON(t, []Route{
+		{Host: "blog.demo.test", Root: "/data/wp/sites/demo_blog", FCGIPort: 20099, Internal: true},
+	})
+	for _, want := range []string{
+		`"handler":"vars","root":"/data/wp/sites/demo_blog"`, // file_server root = site docroot
+		`"try_files":["{http.request.uri.path}","{http.request.uri.path}/index.php","index.php"]`,
+		`"handler":"rewrite","uri":"{http.matchers.file.relative}"`,
+		`"path":["*.php"]`,         // only PHP goes to fpm
+		`"protocol":"fastcgi"`,     // fastcgi transport…
+		`"split_path":[".php"]`,    // …with PATH_INFO splitting
+		`"dial":"127.0.0.1:20099"`, // …dialing the wp-host fpm host port
+		`"handler":"file_server"`,  // everything else served off disk
+		`"status_code":308`,        // canonical /dir -> /dir/ redirect
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("config missing %q\n%s", want, cfg)
+		}
+	}
+
+	// Root without FCGIPort must stay a plain file_server (no PHP handler).
+	cfg = configJSON(t, []Route{{Host: "site.demo.test", Root: "/srv/site/dist", Internal: true}})
+	if strings.Contains(cfg, "fastcgi") || strings.Contains(cfg, "subroute") {
+		t.Errorf("plain Root route must not gain a PHP handler\n%s", cfg)
+	}
+}
+
 // TestHTTPSByIPSkipsSNI checks an https upstream addressed by IP gets TLS but
 // no server_name (there is no name to verify).
 func TestHTTPSByIPSkipsSNI(t *testing.T) {

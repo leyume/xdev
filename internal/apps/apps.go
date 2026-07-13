@@ -53,11 +53,13 @@ type Service struct {
 	store *store.Store
 	sel   *runtime.Selector
 	sup   *hostproc.Supervisor // supervises static (host) apps
+	wpDir string               // data/wp — shared WP core + site docroots (wphost.go)
 }
 
-// New creates an app Service.
-func New(st *store.Store, sel *runtime.Selector, sup *hostproc.Supervisor) *Service {
-	return &Service{store: st, sel: sel, sup: sup}
+// New creates an app Service. wpDir is the absolute data/wp directory used by
+// the shared WordPress host.
+func New(st *store.Store, sel *runtime.Selector, sup *hostproc.Supervisor, wpDir string) *Service {
+	return &Service{store: st, sel: sel, sup: sup, wpDir: wpDir}
 }
 
 // CreateOpts carries the fields the UI collects for a new app. The static-only
@@ -84,6 +86,11 @@ type CreateOpts struct {
 	// Database mode for wordpress/laravel: "shared" (default — one platform
 	// xdev-db MariaDB) or "dedicated" (per-app db service).
 	DBMode string
+
+	// WordPress-only: "shared" (default — a docroot served by the platform
+	// wp-host, always on the shared DB) or "separate" (the pre-existing
+	// per-app WordPress container stack).
+	WPMode string
 }
 
 // usesDB reports whether an app type carries a MariaDB (and can therefore opt
@@ -158,16 +165,23 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 
 	// adminerPort is allocated by layoutContainer for types that ship Adminer.
 	var adminerPort int
-	switch opts.Type {
-	case store.TypeProxy:
+	switch {
+	case opts.Type == store.TypeProxy:
 		// Proxy apps are only a Caddy route to another server: no container,
 		// process, port, or on-disk layout — just a validated upstream URL.
 		app.Upstream, err = validUpstream(opts.Upstream)
 		if err != nil {
 			return store.App{}, err
 		}
-	case store.TypeStatic:
+	case opts.Type == store.TypeStatic:
 		if err := s.layoutStatic(&app, &opts, appDir); err != nil {
+			return store.App{}, err
+		}
+	case opts.Type == "wordpress" && opts.WPMode != "separate":
+		// Shared-host WordPress (default): no container or compose of its own —
+		// a docroot under data/wp/sites served by the platform wp-host, with its
+		// database always on the shared xdev-db.
+		if err := s.layoutWPShared(&app, proj); err != nil {
 			return store.App{}, err
 		}
 	default:
@@ -198,6 +212,13 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 	saved, err := s.store.CreateApp(app)
 	if err != nil {
 		os.RemoveAll(appDir)
+		if app.WPMode == store.WPShared {
+			// Unwind the shared-site provisioning too (docroot + database).
+			os.RemoveAll(s.wpSiteDir(proj.Slug, app.Slug))
+			ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
+			defer cancel()
+			s.dropSharedDB(ctx, runtime.Engine(app.Runtime), sharedDBName(proj.Slug, app.Slug))
+		}
 		return store.App{}, err
 	}
 
@@ -412,6 +433,17 @@ func (s *Service) Start(id int64) error {
 	if app.IsProxy() {
 		return s.store.SetAppStatus(app.ID, store.AppRunning)
 	}
+	if app.IsSharedWP() {
+		// The site is served by the platform wp-host; make sure it's up, then
+		// "running" just means the route exists.
+		ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
+		defer cancel()
+		if _, err := s.ensureWPHost(ctx, runtime.Engine(app.Runtime)); err != nil {
+			s.store.SetAppStatus(app.ID, store.AppError)
+			return err
+		}
+		return s.store.SetAppStatus(app.ID, store.AppRunning)
+	}
 	if app.IsStatic() {
 		return s.startStatic(app)
 	}
@@ -499,14 +531,15 @@ func (s *Service) ResumeStatic() {
 }
 
 // Stop stops the app: container apps stop their containers (kept for a quick
-// restart); static command-mode apps have their host process killed; proxy
-// apps just go stopped (the caller's reconcile drops their route).
+// restart); static command-mode apps have their host process killed; proxy and
+// shared-WP apps just go stopped (the caller's reconcile drops their route —
+// the shared wp-host keeps serving other sites).
 func (s *Service) Stop(id int64) error {
 	app, err := s.store.AppByID(id)
 	if err != nil {
 		return err
 	}
-	if app.IsProxy() {
+	if app.IsProxy() || app.IsSharedWP() {
 		return s.store.SetAppStatus(id, store.AppStopped)
 	}
 	if app.IsStatic() {
@@ -536,6 +569,22 @@ func (s *Service) Delete(id int64, backupsRoot string) error {
 	if app.IsProxy() {
 		return s.store.DeleteApp(id) // nothing on disk or in a runtime to tear down
 	}
+	if app.IsSharedWP() {
+		// No container of its own — dump-then-drop the shared database, remove
+		// the row, then the docroot under data/wp/sites.
+		proj, err := s.store.ProjectByID(app.ProjectID)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
+		defer cancel()
+		s.archiveSharedDB(ctx, runtime.Engine(app.Runtime), app, proj.Slug, backupsRoot)
+		if err := s.store.DeleteApp(id); err != nil {
+			return err
+		}
+		os.RemoveAll(s.wpSiteDir(proj.Slug, app.Slug))
+		return nil
+	}
 	if app.IsStatic() {
 		s.sup.Stop(id)
 		dir := s.appDir(app)
@@ -555,14 +604,7 @@ func (s *Service) Delete(id int64, backupsRoot string) error {
 	defer cancel()
 	if app.DBMode == store.DBShared {
 		if proj, err := s.store.ProjectByID(app.ProjectID); err == nil {
-			db := sharedDBName(proj.Slug, app.Slug)
-			// Dump first; only drop when the dump landed, so a hiccup (shared
-			// server down, disk full) can't silently lose the data.
-			if _, err := s.dumpSharedDB(ctx, engine, app, db, backupsRoot); err != nil {
-				log.Printf("dump shared db %s: %v (leaving database in place)", db, err)
-			} else if err := s.dropSharedDB(ctx, engine, db); err != nil {
-				log.Printf("drop shared db %s: %v", db, err)
-			}
+			s.archiveSharedDB(ctx, engine, app, proj.Slug, backupsRoot)
 		}
 	}
 	// Best-effort container teardown; proceed with row/dir removal regardless.
@@ -584,8 +626,8 @@ func (s *Service) RefreshStatus(id int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if app.IsProxy() {
-		return app.Status, nil // no process or container to check
+	if app.IsProxy() || app.IsSharedWP() {
+		return app.Status, nil // no process or container of its own to check
 	}
 	if app.IsStatic() {
 		// Serve-mode apps have no process; their state is whatever create/start

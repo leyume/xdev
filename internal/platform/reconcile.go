@@ -52,7 +52,8 @@ func (r *Reconciler) Sync() error {
 		case in.Upstream != "":
 			route.Upstream = in.Upstream // proxy app: forwards to another server (URL)
 		case in.Root != "":
-			route.Root = in.Root // serve-mode static app: file-served, no port
+			route.Root = in.Root         // serve-mode static app or shared-WP docroot: file-served
+			route.FCGIPort = in.FCGIPort // shared-WP sites: *.php goes to the wp-host fpm port
 		default:
 			route.Upstream = fmt.Sprintf("127.0.0.1:%d", in.Port)
 		}

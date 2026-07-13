@@ -23,10 +23,13 @@ import (
 // Route maps a hostname to how Caddy should serve it. Either Upstream (reverse
 // proxy to a host port, or — for proxy apps — a full URL to another server) or
 // Root (file-server a directory directly — serve-mode static apps) is set.
+// Root plus FCGIPort is a PHP docroot (shared-WP sites): files served directly,
+// *.php handed to a fastcgi upstream.
 type Route struct {
 	Host     string // e.g. frontend.demo.test
 	Upstream string // e.g. 127.0.0.1:20000, or https://other-server.example (proxy apps)
 	Root     string // e.g. /…/projects/demo/frontend/dist (file_server)
+	FCGIPort int    // fastcgi host port for *.php under Root (shared-WP sites)
 	Internal bool   // true = local CA (.test); false = public ACME/Let's Encrypt
 }
 
@@ -150,6 +153,54 @@ func reverseProxyHandler(upstream string) map[string]any {
 	return h
 }
 
+// phpSiteSubroute builds the handler chain for a PHP docroot (shared-WP sites):
+// Caddy file-serves root directly and hands *.php to the wp-host fpm pool over
+// fastcgi on a loopback port. It is Caddy's own `php_fastcgi` directive
+// expanded to JSON — trailing-slash redirect for directories holding an
+// index.php, a try_files rewrite for pretty permalinks (falling back to
+// /index.php), the fastcgi reverse_proxy, then a plain file_server for
+// everything else. The docroot is bind-mounted into the fpm container at the
+// same absolute path as on the host, so the root — and the SCRIPT_FILENAME the
+// transport derives from it — resolves on both sides.
+func phpSiteSubroute(root string, fcgiPort int) map[string]any {
+	return map[string]any{
+		"handler": "subroute",
+		"routes": []any{
+			map[string]any{"handle": []any{map[string]any{"handler": "vars", "root": root}}},
+			// /wp-admin -> /wp-admin/ (308) when the directory has an index.php.
+			map[string]any{
+				"match": []any{map[string]any{
+					"file": map[string]any{"try_files": []string{"{http.request.uri.path}/index.php"}},
+					"not":  []any{map[string]any{"path": []string{"*/"}}},
+				}},
+				"handle": []any{map[string]any{
+					"handler":     "static_response",
+					"status_code": 308,
+					"headers":     map[string]any{"Location": []string{"{http.request.orig_uri.path}/"}},
+				}},
+			},
+			// Rewrite to the first existing candidate; the trailing index.php is
+			// the permalink fallback for URIs that exist nowhere on disk.
+			map[string]any{
+				"match": []any{map[string]any{"file": map[string]any{
+					"try_files":  []string{"{http.request.uri.path}", "{http.request.uri.path}/index.php", "index.php"},
+					"split_path": []string{".php"},
+				}}},
+				"handle": []any{map[string]any{"handler": "rewrite", "uri": "{http.matchers.file.relative}"}},
+			},
+			map[string]any{
+				"match": []any{map[string]any{"path": []string{"*.php"}}},
+				"handle": []any{map[string]any{
+					"handler":   "reverse_proxy",
+					"transport": map[string]any{"protocol": "fastcgi", "split_path": []string{".php"}},
+					"upstreams": []any{map[string]any{"dial": fmt.Sprintf("127.0.0.1:%d", fcgiPort)}},
+				}},
+			},
+			map[string]any{"handle": []any{map[string]any{"handler": "file_server"}}},
+		},
+	}
+}
+
 // buildConfig assembles a full Caddy JSON config: one HTTP server listening on
 // the configured http+https ports, a route per host reverse-proxying to its
 // upstream, and a TLS automation policy using the internal (local) CA.
@@ -166,15 +217,19 @@ func (m *Manager) buildConfig(routes []Route) map[string]any {
 			publicHosts = append(publicHosts, r.Host)
 		}
 		// Serve a directory directly when Root is set (the `vars` handler sets the
-		// file_server root, mirroring the Caddyfile `root` directive); otherwise
+		// file_server root, mirroring the Caddyfile `root` directive) — with a
+		// fastcgi handler for *.php when the root is a PHP docroot; otherwise
 		// reverse-proxy to the app's host port.
 		var handle []any
-		if r.Root != "" {
+		switch {
+		case r.Root != "" && r.FCGIPort > 0:
+			handle = []any{phpSiteSubroute(r.Root, r.FCGIPort)}
+		case r.Root != "":
 			handle = []any{
 				map[string]any{"handler": "vars", "root": r.Root},
 				map[string]any{"handler": "file_server"},
 			}
-		} else {
+		default:
 			handle = []any{reverseProxyHandler(r.Upstream)}
 		}
 		httpRoutes = append(httpRoutes, map[string]any{

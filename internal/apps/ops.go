@@ -17,7 +17,8 @@ import (
 
 // appDir returns an app's on-disk root: <project.Dir>/<app-slug>. For container
 // apps this is the parent of _/ and app/; for static apps it holds the code
-// directly. Derived from the compose path when present, else from the project.
+// directly; shared-WP sites live under data/wp/sites instead. Derived from the
+// compose path when present, else from the project.
 func (s *Service) appDir(app store.App) string {
 	if app.ComposePath != "" {
 		return filepath.Dir(filepath.Dir(app.ComposePath))
@@ -25,6 +26,9 @@ func (s *Service) appDir(app store.App) string {
 	proj, err := s.store.ProjectByID(app.ProjectID)
 	if err != nil {
 		return ""
+	}
+	if app.IsSharedWP() {
+		return s.wpSiteDir(proj.Slug, app.Slug) // docroot: wp-config.php + wp-content/
 	}
 	return filepath.Join(proj.Dir, app.Slug)
 }
@@ -38,6 +42,10 @@ func (s *Service) Logs(id int64, tail int) (string, error) {
 	}
 	if app.IsProxy() {
 		return "Proxy app — traffic is forwarded upstream; there are no local logs.", nil
+	}
+	if app.IsSharedWP() {
+		return "Shared-host WordPress — PHP runs in the platform xdev-wp container, shared by every site; see `" +
+			app.Runtime + " logs " + wpHostContainer + "`.", nil
 	}
 	if app.IsStatic() {
 		proj, err := s.store.ProjectByID(app.ProjectID)

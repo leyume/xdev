@@ -169,7 +169,7 @@ func runServer(o *options) error {
 	// Supervisor for static (host) apps; their log files live under the data dir.
 	sup := hostproc.NewSupervisor(filepath.Join(cfg.DataDir, "run"))
 	defer sup.StopAll()
-	appSvc := apps.New(st, engine, sup)
+	appSvc := apps.New(st, engine, sup, filepath.Join(cfg.DataDir, "wp"))
 
 	// --- reverse proxy (Caddy) ----------------------------------------------
 	pm := proxy.NewManager(o.caddyAdmin, o.httpsPort, o.httpPort, o.acmeEmail, o.localCertTTL)

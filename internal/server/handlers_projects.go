@@ -154,6 +154,7 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		Upstream:      r.FormValue("upstream"),
 		AdminerDomain: r.FormValue("adminer_domain"),
 		DBMode:        r.FormValue("db_mode"),
+		WPMode:        r.FormValue("wp_mode"),
 	})
 	if err != nil {
 		redirectWithError(w, r, "/projects/"+proj.Slug, err)

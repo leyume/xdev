@@ -15,6 +15,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -140,6 +141,19 @@ func (s *Service) dumpSharedDB(ctx context.Context, engine runtime.Engine, app s
 		return "", err
 	}
 	return dest, nil
+}
+
+// archiveSharedDB dumps a shared-mode app's database into the backups dir and,
+// only when the dump landed, drops it — so a hiccup (shared server down, disk
+// full) can't silently lose the data. Failures are logged, not fatal: it runs
+// on the app-delete path, which proceeds regardless.
+func (s *Service) archiveSharedDB(ctx context.Context, engine runtime.Engine, app store.App, projSlug, backupsRoot string) {
+	db := sharedDBName(projSlug, app.Slug)
+	if _, err := s.dumpSharedDB(ctx, engine, app, db, backupsRoot); err != nil {
+		log.Printf("dump shared db %s: %v (leaving database in place)", db, err)
+	} else if err := s.dropSharedDB(ctx, engine, db); err != nil {
+		log.Printf("drop shared db %s: %v", db, err)
+	}
 }
 
 // dropSharedDB removes the app's database and user from the shared server.
