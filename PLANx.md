@@ -215,9 +215,11 @@ SolidStart, compiled React/Vue). Consolidation below is a **RAM requirement,
 not a nicety**: dedicated per-app MariaDB (~200MB each) and per-site WP
 containers alone would blow 4GB.
 
-**Status:** features below are planned, not started. The mail side of the
-migration (already-built `mail` app type, Mailcow cutover) lives in
-`PLAN_MAIL.md` — it is deliberately not covered here.
+**Status (2026-07-13):** A (proxy type), B (shared MariaDB), and C1 (wp-host +
+per-site docroots + shared DB) are implemented on `feat/platform-consolidation`;
+C2/C3 remain when needed. The mail side of the migration (already-built `mail`
+app type, Mailcow cutover) lives in `PLAN_MAIL.md` — it is deliberately not
+covered here.
 
 ### RAM budget (prod, 4GB target)
 
