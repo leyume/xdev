@@ -74,11 +74,12 @@
         {{else}}{{$host}}{{end}}
         {{if .Port}}<span class="muted">·</span><a href="http://127.0.0.1:{{.Port}}" target="_blank" class="muted">:{{.Port}} direct</a>{{end}}
         {{$adm := index $.AdminerDomains .ID}}
+        {{$admLabel := "Adminer"}}{{if eq .Type "mail"}}{{$admLabel = "Mail admin"}}{{end}}
         {{if $adm}}<span class="muted">·</span>
           {{if $.ProxyEnabled}}
-            {{if eq $.HTTPSPort 443}}<a href="https://{{$adm}}" target="_blank">Adminer</a>
-            {{else}}<a href="https://{{$adm}}:{{$.HTTPSPort}}" target="_blank">Adminer</a>{{end}}
-          {{else}}<span class="muted">Adminer: {{$adm}}</span>{{end}}
+            {{if eq $.HTTPSPort 443}}<a href="https://{{$adm}}" target="_blank">{{$admLabel}}</a>
+            {{else}}<a href="https://{{$adm}}:{{$.HTTPSPort}}" target="_blank">{{$admLabel}}</a>{{end}}
+          {{else}}<span class="muted">{{$admLabel}}: {{$adm}}</span>{{end}}
         {{end}}
         {{if or .CPULimit .MemLimit}}<span class="muted">· {{if .CPULimit}}{{f1 .CPULimit}} CPU{{end}}{{if .MemLimit}} {{mib .MemLimit}}MB{{end}}</span>{{end}}
       </div>
@@ -202,6 +203,13 @@
       <template x-if="type==='laravel'">
         <label>Adminer domain <span class="muted">(DB UI — blank = <code>adminer.&lt;app-domain&gt;</code>)</span>
           <input type="text" name="adminer_domain" placeholder="adminer.{{.Project.BaseDomain}}" spellcheck="false">
+        </label>
+      </template>
+
+      <!-- Mail: pick the hostname for the Stalwart admin UI. -->
+      <template x-if="type==='mail'">
+        <label>Admin domain <span class="muted">(mail admin UI — blank = <code>admin.&lt;app-domain&gt;</code>)</span>
+          <input type="text" name="adminer_domain" placeholder="admin.mail.{{.Project.BaseDomain}}" spellcheck="false">
         </label>
       </template>
 

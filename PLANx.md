@@ -206,6 +206,134 @@ where noted; same server-rendered + Alpine constraint.
 
 ---
 
+## Platform plan — server consolidation (2026-07-13)
+
+Driving goal: replace the current Linode (nginx + Mailcow, 12+ domains, 5 mail
+domains, several subdomains proxied to the Coolify box) with xdev on a **4GB
+Linode — hard cap**, then add ~8 more domains (Laravel, WordPress, Node,
+SolidStart, compiled React/Vue). Consolidation below is a **RAM requirement,
+not a nicety**: dedicated per-app MariaDB (~200MB each) and per-site WP
+containers alone would blow 4GB.
+
+**Status:** features below are planned, not started. The mail side of the
+migration (already-built `mail` app type, Mailcow cutover) lives in
+`PLAN_MAIL.md` — it is deliberately not covered here.
+
+### RAM budget (prod, 4GB target)
+
+| Service | Est. RSS |
+|---|---|
+| xdev + Caddy | ~100MB |
+| Mail app (see `PLAN_MAIL.md`) | ~300–500MB |
+| Shared MariaDB (one, all sites) | ~250–400MB |
+| Shared WP host (one container, N sites) | ~200–350MB |
+| Laravel apps (Octane, each) | ~80–150MB |
+| Node/SolidStart services (each) | ~80–120MB |
+| Compiled React/Vue (Caddy file_server) | ~0 |
+
+Rule the plan enforces: **one DB process, one WP process pool, zero containers
+for static/proxy domains.** Escape hatches (dedicated DB / separate WP
+container) exist per app for the odd site that needs isolation.
+
+### A. Proxy app type (smallest; unblocks the server migration)
+
+A domain that just reverse-proxies to another server (replaces the nginx
+`proxy_pass` vhosts pointing at the Coolify box).
+
+- New type `proxy`: **no container, no process, no host port.** One field:
+  upstream URL (`http(s)://host[:port]`). New nullable `upstream` column on
+  `apps` (migration); the Caddy route uses it instead of `127.0.0.1:port`.
+  Websockets come free with Caddy; pass Host through, set TLS-SNI when the
+  upstream is https-by-name.
+- UI: upstream field in the add-app modal; app card shows the upstream;
+  hide Metrics/Logs/Env/Backups tabs (nothing local to measure).
+- Start/stop = route added/removed in reconcile.
+- Check: route-JSON unit test + one `curl --resolve` e2e.
+
+### B. Shared MariaDB (platform service)
+
+- One xdev-managed `xdev-db` MariaDB container on a new external network
+  `xdev_shared`, created lazily the first time an app opts in. Root password
+  generated once, kept in xdev's DB.
+- App create (wordpress/laravel): **Database: shared (default) | dedicated**.
+  - Shared → xdev runs `CREATE DATABASE/USER/GRANT` (name `project_app`),
+    injects `DB_HOST=xdev-db` + creds into the compose env; the app's compose
+    drops its db service and additionally joins `xdev_shared`.
+  - Dedicated → today's per-app db service, unchanged.
+- Delete app → dump to backups dir, then drop db+user. Backups: per-database
+  `mariadb-dump` via the existing backups flow.
+- Ceiling: one MariaDB is a shared blast radius (restart touches every shared
+  site) — acceptable at this scale; dedicated mode is the escape hatch.
+
+### C. Unified WordPress (shared WP host)
+
+Goal: N WP sites without N Apache+PHP containers. One **wp-host** container
+serves every shared-mode site; each site keeps **only its own `wp-config.php`
+and `wp-content/`**, sharing a read-only WP core (classic shared-hosting
+layout — chosen over WP Multisite so sites stay independent, keep separate
+wp-content, and can be split out later; Multisite remains possible manually
+inside one app).
+
+```
+data/wp/
+  core/              # one WP core, owned/updated by xdev (never auto-updates itself)
+  pool/plugins/      # global pools — each plugin/theme downloaded once
+  pool/themes/
+  sites/<slug>/
+    wp-config.php    # generated: shared-db creds, unique table prefix + salts
+    wp-content/      # per-site; plugins/ + themes/ mix symlinks into the pools
+                     # with site-local installs
+```
+
+- wp-host: **no second web server.** One `php:8.3-fpm` container; xdev's
+  existing Caddy serves each site's files directly (`file_server`, permalinks
+  via `try_files`) and hands `*.php` to the fpm port over fastcgi. Site dirs
+  are bind-mounted into the container at the **same absolute path** as on the
+  host so `SCRIPT_FILENAME` resolves on both sides. Add/remove a site = a
+  Caddy route update (the admin-API flow xdev already uses) — no vhost files,
+  no container reload. Fallback if fastcgi path-mapping fights us: FrankenPHP
+  (Caddy-embedded PHP, worker mode) — still not Apache.
+- **"Install plugin/theme for all sites":** download once into the pool,
+  symlink into each shared site's `wp-content/plugins|themes`. Activation
+  stays per-site. Update = update the pool once.
+- App create: **WordPress: shared host (default) | separate container**
+  (separate = existing `wordpress` type, untouched). Shared mode requires B
+  (always uses the shared DB).
+- Ceilings: one PHP pool is a noisy-neighbor across WP sites (move to
+  per-site FPM pools if it ever matters); core updates are an explicit xdev
+  action, not WP self-update.
+- Phasing: **C1** wp-host + per-site docroots + shared DB → **C2** pools +
+  install-for-all UI → **C3** core-update button.
+
+### D. Coverage for the upcoming 8 domains (mostly exists)
+
+- Compiled React/Vue → existing `static` type (build cmd + serve mode). Done.
+- Node / SolidStart → `static` command mode runs host Node processes today;
+  decide later whether prod wants a small containerized `node` type instead.
+  Note only — no work planned yet.
+- Laravel → exists; gains the shared-DB option via B.
+
+### Order of work
+
+**A (proxy) → mail (see `PLAN_MAIL.md`) → B (shared DB) → C1 → C2/C3 when
+needed.** A is everything the *current* server's web side needs; B/C are what
+makes the +8 domains fit in 4GB.
+
+### Migration runbook — web side (current server: nginx, same IP kept)
+
+The mail cutover has its own runbook in `PLAN_MAIL.md`; do it after step 3.
+
+1. Inventory nginx vhosts (`server_name` + `proxy_pass` targets) into a
+   checklist; lower DNS TTLs to 300s. No DNS records change (same IP).
+2. Recreate every vhost as an xdev app (mostly `proxy` type); verify each via
+   `curl --resolve` while nginx still owns 80/443.
+3. **Proxy flip:** stop nginx, start xdev's Caddy (clean swap — Caddy then
+   ACMEs all domains at once). Rollback = reverse.
+4. Delete nothing: nginx configs stay on disk for weeks; rollback at every
+   stage is stop-new/start-old. Resize 2GB→4GB before the mail step.
+
+---
+
 ## Source pointers (for whoever implements the design)
 
 - Templates: `web/templates/*.html` (one file per screen, `layout.html` is

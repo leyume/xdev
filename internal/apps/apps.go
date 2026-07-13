@@ -78,9 +78,18 @@ type CreateOpts struct {
 	AdminerDomain string
 }
 
-// usesAdminer reports whether an app type ships an Adminer service (its own
-// routed hostname + host port).
-func usesAdminer(appType string) bool { return appType == "laravel" }
+// secondaryPrefix returns the default hostname prefix for a type's extra
+// proxied HTTP UI (Adminer for laravel, the Stalwart admin for mail);
+// "" means the type has none.
+func secondaryPrefix(appType string) string {
+	switch appType {
+	case "laravel":
+		return "adminer"
+	case "mail":
+		return "admin"
+	}
+	return ""
+}
 
 // Create persists a new app, writes its files, and starts it. It returns the
 // saved app even if the initial start fails, with the error, so the UI can show
@@ -154,7 +163,7 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 	if adminerPort > 0 {
 		adminerDomain = normalizeHost(opts.AdminerDomain)
 		if adminerDomain == "" {
-			adminerDomain = "adminer." + domain
+			adminerDomain = secondaryPrefix(opts.Type) + "." + domain
 		}
 		if err := validHost(adminerDomain); err != nil {
 			os.RemoveAll(appDir)
@@ -202,7 +211,7 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 // for Adminer — returned so the caller can attach its route.
 func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.Project, appDir string) (adminerPort int, err error) {
 	ports := 1
-	if usesAdminer(opts.Type) {
+	if secondaryPrefix(opts.Type) != "" {
 		ports = 2
 	}
 	alloc, err := s.allocPorts(ports)
@@ -210,14 +219,14 @@ func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.P
 		return 0, err
 	}
 	port := alloc[0]
-	if usesAdminer(opts.Type) {
+	if ports == 2 {
 		adminerPort = alloc[1]
 	}
 
 	underscore := filepath.Join(appDir, "_")
 	content := filepath.Join(appDir, "app")
 	dirs := []string{underscore, content}
-	if usesAdminer(opts.Type) {
+	if opts.Type == "laravel" {
 		// MariaDB/Redis persist under _volumes/ (bizepp format); podman needs the
 		// host dirs to pre-exist.
 		dirs = append(dirs, filepath.Join(appDir, "_volumes", "mysql"), filepath.Join(appDir, "_volumes", "redis"))

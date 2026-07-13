@@ -95,6 +95,37 @@ func TestLaravelInfra(t *testing.T) {
 	}
 }
 
+// TestMailPorts checks the mail stack publishes the Stalwart admin on the
+// secondary port, real mail ports in prod, and high ports locally (rootless
+// podman can't bind <1024).
+func TestMailPorts(t *testing.T) {
+	d := Data{ProjectSlug: "demo", NetworkName: "xdev_demo", AppSlug: "mail",
+		AppType: "mail", HostPort: 20000, AdminerPort: 20001}
+	out, err := RenderCompose("mail", d)
+	if err != nil {
+		t.Fatalf("render mail local: %v", err)
+	}
+	for _, want := range []string{"20001:8080", `"2525:25"`, "20000:8888", "demo_mail_webmail"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("local mail compose missing %q\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, `"25:25"`) {
+		t.Errorf("local mail compose must not bind port 25:\n%s", out)
+	}
+
+	d.Env = "prod"
+	out, err = RenderCompose("mail", d)
+	if err != nil {
+		t.Fatalf("render mail prod: %v", err)
+	}
+	for _, want := range []string{`"25:25"`, `"465:465"`, `"587:587"`, `"993:993"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("prod mail compose missing %q\n%s", want, out)
+		}
+	}
+}
+
 // TestRenderWithLimits verifies the deploy/resources block appears only when
 // limits are set.
 func TestRenderWithLimits(t *testing.T) {

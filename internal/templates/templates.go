@@ -29,7 +29,7 @@ type Data struct {
 	AppType     string
 	Env         string // local | prod (selects compose.prod.yml.tmpl when prod)
 	HostPort    int
-	AdminerPort int     // published host port for Adminer (laravel); 0 = none
+	AdminerPort int     // published host port for the secondary HTTP UI (laravel Adminer, mail admin); 0 = none
 	CPULimit    float64 // cores; 0 = unlimited
 	MemLimit    int64   // bytes; 0 = unlimited
 }
@@ -59,6 +59,7 @@ func Catalog() []TypeInfo {
 		{"static", "Static", "Static site/app served by xdev with your system Node — no container. Code lives directly in the app folder.", true},
 		{"wordpress", "WordPress", "WordPress + MariaDB, code in app/.", true},
 		{"laravel", "Laravel", "Laravel on Octane/Swoole + MariaDB + Redis (drop your app in app/).", true},
+		{"mail", "Mail", "Full mail server — Stalwart (SMTP/IMAP, admin UI for domains, mailboxes, DKIM) + SnappyMail webmail. Prod needs port 25 open and MX/SPF/DKIM DNS records.", true},
 	}
 }
 
