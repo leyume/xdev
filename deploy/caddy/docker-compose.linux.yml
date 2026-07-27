@@ -26,6 +26,8 @@ services:
     command: ["caddy", "run"]
     volumes:
       # Local CA / issued certs, shared with xdev (image sets XDG_DATA_HOME=/data).
-      - "${XDEV_DATA}/caddy:/data/caddy"
+      # ${XDEV_DATA:?...} makes compose abort if it's unset, instead of mounting
+      # empty root-owned /caddy and /wp (no CA, WP 404s).
+      - "${XDEV_DATA:?set XDEV_DATA to xdev's data dir, e.g. /var/lib/xdev}/caddy:/data/caddy"
       # Shared-WP tree at the same absolute path so file_server + fpm resolve.
-      - "${XDEV_DATA}/wp:${XDEV_DATA}/wp:ro"
+      - "${XDEV_DATA:?set XDEV_DATA}/wp:${XDEV_DATA:?set XDEV_DATA}/wp:ro"
