@@ -31,9 +31,9 @@ services:
       # XDG_DATA_HOME=/data, so its CA lands in <XDEV_DATA>/caddy — the same dir
       # xdev reads (it points XDG_DATA_HOME at its data dir). Trust the root at
       # <XDEV_DATA>/caddy/pki/authorities/local/root.crt.
-      - "${XDEV_DATA}/caddy:/data/caddy"
+      - "${XDEV_DATA:?set XDEV_DATA to xdev's data dir, e.g. /var/lib/xdev}/caddy:/data/caddy"
       # Shared-WP tree bind-mounted at the SAME absolute path as on the host, so
       # the pool/core symlinks and the fpm SCRIPT_FILENAME resolve identically in
       # Caddy's file_server and in the fpm container. Read-only: Caddy only serves.
-      - "${XDEV_DATA}/wp:${XDEV_DATA}/wp:ro"
+      - "${XDEV_DATA:?set XDEV_DATA}/wp:${XDEV_DATA:?set XDEV_DATA}/wp:ro"
       - "./caddy-init.json:/etc/caddy/init.json:ro"

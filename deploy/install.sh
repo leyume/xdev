@@ -194,6 +194,58 @@ install_caddy() {
   have caddy && ok "caddy ready" || die "caddy still not on PATH after install"
 }
 
+# --- 6b. containerized Caddy -------------------------------------------------
+# Generate a Caddy compose stack next to the config and start it. docker uses
+# host networking (reaches the host's 127.0.0.1 upstreams, binds ports directly);
+# podman can't host-net to the host, so it is port-mapped and dials the host via
+# host.containers.internal. xdev then pushes routes to the container's admin API.
+setup_caddy_container() {
+  [ "${RUN_CADDY_CONTAINER:-false}" = true ] || return 0
+  local dir; dir="$(dirname "$ENV_PATH")/caddy"
+  as_root mkdir -p "$dir" "$DATA_DIR/caddy" "$DATA_DIR/wp"
+  info "generating Caddy container stack in ${dir}…"
+  if [ "$XDEV_ENGINE" = podman ]; then
+    printf '%s\n' '{ "admin": { "listen": "0.0.0.0:2019", "origins": ["127.0.0.1:2019","localhost:2019"] } }' \
+      | as_root tee "$dir/caddy-init.json" >/dev/null
+    as_root tee "$dir/docker-compose.yml" >/dev/null <<EOF
+services:
+  caddy:
+    image: docker.io/library/caddy:2-alpine
+    restart: unless-stopped
+    command: ["caddy", "run", "--config", "/etc/caddy/init.json"]
+    ports:
+      - "${XDEV_HTTPS_PORT}:${XDEV_HTTPS_PORT}"
+      - "${XDEV_HTTP_PORT}:${XDEV_HTTP_PORT}"
+      - "127.0.0.1:2019:2019"
+    volumes:
+      - "${DATA_DIR}/caddy:/data/caddy"
+      - "${DATA_DIR}/wp:${DATA_DIR}/wp:ro"
+      - "${dir}/caddy-init.json:/etc/caddy/init.json:ro"
+EOF
+  else
+    as_root tee "$dir/docker-compose.yml" >/dev/null <<EOF
+services:
+  caddy:
+    image: docker.io/library/caddy:2-alpine
+    restart: unless-stopped
+    network_mode: host
+    command: ["caddy", "run"]
+    volumes:
+      - "${DATA_DIR}/caddy:/data/caddy"
+      - "${DATA_DIR}/wp:${DATA_DIR}/wp:ro"
+EOF
+  fi
+  info "starting Caddy container (${XDEV_ENGINE} compose up -d)…"
+  # docker's daemon needs root; podman is rootless (run as the invoking user).
+  if [ "$XDEV_ENGINE" = docker ]; then
+    as_root docker compose -f "$dir/docker-compose.yml" up -d
+  else
+    "$XDEV_ENGINE" compose -f "$dir/docker-compose.yml" up -d
+  fi \
+    && ok "Caddy container running" \
+    || warn "Caddy container didn't start — start it later: (cd $dir && ${XDEV_ENGINE} compose up -d)"
+}
+
 # Static apps run on the host's system Node (no container), so make sure node +
 # npm are present. Skipped when XDEV_NODE=false.
 install_node() {
@@ -233,8 +285,37 @@ configure() {
   ask XDEV_MODE "Mode? [local/prod]" "local"
   ask XDEV_ENGINE "Container engine? [docker/podman]" "$engine_default"
   ENGINE="$XDEV_ENGINE"
-  yesno XDEV_CADDY "Let xdev manage Caddy for you?" "Y"; MANAGE_CADDY="$XDEV_CADDY"
+  # Caddy (reverse proxy + TLS). container: we generate + run a Caddy container
+  # (host only needs the engine). native: install the Caddy binary + supervise it.
+  # self: you already run a proxy / manage Caddy — we touch nothing.
+  ask XDEV_CADDY_MODE "Caddy: container (we set it up) / native binary / self-managed? [container/native/self]" "container"
+  case "$XDEV_CADDY_MODE" in
+    native) XDEV_CADDY=true;  RUN_CADDY_CONTAINER=false ;;
+    self)   XDEV_CADDY=false; RUN_CADDY_CONTAINER=false ;;
+    *)      XDEV_CADDY_MODE=container; XDEV_CADDY=false; RUN_CADDY_CONTAINER=true ;;
+  esac
+  MANAGE_CADDY="$XDEV_CADDY"   # install_caddy installs the native binary only when true
   yesno XDEV_NODE "Install Node for static apps (host Node, no container)?" "Y"; MANAGE_NODE="$XDEV_NODE"
+
+  # How Caddy reaches xdev's app/fpm ports + its own admin endpoint. For a
+  # container we derive these from the engine (the compose we generate matches);
+  # for self-managed we ask; for native they stay at safe loopback defaults.
+  case "$XDEV_CADDY_MODE" in
+    container)
+      if [ "$XDEV_ENGINE" = podman ]; then
+        # podman can't host-net to the host, so the container is port-mapped and
+        # dials the host via host.containers.internal; admin must bind 0.0.0.0.
+        : "${XDEV_UPSTREAM_HOST:=host.containers.internal}"; : "${XDEV_CADDY_ADMIN_LISTEN:=0.0.0.0:2019}"
+      else
+        # docker uses host networking: plain loopback, admin stays on loopback.
+        : "${XDEV_UPSTREAM_HOST:=127.0.0.1}"; : "${XDEV_CADDY_ADMIN_LISTEN:=127.0.0.1:2019}"
+      fi ;;
+    self)
+      ask XDEV_UPSTREAM_HOST "Host Caddy dials app ports at (127.0.0.1 / host.containers.internal)" "127.0.0.1"
+      ask XDEV_CADDY_ADMIN_LISTEN "Caddy admin address to re-assert on each push (blank to leave default)" "" ;;
+    native)
+      : "${XDEV_UPSTREAM_HOST:=127.0.0.1}"; : "${XDEV_CADDY_ADMIN_LISTEN:=}" ;;
+  esac
 
   if [ "$XDEV_MODE" = prod ]; then
     : "${XDEV_SECURE:=true}"; : "${XDEV_MANAGE_HOSTS:=false}"
@@ -242,12 +323,15 @@ configure() {
     [ -n "$XDEV_BASE_DOMAIN" ] || die "a base domain is required for prod mode (set XDEV_BASE_DOMAIN)"
     ask XDEV_ACME_EMAIL "Let's Encrypt email" ""
     [ -n "$XDEV_ACME_EMAIL" ] || die "a Let's Encrypt email is required for prod mode (set XDEV_ACME_EMAIL)"
-    : "${XDEV_HTTPS_PORT:=443}"; : "${XDEV_HTTP_PORT:=80}"
   else
     : "${XDEV_SECURE:=false}"; : "${XDEV_MANAGE_HOSTS:=true}"
     ask XDEV_BASE_DOMAIN "Primary base domain (blank → .localhost)" ""
-    : "${XDEV_HTTPS_PORT:=443}"; : "${XDEV_HTTP_PORT:=80}"
   fi
+
+  # Ports Caddy serves sites on. Keep 443/80 for a normal deploy; use e.g.
+  # 8444/8081 to run beside an existing proxy (Traefik/nginx) during migration.
+  ask XDEV_HTTPS_PORT "HTTPS port for served sites" "443"
+  ask XDEV_HTTP_PORT "HTTP port (auto-redirects to HTTPS)" "80"
 
   ask XDEV_ADDR "Admin UI address" "127.0.0.1:7331"
   # Admin account: only prompt on a fresh install. On a re-run the existing admin
@@ -337,6 +421,8 @@ XDEV_ENGINE=${ENGINE}
 # --- proxy & TLS ---
 XDEV_CADDY=${manage_caddy}
 XDEV_CADDY_ADMIN=127.0.0.1:2019
+XDEV_UPSTREAM_HOST=${XDEV_UPSTREAM_HOST:-127.0.0.1}
+XDEV_CADDY_ADMIN_LISTEN=${XDEV_CADDY_ADMIN_LISTEN:-}
 XDEV_HTTPS_PORT=${XDEV_HTTPS_PORT}
 XDEV_HTTP_PORT=${XDEV_HTTP_PORT}
 XDEV_ACME_EMAIL=${XDEV_ACME_EMAIL:-}
@@ -445,6 +531,9 @@ print_next_steps() {
     -manage-hosts="$XDEV_MANAGE_HOSTS" || warn "doctor reported issues — review above"
   echo
   ok "${C_BOLD}xdev installed${C_RESET}"
+  if [ "${RUN_CADDY_CONTAINER:-false}" = true ]; then
+    info "Caddy runs as a container — stack at $(dirname "$ENV_PATH")/caddy/docker-compose.yml ($XDEV_ENGINE compose ...)"
+  fi
   if [ "$XDEV_MODE" = prod ]; then
     cat <<EOF
 Next steps:
@@ -489,6 +578,7 @@ main() {
   install_node
   download_binary
   write_config
+  setup_caddy_container   # generate + start the Caddy container (container mode only)
   if [ "$OS" = linux ]; then install_service_linux; else install_service_macos; fi
   create_admin
   maybe_trust_ca

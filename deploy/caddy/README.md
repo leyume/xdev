@@ -4,6 +4,14 @@ Runs the reverse proxy as a container so the host only depends on the engine
 (podman/docker) — no `brew`/`apt` Caddy. xdev stays native and drives Caddy over
 its admin API, exactly as it does the supervised local binary.
 
+> **You usually don't run any of this by hand.** Choosing **container** at
+> `install.sh` (the default) generates the engine-appropriate stack next to
+> `xdev.env` (`…/xdev/caddy/docker-compose.yml`), sets `XDEV_UPSTREAM_HOST` /
+> `XDEV_CADDY_ADMIN_LISTEN`, and starts it for you. This doc explains what that
+> stack is and how to run/edit it manually (self-managed installs, or tweaking).
+> The committed `docker-compose.yml` / `docker-compose.linux.yml` are the same
+> templates the installer emits.
+
 ## How it fits together
 
 ```
@@ -19,15 +27,15 @@ Because a container can't reach the host's `127.0.0.1` across the Podman/Docker
 VM, xdev rewrites loopback upstreams to `XDEV_UPSTREAM_HOST` when building the
 Caddy config. Set it to the engine's host alias.
 
-## Run it
+## Run it manually (installer already does this in container mode)
 
 ```bash
 export XDEV_DATA=/var/lib/xdev            # same as xdev.env; on macOS your data dir
 podman compose -f deploy/caddy/docker-compose.yml up -d    # macOS
-# docker compose -f deploy/caddy/docker-compose.yml up -d  # Linux server
+# docker compose -f deploy/caddy/docker-compose.linux.yml up -d  # Linux server (host networking)
 ```
 
-Then run xdev with (in `xdev.env`):
+And the matching `xdev.env` (the installer writes these for you):
 
 ```ini
 XDEV_CADDY=false                              # stop supervising a local caddy
@@ -55,15 +63,16 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
   "${XDEV_DATA}/caddy/pki/authorities/local/root.crt"     # macOS
 ```
 
-## On a Linux server (Docker) — use the host-network variant
+## On a Linux server (Docker) — host networking
 
-The macOS compose above **port-maps** the container and dials
-`host.containers.internal`. That does not translate to Linux Docker: most xdev
-upstreams (Go apps, static/Node dev servers, shared-WP fpm, shared MariaDB,
-adminer) bind `127.0.0.1`, and a bridged container **cannot** reach the host's
-loopback on Linux (podman/gvproxy only papers over this on macOS). Use
-`docker-compose.linux.yml`, which runs Caddy with `network_mode: host` so it
-reaches every upstream exactly like the native binary:
+On a Docker server the installer emits `docker-compose.linux.yml` (host
+networking) — this section is why. The macOS compose **port-maps** the container
+and dials `host.containers.internal`, which does not translate to Linux Docker:
+most xdev upstreams (Go apps, static/Node dev servers, shared-WP fpm, shared
+MariaDB, adminer) bind `127.0.0.1`, and a bridged container **cannot** reach the
+host's loopback on Linux (podman/gvproxy only papers over this on macOS).
+`network_mode: host` makes Caddy reach every upstream exactly like the native
+binary. To run/inspect it by hand:
 
 ```bash
 export XDEV_DATA=/var/lib/xdev
@@ -81,12 +90,13 @@ XDEV_SECURE=true
 XDEV_ACME_EMAIL=you@example.com         # real Let's Encrypt certs on 80/443
 ```
 
-### Lifecycle ("bring up yourself")
+### Lifecycle
 
-The installer's systemd service manages the **xdev binary**, not Caddy. With
-`XDEV_CADDY=false` you start Caddy as a separate stack: `docker compose … up -d`.
-`restart: unless-stopped` keeps it running across reboots — no systemd unit
-needed. Install xdev with `XDEV_CADDY=false` so the installer skips apt Caddy.
+The systemd service manages the **xdev binary**, not Caddy — the Caddy container
+is a separate stack (`restart: unless-stopped` keeps it up across reboots, no
+systemd unit needed). In `container` mode the installer starts it; otherwise
+bring it up with `docker compose … up -d`. Choosing `native` at install instead
+makes xdev install and supervise a Caddy binary (no container).
 
 ### Coexisting with an existing Traefik, then switching to 80/443
 
