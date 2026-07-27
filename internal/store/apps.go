@@ -16,6 +16,7 @@ const (
 const (
 	TypeStatic = "static" // runs on system Node / served by Caddy, no container
 	TypeProxy  = "proxy"  // a Caddy route to another server — no container/process/port
+	TypeGo     = "go"     // built and run on the host with the system Go toolchain, no container
 
 	ServeStatic  = "serve"   // Caddy file-servers RootDir directly (no process)
 	ServeCommand = "command" // xdev supervises StartCmd as a host process on Port
@@ -59,8 +60,9 @@ type App struct {
 	UpdatedAt string
 }
 
-// IsStatic reports whether the app runs on the host rather than in a container.
-func (a App) IsStatic() bool { return a.Type == TypeStatic }
+// IsHostProc reports whether the app runs on the host (static or go) rather
+// than in a container.
+func (a App) IsHostProc() bool { return a.Type == TypeStatic || a.Type == TypeGo }
 
 // IsProxy reports whether the app is only a route to another server.
 func (a App) IsProxy() bool { return a.Type == TypeProxy }
@@ -157,12 +159,12 @@ func (s *Store) DeleteApp(id int64) error {
 	return err
 }
 
-// ResumableStaticApps returns command-mode static apps that were running when
-// xdev last stopped — their host processes died with xdev and must be respawned
-// on boot (unlike containers, which the engine keeps alive).
+// ResumableStaticApps returns command-mode host apps (static, go) that were
+// running when xdev last stopped — their host processes died with xdev and must
+// be respawned on boot (unlike containers, which the engine keeps alive).
 func (s *Store) ResumableStaticApps() ([]App, error) {
-	rows, err := s.db.Query(appSelect+` WHERE type = ? AND serve_mode = ? AND status = ?`,
-		TypeStatic, ServeCommand, AppRunning)
+	rows, err := s.db.Query(appSelect+` WHERE type IN (?, ?) AND serve_mode = ? AND status = ?`,
+		TypeStatic, TypeGo, ServeCommand, AppRunning)
 	if err != nil {
 		return nil, err
 	}

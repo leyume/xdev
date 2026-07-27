@@ -109,9 +109,14 @@ body {
   background: rgba(180, 140, 255, 0.12);
   font-weight: 600;
 }
-.topnav .spacer { flex: 1; }
 .topnav .muted { font-size: 13px; }
 .inline { display: inline; margin: 0; }
+/* Topbar identity + chrome controls: grouped, evenly spaced, set off from the
+   search box on their left. */
+.topbar-actions { display: flex; align-items: center; gap: 8px; margin-left: 18px; }
+/* Flex filler used by topnav, chart/table heads, and app-card-head rows to
+   push trailing controls to the right edge. */
+.spacer { flex: 1; }
 
 .container { max-width: 1180px; margin: 0 auto; padding: 38px 52px 64px; }
 @media (max-width: 900px) {
@@ -165,6 +170,9 @@ input, select, textarea.code {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 input::placeholder { color: #6b6577; }
+/* File inputs size to content so they sit inline with their upload button
+   instead of stretching full-width and wrapping the button below. */
+input[type="file"] { width: auto; }
 input:focus, select:focus, textarea.code:focus {
   outline: none;
   border-color: var(--accent);
@@ -197,6 +205,19 @@ button.primary:hover { background: #c3a3ff; border-color: #c3a3ff; }
 button.primary[disabled] { opacity: 0.5; cursor: not-allowed; }
 button.link { background: none; border: none; color: var(--muted); padding: 0; box-shadow: none; }
 button.link:hover { color: var(--text); background: none; }
+
+/* Busy state: while a form POST is in flight the submit button hides its label
+   (kept in flow so the button doesn't collapse) and shows a centered spinner;
+   the page reload on completion clears the class. */
+button.is-busy { color: transparent; position: relative; pointer-events: none; }
+button.is-busy::after {
+  content: ""; position: absolute; top: 50%; left: 50%;
+  width: 14px; height: 14px; margin: -7px 0 0 -7px;
+  border: 2px solid var(--text); border-right-color: transparent;
+  border-radius: 50%; animation: btnspin 0.6s linear infinite;
+}
+button.primary.is-busy::after { border-color: var(--accent-ink); border-right-color: transparent; }
+@keyframes btnspin { to { transform: rotate(360deg); } }
 
 /* Anchors styled as buttons */
 a.btn, a.primary {
@@ -383,8 +404,20 @@ textarea.code {
 
 /* Tables (backups, events) */
 .table { width: 100%; border-collapse: collapse; }
+.table th {
+  padding: 8px 14px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border-soft);
+}
 .table td { padding: 12px 14px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
 .table tr:last-child td { border-bottom: none; }
+/* First/last cells shed their outer padding so the first column lines up with
+   the card title and the last (action) column with the header's controls. */
+.table th:first-child, .table td:first-child { padding-left: 0; }
+.table th:last-child, .table td:last-child { padding-right: 0; }
 .table .right { text-align: right; }
 .nowrap { white-space: nowrap; }
 
@@ -448,7 +481,6 @@ textarea.code {
   overflow-y: auto;
 }
 .sidebar .brand { padding: 4px 10px 20px; }
-.sidebar .spacer { flex: 1; }
 .sidenav { display: flex; flex-direction: column; gap: 2px; }
 .sidenav a.navlink {
   color: var(--text);
@@ -552,7 +584,9 @@ textarea.code {
 
 /* Inline nav icons */
 .navlink { display: inline-flex; align-items: center; gap: 8px; }
-.ico { flex: none; }
+/* Tailwind's reset makes svg display:block; keep our inline icons inline so
+   they sit beside text in non-flex buttons (e.g. the sidebar log-out link). */
+.ico { flex: none; display: inline-block; }
 button.link .ico { vertical-align: -3px; margin-right: 6px; }
 /* Icon-only chrome buttons (topbar logout / sidebar toggle) */
 .iconbtn { display: inline-flex; align-items: center; justify-content: center; padding: 7px; border-radius: var(--radius-sm); color: var(--muted); }
@@ -578,7 +612,7 @@ option { background: var(--bg); color: var(--text); }
 .modal-head .iconbtn { font-size: 15px; }
 
 /* ---- KPI strip (Dashboard) ---- */
-.kpi-strip { display: grid; grid-template-columns: repeat(5, 1fr); padding: 0; overflow: hidden; }
+.kpi-strip { display: grid; grid-template-columns: repeat(6, 1fr); padding: 0; overflow: hidden; }
 .kpi-cell { display: flex; flex-direction: column; gap: 7px; padding: 20px 24px; border-left: 1px solid var(--border-soft); }
 .kpi-cell:first-child { border-left: none; }
 .kpi-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
@@ -602,6 +636,7 @@ option { background: var(--bg); color: var(--text); }
 @media (max-width: 900px) { .grid-main, .kpi-strip { grid-template-columns: 1fr; } .kpi-cell { border-left: none; border-top: 1px solid var(--border-soft); } .kpi-cell:first-child { border-top: none; } }
 
 .apps-table-head { display: flex; align-items: center; margin-bottom: 6px; }
+.apps-table-head h2 { margin: 0; }
 .status-label { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; text-transform: capitalize; }
 .status-label .status { margin: 0; align-self: center; }
 .status-label.running { color: var(--ok); }
@@ -637,6 +672,13 @@ option { background: var(--bg); color: var(--text); }
 .status-pill.warn { color: var(--warn); }
 .app-cards { display: flex; flex-direction: column; gap: 18px; }
 .app-card-head { display: flex; align-items: center; gap: 12px; }
+/* Project-detail app cards: the whole header toggles collapse (buttons opt out
+   with @click.stop), so the row gets a pointer and doesn't select text on click.
+   Scoped to .app-card so the reused .app-card-head on Database/WordPress stays
+   a plain header. */
+.app-card > .app-card-head { cursor: pointer; user-select: none; }
+.chevron { display: inline-flex; align-items: center; color: var(--muted); transition: transform 0.2s; }
+.chevron.is-collapsed { transform: rotate(-90deg); }
 .app-card-head .status { margin: 0; align-self: center; }
 .app-card-name { font-size: 16px; font-weight: 700; }
 .app-card-meta { display: flex; align-items: center; gap: 10px; font-size: 13px; margin: 12px 0; flex-wrap: wrap; }
@@ -650,4 +692,16 @@ option { background: var(--bg); color: var(--text); }
 .tab-panel a:hover { text-decoration: underline; }
 .mini-chart { min-height: 100px; }
 .mini-chart + .mini-chart { margin-top: 10px; }
+
+/* ---- Database page: server strip, page-level tabs, DB cards ---- */
+/* Condensed server status row (replaces the old full-height details card). */
+.db-server { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.db-server .btn { padding: 6px 12px; font-size: 12.5px; }
+/* Page-level tab bar (Databases / Users; Overview / Tables) — reuses .tab. */
+.pagetabs { display: flex; align-items: center; gap: 4px; margin: 6px 0 20px; }
+/* DB cards show the schema name as a plain monospace title, not a boxed code. */
+.db-card code { background: none; border: none; padding: 0; font-size: 15px; }
+.mono-title { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -0.01em; }
+/* Keep the add-user form tidy instead of stretching across the whole card. */
+.add-user form { max-width: 620px; }
 </style>{{end}}

@@ -163,6 +163,8 @@ func (s *Server) handleHomeDashboard(w http.ResponseWriter, r *http.Request) {
 	if backupCount > 0 {
 		backupLast = humanizeSince(backupLatest)
 	}
+	sharedDBs := s.apps.SharedDBCount()
+	dedicatedDBs := len(s.apps.DedicatedDatabases())
 
 	s.render(w, r, "dashboard", viewData{
 		"Title":        "Dashboard · xdev",
@@ -183,6 +185,9 @@ func (s *Server) handleHomeDashboard(w http.ResponseWriter, r *http.Request) {
 		"CertsOK":      certOK,
 		"Backups":      backupCount,
 		"BackupLast":   backupLast,
+		"SharedDBs":    sharedDBs,
+		"DedicatedDBs": dedicatedDBs,
+		"TotalDBs":     sharedDBs + dedicatedDBs,
 	})
 }
 

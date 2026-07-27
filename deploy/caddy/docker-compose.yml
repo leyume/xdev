@@ -1,0 +1,39 @@
+# Run Caddy as a container so the host only needs the engine (no brew/apt caddy).
+# xdev stays a native binary and pushes routes to this container's admin API.
+#
+#   export XDEV_DATA=/var/lib/xdev        # same value as in xdev.env
+#   podman compose -f deploy/caddy/docker-compose.yml up -d   # macOS (podman)
+#   docker compose -f deploy/caddy/docker-compose.yml up -d   # Linux server
+#
+# Then run xdev with (see ../xdev.env.example):
+#   XDEV_CADDY=false                              # don't supervise a local caddy
+#   XDEV_UPSTREAM_HOST=host.containers.internal   # podman; host.docker.internal for docker
+#   XDEV_CADDY_ADMIN_LISTEN=0.0.0.0:2019          # re-assert admin on every push
+# (the last one is required — a reload that omits admin would drop this binding).
+services:
+  caddy:
+    image: docker.io/library/caddy:2-alpine
+    restart: unless-stopped
+    # Start with just the admin endpoint bound to the container network; xdev
+    # POSTs the real routes to /load. Admin config can't be changed by a reload,
+    # so this binding survives every xdev sync.
+    command: ["caddy", "run", "--config", "/etc/caddy/init.json"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:2019:2019" # admin API — reachable only from the host (xdev)
+    # Podman provides host.containers.internal automatically. On docker (Linux
+    # server) uncomment this so host.docker.internal resolves:
+    #   extra_hosts:
+    #     - "host.docker.internal:host-gateway"
+    volumes:
+      # Local CA + issued certs, shared with xdev. The caddy image sets
+      # XDG_DATA_HOME=/data, so its CA lands in <XDEV_DATA>/caddy — the same dir
+      # xdev reads (it points XDG_DATA_HOME at its data dir). Trust the root at
+      # <XDEV_DATA>/caddy/pki/authorities/local/root.crt.
+      - "${XDEV_DATA}/caddy:/data/caddy"
+      # Shared-WP tree bind-mounted at the SAME absolute path as on the host, so
+      # the pool/core symlinks and the fpm SCRIPT_FILENAME resolve identically in
+      # Caddy's file_server and in the fpm container. Read-only: Caddy only serves.
+      - "${XDEV_DATA}/wp:${XDEV_DATA}/wp:ro"
+      - "./caddy-init.json:/etc/caddy/init.json:ro"

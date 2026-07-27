@@ -148,6 +148,14 @@ func runServer(o *options) error {
 		return err
 	}
 
+	// Keep Caddy's data (local CA, certs) inside the repo data dir instead of
+	// the OS default. Both caddyDataDir() and Caddy itself honor XDG_DATA_HOME,
+	// so this pins the local CA to <data>/caddy — the same host path you mount
+	// into a Caddy container. ponytail: env lever, no new flag needed.
+	if os.Getenv("XDG_DATA_HOME") == "" {
+		os.Setenv("XDG_DATA_HOME", cfg.DataDir)
+	}
+
 	// --- core services -------------------------------------------------------
 	st, err := store.Open(cfg.DBPath)
 	if err != nil {

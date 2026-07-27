@@ -54,6 +54,55 @@ func TestLocalPortRouteUnchanged(t *testing.T) {
 	}
 }
 
+// TestUpstreamHostOverride checks that a non-default upstreamHost (containerized
+// Caddy reaching host-published ports) redirects loopback dials — app port, fpm
+// port, and the https loopback mail admin — while preserving that https loopback
+// stays insecure_skip_verify, and leaving remote proxy-app upstreams untouched.
+func TestUpstreamHostOverride(t *testing.T) {
+	m := NewManager("127.0.0.1:2019", 443, 80, "", "")
+	m.upstreamHost = "host.containers.internal"
+	b, _ := json.Marshal(m.buildConfig([]Route{
+		{Host: "app.demo.test", Upstream: "127.0.0.1:20000", Internal: true},
+		{Host: "admin.mail.test", Upstream: "https://127.0.0.1:20001"},
+		{Host: "wp.demo.test", Root: "/data/wp/sites/demo_wp", FCGIPort: 20099, Internal: true},
+		{Host: "blog.example.com", Upstream: "http://10.0.0.5:3000"},
+	}))
+	cfg := string(b)
+	for _, want := range []string{
+		`"dial":"host.containers.internal:20000"`, // app port redirected
+		`"dial":"host.containers.internal:20001"`, // https mail admin redirected
+		`"dial":"host.containers.internal:20099"`, // fpm port redirected
+		`"insecure_skip_verify":true`,             // still skips verify for the mail admin
+		`"dial":"10.0.0.5:3000"`,                  // remote proxy app left alone
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("config missing %q\n%s", want, cfg)
+		}
+	}
+	if strings.Contains(cfg, "127.0.0.1") {
+		t.Errorf("no loopback dial should remain\n%s", cfg)
+	}
+}
+
+// TestAdminReassert checks that with adminListen set (containerized Caddy) every
+// pushed config carries the admin block with matching origins, so a reload can't
+// drop the published admin binding — and that it's absent by default.
+func TestAdminReassert(t *testing.T) {
+	def := NewManager("127.0.0.1:2019", 443, 80, "", "")
+	if b, _ := json.Marshal(def.buildConfig(nil)); strings.Contains(string(b), `"admin"`) {
+		t.Errorf("default (supervised) config must not touch admin\n%s", b)
+	}
+
+	m := NewManager("127.0.0.1:2019", 443, 80, "", "")
+	m.adminListen = "0.0.0.0:2019"
+	cfg, _ := json.Marshal(m.buildConfig(nil))
+	for _, want := range []string{`"admin"`, `"listen":"0.0.0.0:2019"`, `"127.0.0.1:2019"`} {
+		if !strings.Contains(string(cfg), want) {
+			t.Errorf("container config missing %q\n%s", want, cfg)
+		}
+	}
+}
+
 // TestWPSharedSiteRoute checks the shared-WP php-site route: file_server rooted
 // at the site dir, the try_files permalink rewrite falling back to index.php,
 // and *.php handed to the wp-host fpm port over fastcgi — while a plain Root
@@ -94,5 +143,21 @@ func TestHTTPSByIPSkipsSNI(t *testing.T) {
 	}
 	if strings.Contains(cfg, "server_name") {
 		t.Errorf("https-by-IP must not set SNI\n%s", cfg)
+	}
+	// A remote IP is not our container: verification must stay on.
+	if strings.Contains(cfg, "insecure_skip_verify") {
+		t.Errorf("https to a non-loopback IP must keep TLS verification\n%s", cfg)
+	}
+}
+
+// TestHTTPSLoopbackSkipsVerify checks an https upstream to loopback (our own
+// self-signed container, e.g. the Stalwart mail admin) skips TLS verification.
+func TestHTTPSLoopbackSkipsVerify(t *testing.T) {
+	cfg := configJSON(t, []Route{{Host: "admin.mail.test", Upstream: "https://127.0.0.1:20001"}})
+	if !strings.Contains(cfg, `"dial":"127.0.0.1:20001"`) {
+		t.Errorf("loopback https should dial the port\n%s", cfg)
+	}
+	if !strings.Contains(cfg, `"insecure_skip_verify":true`) {
+		t.Errorf("loopback https must skip TLS verification\n%s", cfg)
 	}
 }

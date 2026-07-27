@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -46,7 +47,18 @@ type Manager struct {
 	// it (a leaf can't outlive its issuing CA).
 	leafLifetime         string
 	intermediateLifetime string
-	client               *http.Client
+	// upstreamHost is what loopback upstreams (host-published app/fpm ports) are
+	// dialed as. Defaults to 127.0.0.1 (Caddy on the same host); set to
+	// host.containers.internal / host.docker.internal when Caddy runs in a
+	// container and must reach ports published on the host.
+	upstreamHost string
+	// adminListen, when set, makes every pushed config re-assert the admin
+	// endpoint (listen address + origins). Required for a containerized Caddy:
+	// a /load that omits admin makes Caddy revert admin to loopback-inside-the-
+	// container, dropping the published binding xdev talks to. Empty leaves
+	// admin alone (supervised or systemd Caddy, where loopback admin is fine).
+	adminListen string
+	client      *http.Client
 }
 
 // NewManager creates a proxy Manager. acmeEmail may be empty; leafLifetime
@@ -55,6 +67,10 @@ func NewManager(adminAddr string, httpsPort, httpPort int, acmeEmail, leafLifeti
 	if leafLifetime == "" {
 		leafLifetime = "2160h"
 	}
+	upstreamHost := os.Getenv("XDEV_UPSTREAM_HOST")
+	if upstreamHost == "" {
+		upstreamHost = "127.0.0.1"
+	}
 	return &Manager{
 		adminAddr:            adminAddr,
 		httpsPort:            httpsPort,
@@ -62,6 +78,8 @@ func NewManager(adminAddr string, httpsPort, httpPort int, acmeEmail, leafLifeti
 		acmeEmail:            acmeEmail,
 		leafLifetime:         leafLifetime,
 		intermediateLifetime: "8760h", // 1 year; comfortably longer than the leaf
+		upstreamHost:         upstreamHost,
+		adminListen:          os.Getenv("XDEV_CADDY_ADMIN_LISTEN"),
 		client:               &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -126,7 +144,7 @@ func (m *Manager) url(path string) string {
 // verification against the origin works. The incoming Host header passes
 // through untouched (Caddy's default), keeping name-based vhosts — and
 // websockets — on the other server working.
-func reverseProxyHandler(upstream string) map[string]any {
+func reverseProxyHandler(upstream, upstreamHost string) map[string]any {
 	h := map[string]any{"handler": "reverse_proxy"}
 	dial := upstream
 	if strings.Contains(upstream, "://") {
@@ -145,12 +163,53 @@ func reverseProxyHandler(upstream string) map[string]any {
 				if net.ParseIP(host) == nil {
 					tls["server_name"] = host
 				}
+				// A loopback https upstream is one of our own containers behind a
+				// self-signed cert (e.g. the Stalwart mail admin) — there is no
+				// public identity to verify, so skip verification.
+				if isLoopback(host) {
+					tls["insecure_skip_verify"] = true
+				}
 				h["transport"] = map[string]any{"protocol": "http", "tls": tls}
 			}
 		}
 	}
+	// TLS verify semantics above are decided on the original (loopback) host;
+	// only now redirect the dial to upstreamHost so a containerized Caddy can
+	// reach the port where it's actually published (the host).
+	dial = swapLoopbackHost(dial, upstreamHost)
 	h["upstreams"] = []any{map[string]any{"dial": dial}}
 	return h
+}
+
+// swapLoopbackHost rewrites the host of a host:port dial to upstreamHost when it
+// points at loopback, leaving the port and any non-loopback (remote) dial alone.
+func swapLoopbackHost(dial, upstreamHost string) string {
+	host, port, err := net.SplitHostPort(dial)
+	if err != nil || !isLoopback(host) {
+		return dial
+	}
+	return net.JoinHostPort(upstreamHost, port)
+}
+
+// adminOrigins is the Host-header allowlist Caddy's admin API accepts, derived
+// from the address xdev dials it at (adminAddr). Caddy matches the request Host
+// against this, so it must include exactly what xdev sends plus loopback aliases
+// on the same port.
+func adminOrigins(adminAddr string) []string {
+	_, port, err := net.SplitHostPort(adminAddr)
+	if err != nil {
+		return []string{adminAddr}
+	}
+	return []string{adminAddr, net.JoinHostPort("localhost", port), net.JoinHostPort("::1", port)}
+}
+
+// isLoopback reports whether host is the loopback interface by name or IP.
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // phpSiteSubroute builds the handler chain for a PHP docroot (shared-WP sites):
@@ -162,7 +221,7 @@ func reverseProxyHandler(upstream string) map[string]any {
 // everything else. The docroot is bind-mounted into the fpm container at the
 // same absolute path as on the host, so the root — and the SCRIPT_FILENAME the
 // transport derives from it — resolves on both sides.
-func phpSiteSubroute(root string, fcgiPort int) map[string]any {
+func phpSiteSubroute(root string, fcgiPort int, upstreamHost string) map[string]any {
 	return map[string]any{
 		"handler": "subroute",
 		"routes": []any{
@@ -193,7 +252,7 @@ func phpSiteSubroute(root string, fcgiPort int) map[string]any {
 				"handle": []any{map[string]any{
 					"handler":   "reverse_proxy",
 					"transport": map[string]any{"protocol": "fastcgi", "split_path": []string{".php"}},
-					"upstreams": []any{map[string]any{"dial": fmt.Sprintf("127.0.0.1:%d", fcgiPort)}},
+					"upstreams": []any{map[string]any{"dial": fmt.Sprintf("%s:%d", upstreamHost, fcgiPort)}},
 				}},
 			},
 			map[string]any{"handle": []any{map[string]any{"handler": "file_server"}}},
@@ -223,14 +282,14 @@ func (m *Manager) buildConfig(routes []Route) map[string]any {
 		var handle []any
 		switch {
 		case r.Root != "" && r.FCGIPort > 0:
-			handle = []any{phpSiteSubroute(r.Root, r.FCGIPort)}
+			handle = []any{phpSiteSubroute(r.Root, r.FCGIPort, m.upstreamHost)}
 		case r.Root != "":
 			handle = []any{
 				map[string]any{"handler": "vars", "root": r.Root},
 				map[string]any{"handler": "file_server"},
 			}
 		default:
-			handle = []any{reverseProxyHandler(r.Upstream)}
+			handle = []any{reverseProxyHandler(r.Upstream, m.upstreamHost)}
 		}
 		httpRoutes = append(httpRoutes, map[string]any{
 			"match":    []any{map[string]any{"host": []string{r.Host}}},
@@ -258,6 +317,16 @@ func (m *Manager) buildConfig(routes []Route) map[string]any {
 				},
 			},
 		},
+	}
+
+	// Re-assert the admin endpoint on every push (containerized Caddy only): a
+	// config without an admin block makes Caddy revert admin to loopback inside
+	// the container, dropping the published binding xdev pushes to.
+	if m.adminListen != "" {
+		cfg["admin"] = map[string]any{
+			"listen":  m.adminListen,
+			"origins": adminOrigins(m.adminAddr),
+		}
 	}
 
 	// TLS automation: local (.test) hosts use Caddy's internal CA; public hosts

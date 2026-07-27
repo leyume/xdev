@@ -25,6 +25,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -79,6 +80,8 @@ func (s *Service) layoutWPShared(app *store.App, proj store.Project) error {
 		s.dropSharedDB(ctx, engine, dbName)
 		return err
 	}
+	// Share the central plugin/theme pools into the new site.
+	s.linkPoolsInto(filepath.Join(siteDir, "wp-content"))
 	app.DBMode = store.DBShared
 	app.WPMode = store.WPShared
 	return nil
@@ -128,6 +131,12 @@ func (s *Service) ensureWPCore(ctx context.Context) error {
 // escape it. Only files and directories are written — the WP tarball carries
 // nothing else.
 func untarGz(r io.Reader, dest string) error {
+	return untarGzFilter(r, dest, nil)
+}
+
+// untarGzFilter is untarGz with an optional per-entry gate: keep reports whether
+// an entry (its slash-separated path inside the archive) should be written.
+func untarGzFilter(r io.Reader, dest string, keep func(name string) bool) error {
 	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return err
@@ -146,17 +155,20 @@ func untarGz(r io.Reader, dest string) error {
 		if !filepath.IsLocal(name) {
 			return fmt.Errorf("tar entry escapes destination: %q", hdr.Name)
 		}
-		path := filepath.Join(dest, name)
+		if keep != nil && !keep(path.Clean(hdr.Name)) {
+			continue
+		}
+		dst := filepath.Join(dest, name)
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(path, 0o755); err != nil {
+			if err := os.MkdirAll(dst, 0o755); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 				return err
 			}
-			f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fs.FileMode(hdr.Mode)&0o777)
+			f, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fs.FileMode(hdr.Mode)&0o777)
 			if err != nil {
 				return err
 			}
@@ -273,7 +285,26 @@ func writeWPSite(siteDir, coreDir, wpConfig string) error {
 		}
 		return os.Chmod(p, 0o666)
 	})
-	return os.WriteFile(filepath.Join(siteDir, "wp-config.php"), []byte(wpConfig), 0o644)
+	// Drop in the shared pool-guard mu-plugin (data/wp is coreDir's parent).
+	linkGuardInto(filepath.Dir(coreDir), content)
+	if err := os.WriteFile(filepath.Join(siteDir, "wp-config.php"), []byte(wpConfig), 0o644); err != nil {
+		return err
+	}
+	// Pin ABSPATH/wp-content to this site. The docroot is symlinks into the
+	// shared core, so PHP resolves __DIR__ (and thus wp-load's ABSPATH) to the
+	// core — which would make every site read core/wp-config.php and
+	// core/wp-content, bypassing this site's own config, uploads, and the shared
+	// plugin/theme pools. A PHP-FPM auto_prepend_file runs before the symlinked
+	// wp-load and fixes ABSPATH first. .xdev-bootstrap.php is a real file here,
+	// so its __DIR__ is the site (not the core).
+	boot := "<?php\n" +
+		"if (!defined('ABSPATH')) define('ABSPATH', __DIR__ . '/');\n" +
+		"if (!defined('WP_CONTENT_DIR')) define('WP_CONTENT_DIR', __DIR__ . '/wp-content');\n"
+	if err := os.WriteFile(filepath.Join(siteDir, ".xdev-bootstrap.php"), []byte(boot), 0o644); err != nil {
+		return err
+	}
+	userINI := fmt.Sprintf("auto_prepend_file=%q\n", filepath.Join(siteDir, ".xdev-bootstrap.php"))
+	return os.WriteFile(filepath.Join(siteDir, ".user.ini"), []byte(userINI), 0o644)
 }
 
 // wpConfigPHP generates a site's wp-config.php: shared-db credentials, a

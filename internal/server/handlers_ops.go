@@ -1,7 +1,9 @@
 package server
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -10,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"xdev/internal/auth"
 	xruntime "xdev/internal/runtime"
 	"xdev/internal/store"
 )
@@ -122,6 +125,60 @@ func (s *Server) handleAppEnvSave(w http.ResponseWriter, r *http.Request) {
 	_ = s.apps.Start(app.ID) // restart (idempotent up -d) to pick up new env
 	s.store.AddEvent(proj.ID, app.ID, "info", "Updated .env for app "+app.Name)
 	http.Redirect(w, r, "/apps/"+strconv.FormatInt(app.ID, 10)+"/env?saved=1", http.StatusSeeOther)
+}
+
+// uploadedArchive returns the "archive" file from a multipart submit, or a nil
+// reader when none was chosen (the field is optional on app create). The caller
+// must call the returned cleanup. A non-multipart form is not an error. The
+// body is already size-capped by the auth middleware (auth.MaxRequestBody).
+func uploadedArchive(r *http.Request) (io.Reader, func(), error) {
+	noop := func() {}
+	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "multipart/form-data") {
+		return nil, noop, nil
+	}
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		return nil, noop, fmt.Errorf("upload too large (max %d MB) or malformed", auth.MaxRequestBody>>20)
+	}
+	file, hdr, err := r.FormFile("archive")
+	if err != nil || hdr.Size == 0 {
+		if file != nil {
+			file.Close()
+		}
+		return nil, noop, nil // no file chosen — not an import
+	}
+	if !strings.HasSuffix(strings.ToLower(hdr.Filename), ".tar.gz") &&
+		!strings.HasSuffix(strings.ToLower(hdr.Filename), ".tgz") {
+		file.Close()
+		return nil, noop, errors.New("import needs a .tar.gz backup archive")
+	}
+	return file, func() { file.Close() }, nil
+}
+
+// handleAppImport overwrites an existing app's files from an uploaded backup
+// archive, restarting it afterwards.
+func (s *Server) handleAppImport(w http.ResponseWriter, r *http.Request) {
+	app, proj, ok := s.appAndProject(w, r)
+	if !ok {
+		return
+	}
+	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/backups"
+	archive, closeArchive, err := uploadedArchive(r)
+	if err != nil {
+		redirectWithError(w, r, target, err)
+		return
+	}
+	defer closeArchive()
+	if archive == nil {
+		redirectWithError(w, r, target, errors.New("choose a .tar.gz backup to import"))
+		return
+	}
+	if err := s.apps.Import(app.ID, archive); err != nil {
+		redirectWithError(w, r, target, err)
+		return
+	}
+	s.store.AddEvent(proj.ID, app.ID, "warn", "Imported backup over app "+app.Name)
+	s.reconcile()
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 // handleAppBackupCreate makes a new backup archive of the app directory.

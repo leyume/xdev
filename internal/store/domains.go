@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"path/filepath"
 	"strconv"
 )
@@ -133,6 +134,10 @@ func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 		}
 		r.Local = isLocal == 1
 		switch {
+		case domainPort > 0 && appType == "mail":
+			// Stalwart's admin console serves over HTTPS (self-signed) on its own
+			// port; Caddy proxies to it over TLS with verification skipped (loopback).
+			r.Upstream = fmt.Sprintf("https://127.0.0.1:%d", domainPort)
 		case domainPort > 0:
 			// Secondary service domain (e.g. Adminer): route straight to its port.
 			r.Port = domainPort

@@ -20,9 +20,9 @@ func TestRenderAllAvailableTypes(t *testing.T) {
 		if !ti.Available {
 			continue
 		}
-		// Static apps run on the host and proxy apps are just a Caddy route —
-		// neither has a compose template to render.
-		if ti.Type == "static" || ti.Type == "proxy" {
+		// Static/go apps run on the host and proxy apps are just a Caddy route —
+		// none of them has a compose template to render.
+		if ti.Type == "static" || ti.Type == "go" || ti.Type == "proxy" {
 			continue
 		}
 		d.AppType = ti.Type
@@ -106,7 +106,7 @@ func TestMailPorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render mail local: %v", err)
 	}
-	for _, want := range []string{"20001:8080", `"2525:25"`, "20000:8888", "demo_mail_webmail"} {
+	for _, want := range []string{"20001:443", "18080:8080", `"2525:25"`, "20000:8888", "demo_mail_webmail"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("local mail compose missing %q\n%s", want, out)
 		}
@@ -120,7 +120,7 @@ func TestMailPorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render mail prod: %v", err)
 	}
-	for _, want := range []string{`"25:25"`, `"465:465"`, `"587:587"`, `"993:993"`} {
+	for _, want := range []string{`"25:25"`, `"465:465"`, `"993:993"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("prod mail compose missing %q\n%s", want, out)
 		}

@@ -18,6 +18,22 @@ func tmplFuncs() template.FuncMap {
 		"gib": func(b uint64) string { return fmt.Sprintf("%.1f", float64(b)/1073741824) },
 		// hasPrefix drives active-nav-link highlighting from the request path.
 		"hasPrefix": strings.HasPrefix,
+		// dict builds a map from alternating key/value pairs, for passing named
+		// args to a shared sub-template ({{template "x" dict "K" v ...}}).
+		"dict": func(kv ...any) (map[string]any, error) {
+			if len(kv)%2 != 0 {
+				return nil, fmt.Errorf("dict: odd argument count")
+			}
+			m := make(map[string]any, len(kv)/2)
+			for i := 0; i < len(kv); i += 2 {
+				k, ok := kv[i].(string)
+				if !ok {
+					return nil, fmt.Errorf("dict: key %d not a string", i)
+				}
+				m[k] = kv[i+1]
+			}
+			return m, nil
+		},
 		// initials renders a two-letter avatar badge from an email address.
 		"initials": func(email string) string {
 			local, _, _ := strings.Cut(email, "@")

@@ -134,6 +134,15 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// An optional backup archive makes this a multipart submit; FormValue still
+	// reads the text fields either way.
+	archive, closeArchive, err := uploadedArchive(r)
+	if err != nil {
+		redirectWithError(w, r, "/projects/"+proj.Slug, err)
+		return
+	}
+	defer closeArchive()
+
 	cpu, _ := strconv.ParseFloat(r.FormValue("cpu_cores"), 64)
 	memMB, _ := strconv.ParseInt(r.FormValue("memory_mb"), 10, 64)
 	var memBytes int64
@@ -155,6 +164,7 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		AdminerDomain: r.FormValue("adminer_domain"),
 		DBMode:        r.FormValue("db_mode"),
 		WPMode:        r.FormValue("wp_mode"),
+		Archive:       archive,
 	})
 	if err != nil {
 		redirectWithError(w, r, "/projects/"+proj.Slug, err)
@@ -202,7 +212,14 @@ func (s *Server) appAction(w http.ResponseWriter, r *http.Request, verb string, 
 		return
 	}
 	target := "/projects/" + proj.Slug
+	json := wantsJSON(r)
 	if err := fn(id); err != nil {
+		if json {
+			// Non-2xx so the client falls back to a native submit and lands on
+			// the server-rendered error banner.
+			http.Error(w, firstLine(err.Error()), http.StatusInternalServerError)
+			return
+		}
 		redirectWithError(w, r, target, err)
 		return
 	}
@@ -215,7 +232,24 @@ func (s *Server) appAction(w http.ResponseWriter, r *http.Request, verb string, 
 		s.store.AddEvent(proj.ID, aid, "info", verb+" app "+app.Name)
 	}
 	s.reconcile()
+	if json {
+		status := "deleted"
+		if verb != "Deleted" {
+			if fresh, err := s.store.AppByID(id); err == nil {
+				status = fresh.Status
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"` + status + `"}`))
+		return
+	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+// wantsJSON reports whether the caller (our fetch-based UI) wants an in-place
+// JSON reply instead of the classic POST-redirect page reload.
+func wantsJSON(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "application/json")
 }
 
 // redirectWithError redirects to target with a short ?error= message. Compose

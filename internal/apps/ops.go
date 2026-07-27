@@ -4,11 +4,13 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"xdev/internal/runtime"
@@ -47,7 +49,7 @@ func (s *Service) Logs(id int64, tail int) (string, error) {
 		return "Shared-host WordPress — PHP runs in the platform xdev-wp container, shared by every site; see `" +
 			app.Runtime + " logs " + wpHostContainer + "`.", nil
 	}
-	if app.IsStatic() {
+	if app.IsHostProc() {
 		proj, err := s.store.ProjectByID(app.ProjectID)
 		if err != nil {
 			return "", err
@@ -70,7 +72,7 @@ func (s *Service) envPath(id int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if app.IsStatic() {
+	if app.IsHostProc() {
 		return filepath.Join(s.appDir(app), ".env"), nil
 	}
 	return filepath.Join(s.appDir(app), "app", ".env"), nil
@@ -111,6 +113,44 @@ func (s *Service) backupsDirFor(app store.App, backupsRoot string) (string, erro
 		return "", err
 	}
 	return filepath.Join(backupsRoot, proj.Slug+"_"+app.Slug), nil
+}
+
+// Import restores a .tar.gz backup over an existing app: the app is stopped,
+// the archive is unpacked into its directory, and it is started again. Files in
+// the archive replace files at the same path; anything already there and not in
+// the archive is left alone.
+// ponytail: overlay, not a clean replace — the archive can't silently delete an
+// app's data, at the cost of leaving stale files behind. Wipe-then-extract is
+// the upgrade if exact-mirror restores ever matter.
+func (s *Service) Import(id int64, archive io.Reader) error {
+	app, err := s.store.AppByID(id)
+	if err != nil {
+		return err
+	}
+	dir := s.appDir(app)
+	if dir == "" {
+		return errors.New("app has no directory to import into")
+	}
+	if err := s.Stop(id); err != nil {
+		return err
+	}
+	if err := extractAppArchive(archive, dir, app.IsHostProc()); err != nil {
+		return err
+	}
+	return s.Start(id)
+}
+
+// extractAppArchive unpacks a backup .tar.gz into an app directory. For
+// container apps the archive's _/ is skipped so the compose file xdev just
+// rendered for *this* app (its ports, container names and network) survives —
+// importing someone else's compose would point the app at the wrong stack.
+func extractAppArchive(archive io.Reader, dir string, hostProc bool) error {
+	if hostProc {
+		return untarGz(archive, dir)
+	}
+	return untarGzFilter(archive, dir, func(name string) bool {
+		return name != "_" && !strings.HasPrefix(name, "_/")
+	})
 }
 
 // Backup writes a timestamped .tar.gz of the app's directory (compose + content)

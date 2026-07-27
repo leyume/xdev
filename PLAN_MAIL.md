@@ -44,9 +44,19 @@ The `mail` app type:
 
 ## Remaining dev
 
-1. **e2e verify locally** — create a mail app in a test project, both
-   containers up, admin + webmail reachable, send/receive between two local
-   mailboxes.
+1. ~~**e2e verify locally**~~ ✅ Full wizard run + send/receive proven
+   (SMTPS submit → IMAPS fetch, DKIM-signed). The e2e surfaced and fixed two
+   compose/wiring bugs:
+   - **Persistence:** Stalwart v0.16 stores everything in `/var/lib/stalwart`,
+     not `/opt/stalwart` — the volume now mounts the former.
+   - **Admin console:** 8080 is Stalwart's *bootstrap/recovery* listener; the
+     real admin UI serves over HTTPS on 443 post-setup. Compose now publishes
+     443 (Caddy proxies the admin domain to it over TLS, verification skipped
+     for the loopback self-signed cert — `proxy.reverseProxyHandler`) and keeps
+     8080 for the one-time first-run wizard. `store.ProxyRoutes` routes the mail
+     admin domain via an `https://127.0.0.1:<port>` upstream.
+   - Default submission listener is 465 (SMTPS), not 587 — dropped the 587
+     publish and pointed the SnappyMail note at 465.
 2. *(Optional, later)* xdev-native domain/mailbox CRUD pages calling
    Stalwart's REST API — only if hopping to the Stalwart admin gets old.
    YAGNI until then.

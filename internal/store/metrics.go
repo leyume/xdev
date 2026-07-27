@@ -56,8 +56,8 @@ func (s *Store) AppPrefixes() ([]AppPrefix, error) {
 	rows, err := s.db.Query(
 		`SELECT a.id, p.slug || '_' || a.slug
 		 FROM apps a JOIN projects p ON p.id = a.project_id
-		 WHERE a.type NOT IN ('static', 'proxy')
-		   AND a.wp_mode != 'shared'`) // static apps run on the host; proxy and shared-WP apps run no container of their own
+		 WHERE a.type NOT IN ('static', 'go', 'proxy')
+		   AND a.wp_mode != 'shared'`) // static/go apps run on the host; proxy and shared-WP apps run no container of their own
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,195 @@
+{{define "content"}}
+{{$db := .DB}}
+<div x-data="{ tab: 'databases', newdb: false }" @keydown.escape.window="newdb = false">
+<section class="page-head">
+  <div>
+    <h1>Databases</h1>
+    <div class="muted small">
+      {{len $db.Databases}} on the shared server{{if .Dedicated}} · {{len .Dedicated}} dedicated (per-app){{end}}
+    </div>
+  </div>
+  <button class="primary" type="button" @click="newdb = true">+ New database</button>
+</section>
+
+{{if .Msg}}<div class="alert ok">{{.Msg}}</div>{{end}}
+{{if .Err}}<div class="alert">{{.Err}}</div>{{end}}
+
+<!-- Shared server status: one compact strip (or a start prompt if never used). -->
+{{if $db.Configured}}
+<div class="card db-server">
+  <span class="status {{if $db.Running}}running{{else}}stopped{{end}}"></span>
+  <strong>{{$db.Container}}</strong>
+  <span class="chip">{{if $db.Running}}running{{else}}stopped{{end}}</span>
+  <span class="muted small"><code>{{$db.Image}}</code></span>
+  <span class="muted small nowrap">{{$db.Host}}:{{$db.Port}}</span>
+  <span class="muted small nowrap" x-data="{show:false}">root <code x-show="!show">••••••••</code><code x-show="show" x-cloak>{{$db.RootPass}}</code>
+    <button class="link small" type="button" @click="show=!show" x-text="show?'hide':'reveal'">reveal</button></span>
+  <span class="spacer"></span>
+  {{if $db.AdminerPort}}
+  <a class="btn" href="http://127.0.0.1:{{$db.AdminerPort}}/?server={{$db.Host}}" target="_blank">Adminer ↗</a>
+  <form class="inline" method="post" action="/database/adminer">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}"><input type="hidden" name="action" value="stop">
+    <button class="link small" type="submit">stop</button>
+  </form>
+  {{else}}
+  <form class="inline" method="post" action="/database/adminer">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}"><button class="btn" type="submit">Start Adminer</button>
+  </form>
+  {{end}}
+  <form class="inline" method="post" action="/database/restart">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}"><button class="btn" type="submit">Restart</button>
+  </form>
+  <form class="inline" method="post" action="/database/update"
+        onsubmit="return confirm('Pull the latest MariaDB image and recreate the server? Every shared-mode app is briefly down during the swap. Data is preserved.')">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}"><button class="btn" type="submit">Update image</button>
+  </form>
+</div>
+{{else}}
+<div class="card db-server">
+  <span class="status stopped"></span>
+  <strong>{{$db.Container}}</strong>
+  <span class="muted small">shared MariaDB not started — created automatically when you add a shared-mode app</span>
+  <span class="spacer"></span>
+  <form class="inline" method="post" action="/database/restart">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}"><button class="btn" type="submit">Start shared MariaDB</button>
+  </form>
+</div>
+{{end}}
+
+<div class="pagetabs">
+  <span class="tab" :class="{active: tab==='databases'}" @click="tab='databases'">Databases</span>
+  <span class="tab" :class="{active: tab==='users'}" @click="tab='users'">Users</span>
+</div>
+
+<!-- Databases tab: shared schemas + dedicated per-app containers, as cards. -->
+<div x-show="tab==='databases'">
+  {{if or $db.Databases $db.Running}}
+  <h3>Shared server <span class="muted">· {{$db.Container}}</span></h3>
+  <div class="project-grid">
+    {{range $db.Databases}}
+    <a class="card project-card db-card" href="/database/{{.Name}}">
+      <div class="project-card-head">
+        <strong><code>{{.Name}}</code></strong>
+        <span class="spacer"></span>
+        <span class="badge">{{.SizeMB}} MB</span>
+      </div>
+      <div class="muted small">{{if .App}}{{.App}}{{else}}external · unassigned{{end}}</div>
+    </a>
+    {{end}}
+    <a class="card project-card project-card-new" href="#" @click.prevent="newdb = true">
+      <div class="new-plus">+</div>
+      <div style="font-weight:600">New database</div>
+      <div class="muted small">empty utf8mb4 schema</div>
+    </a>
+  </div>
+  {{end}}
+
+  {{if .Dedicated}}
+  <h3 class="mt">Dedicated <span class="muted">· each in its own container, per app</span></h3>
+  <div class="project-grid">
+    {{range .Dedicated}}
+    <a class="card project-card db-card" href="/projects/{{.ProjectSlug}}">
+      <div class="project-card-head">
+        <strong>{{.ProjectName}} <span class="muted">/</span> {{.AppName}}</strong>
+        <span class="spacer"></span>
+        <span class="status-label {{if .Running}}running{{else}}stopped{{end}}">
+          <span class="status {{if .Running}}running{{else}}stopped{{end}}"></span>{{if .Running}}running{{else}}stopped{{end}}</span>
+      </div>
+      <div class="muted small">db <code>{{.DBName}}</code> · <code>{{.Container}}</code></div>
+    </a>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{if and (not $db.Databases) (not $db.Running) (not .Dedicated)}}
+  <div class="empty card"><p class="muted">No databases yet — add a WordPress or Laravel app, or create one here.</p></div>
+  {{end}}
+</div>
+
+<!-- Users tab: shared-server accounts + a clean add-user form. -->
+<div x-show="tab==='users'" x-cloak style="display:none">
+  {{if $db.Configured}}
+  <div class="card">
+    <h2>Server users</h2>
+    <p class="muted small">MySQL accounts on the shared server. Each shared-mode app has its own
+      <code>project_app</code> user; add more here for external tools.</p>
+    {{if .Users}}
+    <table class="table">
+      <tr><th>User</th><th>Host</th><th class="right">Reset password / remove</th></tr>
+      {{range .Users}}
+      <tr>
+        <td><code>{{.Name}}</code>{{if .System}} <span class="muted small">system</span>{{end}}</td>
+        <td class="muted small nowrap">{{.Host}}</td>
+        <td class="right nowrap">
+          {{if not .System}}
+          <form class="inline" method="post" action="/database/user/password" style="display:inline-flex;gap:6px;align-items:center">
+            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+            <input type="hidden" name="name" value="{{.Name}}">
+            <input type="hidden" name="host" value="{{.Host}}">
+            <input type="password" name="password" required placeholder="new password" style="width:9rem;padding:5px 10px;font-size:13px">
+            <button type="submit" class="small-btn">Reset</button>
+          </form>
+          <form class="inline" method="post" action="/database/user/drop"
+                onsubmit="return confirm('Drop user {{.Name}}@{{.Host}}?')">
+            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+            <input type="hidden" name="name" value="{{.Name}}">
+            <input type="hidden" name="host" value="{{.Host}}">
+            <button class="danger small-btn" type="submit">Drop</button>
+          </form>
+          {{else}}<span class="muted small">—</span>{{end}}
+        </td>
+      </tr>
+      {{end}}
+    </table>
+    {{end}}
+  </div>
+
+  <div class="card add-user">
+    <h2>Add a user</h2>
+    <p class="muted small">Creates <code>name@%</code> on the shared server, optionally granting it a database.</p>
+    <form method="post" action="/database/user/create" style="margin-top:14px">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div class="row2">
+        <label>Username
+          <input type="text" name="name" required placeholder="reporting" spellcheck="false"
+                 pattern="[A-Za-z0-9_]+" title="letters, digits, underscore">
+        </label>
+        <label>Password
+          <input type="password" name="password" required placeholder="a strong password">
+        </label>
+      </div>
+      <label>Grant access <span class="muted">(optional)</span>
+        <select name="grant">
+          <option value="">No grants</option>
+          <option value="*">All databases (*.*)</option>
+          {{range $db.Databases}}<option value="{{.Name}}">Grant on {{.Name}}</option>{{end}}
+        </select>
+      </label>
+      <button class="primary" type="submit">Add user</button>
+    </form>
+  </div>
+  {{else}}
+  <div class="empty card"><p class="muted">Start the shared server to manage its users. Dedicated per-app databases keep their own users inside their container.</p></div>
+  {{end}}
+</div>
+
+<!-- New-database modal (shared server). -->
+<div class="modal-overlay" x-show="newdb" x-cloak @click.self="newdb = false">
+  <div class="modal card form-card" role="dialog" aria-modal="true" aria-label="New database">
+    <div class="modal-head">
+      <h3 style="margin:0">New database</h3>
+      <button type="button" class="link iconbtn" title="Close" aria-label="Close" @click="newdb = false">✕</button>
+    </div>
+    <p class="muted small">An empty utf8mb4 schema on the shared server.</p>
+    <form method="post" action="/database/db/create">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <label>Name <span class="muted">(letters, digits, underscore)</span>
+        <input type="text" name="name" required placeholder="my_database" spellcheck="false"
+               pattern="[A-Za-z0-9_]+" title="letters, digits, underscore">
+      </label>
+      <button class="primary" type="submit">Create database</button>
+    </form>
+  </div>
+</div>
+</div>
+{{end}}

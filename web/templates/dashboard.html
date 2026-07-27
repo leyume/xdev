@@ -33,6 +33,11 @@
     <div class="kpi-num">{{if .Backups}}{{.Backups}}{{else}}—{{end}}</div>
     <div class="muted small">{{if .BackupLast}}last run {{.BackupLast}}{{else}}none yet{{end}}</div>
   </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Databases</div>
+    <div class="kpi-num">{{if .TotalDBs}}{{.TotalDBs}}{{else}}—{{end}}</div>
+    <div class="muted small"><a href="/database">{{.SharedDBs}} shared · {{.DedicatedDBs}} dedicated</a></div>
+  </div>
 </section>
 
 {{template "host_resources" .}}
@@ -52,7 +57,7 @@
       <span :class="{active: range==='7d'}" @click="load('7d')">7d</span>
     </div>
   </div>
-  <div id="hostChart" style="height:180px"></div>
+  <div id="hostChart" style="height:260px"></div>
 </section>
 
 <div class="grid-main">
@@ -71,19 +76,17 @@
     <table class="table">
       <tr class="muted small"><th style="text-align:left">App</th><th style="text-align:left">Type</th><th style="text-align:left">CPU</th><th style="text-align:left">Memory</th><th style="text-align:left">Status</th></tr>
       {{range .Apps}}
-      <tr>
+      <tr data-app-id="{{.ID}}" data-status="{{.Status}}">
         <td><a href="/projects/{{.ProjectSlug}}" style="color:var(--text);text-decoration:none;font-weight:600">{{.ProjectName}}<span class="muted">/</span>{{.Name}}</a></td>
         <td class="muted">{{.Type}}</td>
         <td><span id="cpu-{{.ID}}">{{if .HasMetrics}}{{f1 .CPUPct}}%{{else}}—{{end}}</span></td>
         <td class="muted"><span id="mem-{{.ID}}">{{if .HasMetrics}}{{.MemMiB}} MiB{{else}}—{{end}}</span></td>
         <td>
           <span class="status-label {{.Status}}"><span class="status"></span>{{.Status}}</span>
-          {{if ne .Status "running"}}
-          <form class="inline" method="post" action="/apps/{{.ID}}/start">
+          <form class="inline act-start" method="post" action="/apps/{{.ID}}/start">
             <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
             <button type="submit" class="small-btn">Start</button>
           </form>
-          {{end}}
         </td>
       </tr>
       {{end}}
@@ -133,7 +136,7 @@ function hostChart() {
       const secs = { '1h': 3600, '24h': 86400, '7d': 604800 }[this.range] || 86400;
       const axis = { stroke: '#96909f', grid: { stroke: 'rgba(255,255,255,0.06)' }, ticks: { stroke: 'rgba(255,255,255,0.06)' } };
       this.chart = new uPlot({
-        width: el.clientWidth || 1240, height: 180,
+        width: el.clientWidth || 1240, height: 260,
         scales: { x: { time: true, range: [now - secs, now] }, y: { range: [0, 100] } },
         axes: [axis, axis],
         series: [

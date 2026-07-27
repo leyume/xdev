@@ -63,6 +63,7 @@ type TypeInfo struct {
 func Catalog() []TypeInfo {
 	return []TypeInfo{
 		{"static", "Static", "Static site/app served by xdev with your system Node — no container. Code lives directly in the app folder.", true},
+		{"go", "Go", "Go app built and run on the host with your system Go toolchain — no container. Code lives directly in the app folder.", true},
 		{"proxy", "Proxy", "Forward this domain to another server — just a Caddy route to an upstream URL. No container, process, or files.", true},
 		{"wordpress", "WordPress", "WordPress + MariaDB, code in app/.", true},
 		{"laravel", "Laravel", "Laravel on Octane/Swoole + MariaDB + Redis (drop your app in app/).", true},
@@ -109,6 +110,13 @@ func RenderCompose(appType string, d Data) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// AdminerCSS returns the bundled Adminer stylesheet (the Pepa Linha dark theme
+// the laravel apps ship in their db/), so the platform's shared Adminer can
+// mount the same design instead of the image's older built-in one.
+func AdminerCSS() ([]byte, error) {
+	return filesFS.ReadFile("files/laravel/infra/db/adminer.css")
 }
 
 // ScaffoldFiles returns the relative path -> contents of every file under

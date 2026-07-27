@@ -52,7 +52,7 @@ func (s *Server) Handler() http.Handler { return s.mux }
 // shared layout so {{block "content"}} resolves per page.
 func (s *Server) parseTemplates() error {
 	pages := []string{"setup", "login", "dashboard", "projects", "project_new", "project", "app_metrics",
-		"app_logs", "app_env", "app_backups", "events", "admins"}
+		"app_logs", "app_env", "app_backups", "events", "admins", "database", "database_detail", "wordpress"}
 	s.tmpl = make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		t, err := template.New(p).Funcs(tmplFuncs()).ParseFS(web.TemplatesFS,
@@ -114,6 +114,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /apps/{id}/env", s.auth.RequireAuth(s.handleAppEnvSave))
 	mux.HandleFunc("POST /apps/{id}/domain", s.auth.RequireAuth(s.handleAppDomain))
 	mux.HandleFunc("POST /apps/{id}/backup", s.auth.RequireAuth(s.handleAppBackupCreate))
+	mux.HandleFunc("POST /apps/{id}/import", s.auth.RequireAuth(s.handleAppImport))
 	mux.HandleFunc("GET /apps/{id}/backups", s.auth.RequireAuth(s.handleAppBackups))
 	mux.HandleFunc("GET /apps/{id}/backups/{name}", s.auth.RequireAuth(s.handleBackupDownload))
 
@@ -128,6 +129,23 @@ func (s *Server) routes() {
 	// Settings.
 	mux.HandleFunc("POST /settings/engine", s.auth.RequireAuth(s.handleSetEngine))
 	mux.HandleFunc("POST /settings/hosts-sync", s.auth.RequireAuth(s.handleHostsSync))
+
+	// Shared MariaDB (platform service).
+	mux.HandleFunc("GET /database", s.auth.RequireAuth(s.handleDatabase))
+	mux.HandleFunc("GET /database/{name}", s.auth.RequireAuth(s.handleDatabaseDetail))
+	mux.HandleFunc("POST /database/restart", s.auth.RequireAuth(s.handleDBRestart))
+	mux.HandleFunc("POST /database/update", s.auth.RequireAuth(s.handleDBUpdate))
+	mux.HandleFunc("POST /database/adminer", s.auth.RequireAuth(s.handleAdminer))
+	mux.HandleFunc("POST /database/db/create", s.auth.RequireAuth(s.handleDBCreate))
+	mux.HandleFunc("POST /database/db/drop", s.auth.RequireAuth(s.handleDBDrop))
+	mux.HandleFunc("POST /database/user/create", s.auth.RequireAuth(s.handleDBUserCreate))
+	mux.HandleFunc("POST /database/user/password", s.auth.RequireAuth(s.handleDBUserPassword))
+	mux.HandleFunc("POST /database/user/drop", s.auth.RequireAuth(s.handleDBUserDrop))
+
+	// Central WordPress plugin/theme pools (shared across all shared-host sites).
+	mux.HandleFunc("GET /wordpress", s.auth.RequireAuth(s.handleWordPress))
+	mux.HandleFunc("POST /wordpress/pool/upload", s.auth.RequireAuth(s.handleWPPoolUpload))
+	mux.HandleFunc("POST /wordpress/pool/remove", s.auth.RequireAuth(s.handleWPPoolRemove))
 
 	// Admins (multi-admin management).
 	mux.HandleFunc("GET /admins", s.auth.RequireAuth(s.handleAdmins))

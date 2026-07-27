@@ -39,9 +39,9 @@ func NewSupervisor(runDir string) *Supervisor {
 	return &Supervisor{runDir: runDir, procs: map[int64]*proc{}}
 }
 
-// HasNode reports whether the system Node runtime is on PATH.
-func HasNode() bool {
-	_, err := exec.LookPath("node")
+// Has reports whether a toolchain binary (node, go, …) is on PATH.
+func Has(bin string) bool {
+	_, err := exec.LookPath(bin)
 	return err == nil
 }
 

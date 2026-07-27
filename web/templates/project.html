@@ -38,35 +38,37 @@
   <div class="app-cards">
     {{if .Apps}}
     {{range .Apps}}
-    <div class="card app-card" x-data="{tab:'metrics', loaded:{},
+    <div class="card app-card" x-data="{collapsed:true, tab:'metrics', loaded:{},
         open(t){ this.tab=t; if(t!=='metrics' && !this.loaded[t]){ this.loaded[t]=true; this.fetchPartial(t); } },
         async fetchPartial(t){ const el=this.$refs[t];
           try{ const r=await fetch('/apps/{{.ID}}/'+t+'/partial',{credentials:'same-origin'}); el.innerHTML=await r.text(); }
           catch(e){ el.textContent='Could not load.'; } }}">
-      <div class="app-card-head">
+      <div class="app-card-head" data-app-id="{{.ID}}" data-status="{{.Status}}"
+           @click="collapsed=!collapsed" role="button" tabindex="0"
+           @keydown.enter="collapsed=!collapsed" @keydown.space.prevent="collapsed=!collapsed"
+           :aria-expanded="(!collapsed).toString()">
+        <span class="chevron ico" :class="{'is-collapsed':collapsed}">{{template "icon_chevron" .}}</span>
         <span class="status {{.Status}}" title="{{.Status}}"></span>
         <span class="app-card-name">{{.Name}}</span>
         <span class="chip">{{.Type}}</span>
         {{if eq .WPMode "shared"}}<span class="chip">shared host</span>{{end}}
         <span class="spacer"></span>
-        {{if eq .Status "running"}}
-        <form class="inline" method="post" action="/apps/{{.ID}}/stop">
+        <form class="inline act-stop" method="post" action="/apps/{{.ID}}/stop" @click.stop>
           <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button type="submit">Stop</button>
         </form>
-        {{else}}
-        <form class="inline" method="post" action="/apps/{{.ID}}/start">
+        <form class="inline act-start" method="post" action="/apps/{{.ID}}/start" @click.stop>
           <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button class="primary" type="submit">Start</button>
         </form>
-        {{end}}
-        <form class="inline" method="post" action="/apps/{{.ID}}/refresh" title="Refresh status">
+        <form class="inline" method="post" action="/apps/{{.ID}}/refresh" title="Refresh status" @click.stop>
           <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button type="submit">↻</button>
         </form>
-        <form class="inline" method="post" action="/apps/{{.ID}}/delete"
-          onsubmit="return confirm('Delete app {{.Name}}?')">
+        <form class="inline" method="post" action="/apps/{{.ID}}/delete" @click.stop
+          data-confirm="Delete app {{.Name}}?">
           <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button class="danger" type="submit">Delete</button>
         </form>
       </div>
 
+      <div class="app-card-body" x-show="!collapsed">
       <div class="app-card-meta">
         {{$host := .Domain}}
         {{if $.ProxyEnabled}}
@@ -83,6 +85,7 @@
             {{else}}<a href="https://{{$adm}}:{{$.HTTPSPort}}" target="_blank">{{$admLabel}}</a>{{end}}
           {{else}}<span class="muted">{{$admLabel}}: {{$adm}}</span>{{end}}
         {{end}}
+        {{if or (eq .DBMode "shared") (eq .WPMode "shared")}}<span class="muted">·</span><a href="/database" title="Manage the shared database & Adminer">Shared DB ↗</a>{{end}}
         {{if or .CPULimit .MemLimit}}<span class="muted">· {{if .CPULimit}}{{f1 .CPULimit}} CPU{{end}}{{if .MemLimit}} {{mib .MemLimit}}MB{{end}}</span>{{end}}
       </div>
 
@@ -121,6 +124,7 @@
         <div class="muted small"><a href="/apps/{{.ID}}/backups">manage backups ↗</a></div>
       </div>
       {{end}}
+      </div>
     </div>
     {{end}}
     {{else}}
@@ -163,13 +167,14 @@
 </div>
 
 <!-- Add-app modal (triggered by the header button; Alpine scope wraps the page). -->
-<div class="modal-overlay" x-show="addOpen" x-cloak @click.self="addOpen = false" x-transition.opacity>
+<div class="modal-overlay" x-show="addOpen" x-cloak @click.self="addOpen = false">
   <div class="modal card form-card" role="dialog" aria-modal="true" aria-label="Add app">
     <div class="modal-head">
       <h3 style="margin:0">Add app</h3>
       <button type="button" class="link iconbtn" title="Close" aria-label="Close" @click="addOpen = false">✕</button>
     </div>
-    <form method="post" action="/projects/{{.Project.Slug}}/apps" x-data="{type:'static', serve:'serve', wp:'shared'}">
+    <form method="post" action="/projects/{{.Project.Slug}}/apps" enctype="multipart/form-data"
+          x-data="{type:'static', serve:'serve', wp:'shared', godb:''}">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <label>App name
         <input type="text" name="name" required placeholder="e.g. frontend">
@@ -203,6 +208,29 @@
           </label>
           <label x-show="serve==='command'">Start command <span class="muted">(long-running; <code>$PORT</code> is set for you)</span>
             <input type="text" name="start_cmd" placeholder="npm install &amp;&amp; npm run dev -- --host 127.0.0.1 --port $PORT" spellcheck="false">
+          </label>
+        </div>
+      </template>
+
+      <!-- Go apps: built and supervised on the host with the system Go toolchain. -->
+      <template x-if="type==='go'">
+        <div>
+          <label>Database <span class="muted">(does this app need one?)</span>
+            <select name="db_mode" x-model="godb">
+              <option value="">No database</option>
+              <option value="shared">Yes — one on the shared xdev MariaDB</option>
+            </select>
+          </label>
+          <p class="muted small" x-show="godb==='shared'" style="margin:-2px 0 10px">
+            A database and user are created for this app, and its <code>.env</code> is written with
+            <code>DB_HOST</code>/<code>DB_PORT</code>/<code>DB_NAME</code>/<code>DB_USER</code>/<code>DB_PASSWORD</code>/<code>DB_DSN</code>
+            — xdev loads them into the app's environment on start.
+          </p>
+          <label>Build command <span class="muted">(runs once before start — blank = <code>go build -o app .</code>)</span>
+            <input type="text" name="build_cmd" placeholder="go build -o app ." spellcheck="false">
+          </label>
+          <label>Start command <span class="muted">(long-running; <code>$PORT</code> is set for you — blank = <code>./app</code>)</span>
+            <input type="text" name="start_cmd" placeholder="./app" spellcheck="false">
           </label>
         </div>
       </template>
@@ -249,8 +277,15 @@
         </label>
       </template>
 
+      <!-- Import: start this app from a backup archive instead of a fresh scaffold. -->
+      <template x-if="type!=='proxy'">
+        <label>Import <span class="muted">(optional — a <code>.tar.gz</code> backup to start this app from)</span>
+          <input type="file" name="archive" accept=".tar.gz,.tgz,application/gzip">
+        </label>
+      </template>
+
       <!-- Container apps: resource limits apply (not host processes, routes, or shared-host sites). -->
-      <div class="row2" x-show="type!=='static' && type!=='proxy' && !(type==='wordpress' && wp==='shared')">
+      <div class="row2" x-show="type!=='static' && type!=='go' && type!=='proxy' && !(type==='wordpress' && wp==='shared')">
         <label>CPU limit <span class="muted">(cores, optional)</span>
           <input type="number" name="cpu_cores" step="0.25" min="0" placeholder="e.g. 1.0">
         </label>
