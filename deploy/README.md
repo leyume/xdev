@@ -5,14 +5,14 @@ installs a container engine (**docker** or **podman**), downloads the matching
 prebuilt binary from a GitHub Release (verifying its checksum), writes config,
 installs a service, and creates your admin account.
 
-The reverse proxy (Caddy) runs one of two ways — pick before you install:
+The reverse proxy (Caddy) runs one of three ways — the installer prompts you:
 
-- **Native Caddy** (installer default): apt/brew Caddy, supervised by xdev
-  (`XDEV_CADDY=true`). Simplest; the installer sets it up for you.
-- **Containerized Caddy** (`XDEV_CADDY=false`): Caddy runs as a container so the
-  host needs nothing but the engine. Set up separately — see
-  [`deploy/caddy/README.md`](caddy/README.md). Recommended if you want the host
-  to depend only on Docker/Podman, or to migrate behind an existing proxy.
+- **Container** (default): the installer **generates a Caddy compose stack and
+  starts it**, so the host needs nothing but the engine (`XDEV_CADDY=false`).
+  Recommended, and no manual steps. Internals: [`deploy/caddy/README.md`](caddy/README.md).
+- **Native**: apt/brew Caddy, supervised by xdev (`XDEV_CADDY=true`).
+- **Self-managed**: you already run a proxy — the installer touches Caddy not at
+  all and just records how xdev reaches it (`XDEV_UPSTREAM_HOST`, `XDEV_CADDY_ADMIN_LISTEN`).
 
 ## Quick install
 
@@ -110,49 +110,43 @@ certs for `environment=prod` projects; Caddy's internal CA for local `.test` /
 
 ## Usage: from install to first live site
 
-**Server (Ubuntu/Docker), containerized Caddy:**
+**Server (Ubuntu/Docker) — the installer does everything, including the Caddy container:**
 
 ```bash
-# 1. Install xdev (skip apt Caddy — we run it as a container)
-curl -fsSL .../deploy/install.sh | sudo XDEV_NONINTERACTIVE=1 \
-  XDEV_MODE=prod XDEV_ENGINE=docker XDEV_CADDY=false \
-  XDEV_BASE_DOMAIN=apps.example.com XDEV_ACME_EMAIL=ops@example.com \
-  XDEV_ADMIN_EMAIL=me@example.com XDEV_ADMIN_PASSWORD='a-strong-password' bash
+curl -fsSL https://raw.githubusercontent.com/leyume/xdev/main/deploy/install.sh | sudo bash
+```
+Answer the prompts: `Mode=prod`, `Engine=docker`, `Caddy=container`, ports
+(`443`/`80`, or `8444`/`8081` to sit beside an existing proxy like Traefik),
+base domain, Let's Encrypt email, admin. The installer then installs Docker,
+downloads the binary, writes `xdev.env`, **generates and starts the Caddy
+container**, installs the systemd service, and creates your admin. Then:
 
-# 2. Point xdev at a containerized Caddy — edit /etc/xdev/xdev.env:
-#      XDEV_CADDY=false
-#      XDEV_UPSTREAM_HOST=127.0.0.1
-#      XDEV_CADDY_ADMIN_LISTEN=127.0.0.1:2019
-#      XDEV_HTTPS_PORT=443   XDEV_HTTP_PORT=80   (or 8444/8081 to test behind Traefik)
-sudo systemctl restart xdev
-
-# 3. Bring up Caddy (its own lifecycle; survives reboots via restart:unless-stopped)
-export XDEV_DATA=/var/lib/xdev
-docker compose -f deploy/caddy/docker-compose.linux.yml up -d
-
-# 4. Reach the control plane over an SSH tunnel
-ssh -L 7331:127.0.0.1:7331 user@server      # open http://127.0.0.1:7331
-
-# 5. In the UI: New Project -> Add App (Laravel/WordPress/static/Go/proxy)
-#    -> Start -> set its domain. DNS A/AAAA for that domain must point here.
-#    Caddy fetches a real cert automatically once you're on :80/:443.
-
-# 6. Verify
-sudo XDEV_DATA=/var/lib/xdev xdev doctor
-docker compose -f deploy/caddy/docker-compose.linux.yml logs --tail=20
+```bash
+# Reach the private control plane over an SSH tunnel
+ssh -L 7331:127.0.0.1:7331 user@server           # open http://127.0.0.1:7331
+# In the UI: New Project -> Add App (Laravel/WordPress/static/Go/proxy) -> Start
+#   -> set its domain (DNS A/AAAA -> this server). Real cert issues automatically on :80/:443.
+sudo XDEV_DATA=/var/lib/xdev xdev doctor         # a ports ✗ is expected — the container holds them
 ```
 
-**Local dev (macOS), containerized Caddy:** same idea with the podman compose —
-see [`deploy/caddy/README.md`](caddy/README.md) (`XDEV_UPSTREAM_HOST=host.containers.internal`,
-`XDEV_CADDY_ADMIN_LISTEN=0.0.0.0:2019`, trust the local CA once). Domains use
-`.test`/`.localhost` and Caddy's internal CA instead of Let's Encrypt.
+Non-interactive equivalent:
+```bash
+curl -fsSL .../deploy/install.sh | sudo XDEV_NONINTERACTIVE=1 \
+  XDEV_MODE=prod XDEV_ENGINE=docker XDEV_CADDY_MODE=container \
+  XDEV_HTTPS_PORT=8444 XDEV_HTTP_PORT=8081 \
+  XDEV_BASE_DOMAIN=apps.example.com XDEV_ACME_EMAIL=ops@example.com \
+  XDEV_ADMIN_EMAIL=me@example.com XDEV_ADMIN_PASSWORD='a-strong-password' bash
+```
 
-**Native Caddy (either OS):** skip steps 2–3 — the installer already set
-`XDEV_CADDY=true` and supervises Caddy. Go straight to the UI (step 4).
+**Native Caddy:** choose `native` at the prompt (or `XDEV_CADDY_MODE=native`) —
+xdev installs and supervises Caddy; no container. **Local dev (macOS/podman):**
+choose `container` with `Engine=podman`; the installer generates the port-mapped
+variant and uses `host.containers.internal`. See [`deploy/caddy/README.md`](caddy/README.md)
+for the generated stacks and local-CA trust.
 
-**Day-to-day:** edit `xdev.env` then `systemctl restart xdev` for config; the
-Caddy container only restarts if you change *its* compose (not for port
-switches — those live in `xdev.env`).
+**Day-to-day:** edit `xdev.env` then `systemctl restart xdev` for config; port
+switches (e.g. `8444/8081` → `443/80`) live in `xdev.env` — the container stack
+only changes if you edit *it*.
 
 ## Upgrading
 
