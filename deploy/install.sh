@@ -233,8 +233,19 @@ configure() {
   ask XDEV_MODE "Mode? [local/prod]" "local"
   ask XDEV_ENGINE "Container engine? [docker/podman]" "$engine_default"
   ENGINE="$XDEV_ENGINE"
-  yesno XDEV_CADDY "Let xdev manage Caddy for you?" "Y"; MANAGE_CADDY="$XDEV_CADDY"
+  yesno XDEV_CADDY "Install and run Caddy for you? (No = you run Caddy yourself, e.g. as a container)" "Y"; MANAGE_CADDY="$XDEV_CADDY"
   yesno XDEV_NODE "Install Node for static apps (host Node, no container)?" "Y"; MANAGE_NODE="$XDEV_NODE"
+
+  # How Caddy reaches back to xdev's app/fpm ports and its own admin endpoint.
+  # When xdev runs Caddy natively these stay at safe defaults; when you run Caddy
+  # yourself (container/systemd) they matter, so prompt for them.
+  if [ "$MANAGE_CADDY" = true ]; then
+    : "${XDEV_UPSTREAM_HOST:=127.0.0.1}"; : "${XDEV_CADDY_ADMIN_LISTEN:=}"
+  else
+    info "you'll run Caddy yourself — see deploy/caddy/ (compose for docker & podman)"
+    ask XDEV_UPSTREAM_HOST "Host Caddy dials app ports at (127.0.0.1 for host-net docker; host.containers.internal for podman)" "127.0.0.1"
+    ask XDEV_CADDY_ADMIN_LISTEN "Caddy admin address to re-assert on each push (keep default unless you know otherwise)" "127.0.0.1:2019"
+  fi
 
   if [ "$XDEV_MODE" = prod ]; then
     : "${XDEV_SECURE:=true}"; : "${XDEV_MANAGE_HOSTS:=false}"
@@ -242,12 +253,15 @@ configure() {
     [ -n "$XDEV_BASE_DOMAIN" ] || die "a base domain is required for prod mode (set XDEV_BASE_DOMAIN)"
     ask XDEV_ACME_EMAIL "Let's Encrypt email" ""
     [ -n "$XDEV_ACME_EMAIL" ] || die "a Let's Encrypt email is required for prod mode (set XDEV_ACME_EMAIL)"
-    : "${XDEV_HTTPS_PORT:=443}"; : "${XDEV_HTTP_PORT:=80}"
   else
     : "${XDEV_SECURE:=false}"; : "${XDEV_MANAGE_HOSTS:=true}"
     ask XDEV_BASE_DOMAIN "Primary base domain (blank → .localhost)" ""
-    : "${XDEV_HTTPS_PORT:=443}"; : "${XDEV_HTTP_PORT:=80}"
   fi
+
+  # Ports Caddy serves sites on. Keep 443/80 for a normal deploy; use e.g.
+  # 8444/8081 to run beside an existing proxy (Traefik/nginx) during migration.
+  ask XDEV_HTTPS_PORT "HTTPS port for served sites" "443"
+  ask XDEV_HTTP_PORT "HTTP port (auto-redirects to HTTPS)" "80"
 
   ask XDEV_ADDR "Admin UI address" "127.0.0.1:7331"
   # Admin account: only prompt on a fresh install. On a re-run the existing admin
@@ -337,6 +351,8 @@ XDEV_ENGINE=${ENGINE}
 # --- proxy & TLS ---
 XDEV_CADDY=${manage_caddy}
 XDEV_CADDY_ADMIN=127.0.0.1:2019
+XDEV_UPSTREAM_HOST=${XDEV_UPSTREAM_HOST:-127.0.0.1}
+XDEV_CADDY_ADMIN_LISTEN=${XDEV_CADDY_ADMIN_LISTEN:-}
 XDEV_HTTPS_PORT=${XDEV_HTTPS_PORT}
 XDEV_HTTP_PORT=${XDEV_HTTP_PORT}
 XDEV_ACME_EMAIL=${XDEV_ACME_EMAIL:-}
