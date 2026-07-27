@@ -106,6 +106,30 @@ Let's Encrypt certs **can't issue on 8444** because the CA validates over 80/443
 set `XDEV_HTTP_PORT=80` / `XDEV_HTTPS_PORT=443`, free those ports on Traefik,
 restart xdev.
 
+### Testing HTTPS on the alt port
+
+HTTPS on `:8444` behaves differently by cert type:
+
+- **Real public domains** use Let's Encrypt, whose challenge validates over
+  ports **80/443** (it ignores custom ports). With Traefik holding those, no
+  cert issues on `:8444` and the TLS handshake fails. (Plain HTTP won't help
+  either — Caddy 308-redirects HTTP→HTTPS.)
+- **Local / internal domains** (`.test`, `.localhost`, or a non-prod project)
+  use Caddy's **internal CA**, which self-signs with no external challenge — so
+  HTTPS works on any port.
+
+So to validate the container end-to-end over HTTPS before switching, add a
+throwaway app on an internal domain and hit it directly:
+
+```bash
+# after: New Project (non-prod) -> Add App -> Start -> set domain e.g. probe.test
+curl -k https://probe.test:8444/         # full path: Caddy -> upstream -> app body
+```
+
+A `200` with the app's body confirms routing, upstream reachability, and TLS all
+work. Real Let's Encrypt certs for your actual domains kick in automatically once
+you switch `XDEV_HTTPS_PORT=443` / `XDEV_HTTP_PORT=80`.
+
 ## Notes
 
 - Admin is on `127.0.0.1:2019` (loopback), so nothing off-host can reach it.
