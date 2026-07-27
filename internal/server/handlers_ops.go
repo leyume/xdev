@@ -1,12 +1,18 @@
 package server
 
 import (
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
+	"xdev/internal/auth"
 	xruntime "xdev/internal/runtime"
 	"xdev/internal/store"
 )
@@ -14,6 +20,44 @@ import (
 // backupsRoot is where per-app backup archives live.
 func (s *Server) backupsRoot() string {
 	return filepath.Join(s.cfg.DataDir, "backups")
+}
+
+// backupStats scans the backups root (across all apps) and returns the total
+// archive count and the most-recent archive modtime (zero if none exist).
+func backupStats(root string) (int, time.Time) {
+	var count int
+	var latest time.Time
+	filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil // missing root or unreadable entry: just skip
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		count++
+		if info.ModTime().After(latest) {
+			latest = info.ModTime()
+		}
+		return nil
+	})
+	return count, latest
+}
+
+// humanizeSince renders how long ago t was, coarsely ("just now", "5m ago",
+// "3h ago", "2d ago").
+func humanizeSince(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours())/24)
+	}
 }
 
 // appAndProject loads an app and its project, or writes a 404/500.
@@ -83,6 +127,60 @@ func (s *Server) handleAppEnvSave(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/apps/"+strconv.FormatInt(app.ID, 10)+"/env?saved=1", http.StatusSeeOther)
 }
 
+// uploadedArchive returns the "archive" file from a multipart submit, or a nil
+// reader when none was chosen (the field is optional on app create). The caller
+// must call the returned cleanup. A non-multipart form is not an error. The
+// body is already size-capped by the auth middleware (auth.MaxRequestBody).
+func uploadedArchive(r *http.Request) (io.Reader, func(), error) {
+	noop := func() {}
+	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "multipart/form-data") {
+		return nil, noop, nil
+	}
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		return nil, noop, fmt.Errorf("upload too large (max %d MB) or malformed", auth.MaxRequestBody>>20)
+	}
+	file, hdr, err := r.FormFile("archive")
+	if err != nil || hdr.Size == 0 {
+		if file != nil {
+			file.Close()
+		}
+		return nil, noop, nil // no file chosen — not an import
+	}
+	if !strings.HasSuffix(strings.ToLower(hdr.Filename), ".tar.gz") &&
+		!strings.HasSuffix(strings.ToLower(hdr.Filename), ".tgz") {
+		file.Close()
+		return nil, noop, errors.New("import needs a .tar.gz backup archive")
+	}
+	return file, func() { file.Close() }, nil
+}
+
+// handleAppImport overwrites an existing app's files from an uploaded backup
+// archive, restarting it afterwards.
+func (s *Server) handleAppImport(w http.ResponseWriter, r *http.Request) {
+	app, proj, ok := s.appAndProject(w, r)
+	if !ok {
+		return
+	}
+	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/backups"
+	archive, closeArchive, err := uploadedArchive(r)
+	if err != nil {
+		redirectWithError(w, r, target, err)
+		return
+	}
+	defer closeArchive()
+	if archive == nil {
+		redirectWithError(w, r, target, errors.New("choose a .tar.gz backup to import"))
+		return
+	}
+	if err := s.apps.Import(app.ID, archive); err != nil {
+		redirectWithError(w, r, target, err)
+		return
+	}
+	s.store.AddEvent(proj.ID, app.ID, "warn", "Imported backup over app "+app.Name)
+	s.reconcile()
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
 // handleAppBackupCreate makes a new backup archive of the app directory.
 func (s *Server) handleAppBackupCreate(w http.ResponseWriter, r *http.Request) {
 	app, proj, ok := s.appAndProject(w, r)
@@ -147,16 +245,24 @@ func (s *Server) handleAppDomain(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSetEngine switches the default container engine for new projects.
-// Existing projects/apps keep the engine they were created with.
+// Existing projects/apps keep the engine they were created with. The engine
+// card appears on both the Dashboard and Projects pages, so return to
+// whichever one the request came from.
 func (s *Server) handleSetEngine(w http.ResponseWriter, r *http.Request) {
+	ref := r.Header.Get("Referer")
+	if ref == "" {
+		ref = "/"
+	}
+	base, _, _ := strings.Cut(ref, "?")
+
 	eng := xruntime.Engine(r.FormValue("engine"))
 	if err := s.engine.Set(eng); err != nil {
-		http.Redirect(w, r, "/?engine_msg="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		http.Redirect(w, r, base+"?engine_msg="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
 	s.store.SetSetting("engine", string(eng))
 	s.store.AddEvent(0, 0, "info", "Default engine set to "+string(eng))
-	http.Redirect(w, r, "/?engine_msg="+url.QueryEscape("Default engine is now "+string(eng)+" (applies to new projects)"), http.StatusSeeOther)
+	http.Redirect(w, r, base+"?engine_msg="+url.QueryEscape("Default engine is now "+string(eng)+" (applies to new projects)"), http.StatusSeeOther)
 }
 
 // handleHostsSync writes the local domains into the hosts file, elevating via

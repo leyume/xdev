@@ -4,28 +4,130 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{.Title}}</title>
-  <link rel="stylesheet" href="/static/app.css">
-  <script src="/static/htmx.min.js" defer></script>
+  {{template "tw_source" .}}
+  <script src="/static/tailwind.js"></script>
   <script src="/static/alpine.min.js" defer></script>
+  <script>
+    // Client-side nav chrome: switch topbar<->sidebar with a slide, no reload.
+    // Seeded from the server-read cookie so a hard reload matches; the toggle
+    // rewrites the cookie so the choice persists.
+    function chrome(initial) {
+      return {
+        nav: initial || 'topbar',
+        set(mode) {
+          this.nav = mode;
+          document.cookie = 'xdev_nav=' + mode + ';path=/;max-age=31536000';
+        },
+      };
+    }
+    // App start/stop/refresh/delete without a page reload: POST via fetch and
+    // patch the app's status in place. Capture phase so it runs before the
+    // spinner handler below. Falls back to a native submit on any error (lands
+    // on the server-rendered error banner) or when fetch is unavailable.
+    document.addEventListener('submit', function (e) {
+      var f = e.target;
+      var act = f.getAttribute && f.getAttribute('action');
+      if (!act || !/^\/apps\/\d+\/(start|stop|refresh|delete)$/.test(act)) return;
+      if (f.dataset.confirm && !confirm(f.dataset.confirm)) { e.preventDefault(); return; }
+      e.preventDefault();
+      var host = f.closest('[data-app-id]');
+      var b = e.submitter || f.querySelector('button:not([type=button])');
+      if (b) b.classList.add('is-busy');
+      if (host) host.classList.add('is-busy');
+      fetch(act, { method: 'POST', headers: { 'Accept': 'application/json' },
+                   body: new FormData(f), credentials: 'same-origin' })
+        .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+        .then(function (d) {
+          if (d.status === 'deleted') { if (host) host.remove(); return; }
+          if (host) {
+            host.dataset.status = d.status;
+            host.querySelectorAll('.status').forEach(function (el) { el.className = 'status ' + d.status; });
+            host.querySelectorAll('.status-label').forEach(function (el) {
+              el.className = 'status-label ' + d.status;
+              if (el.lastChild) el.lastChild.textContent = d.status;
+            });
+          }
+          if (b) b.classList.remove('is-busy');
+          if (host) host.classList.remove('is-busy');
+        })
+        .catch(function () { f.submit(); }); // native POST -> server error banner
+    }, true);
+
+    // Spinner on the clicked button while its form POST is in flight. Bubble
+    // phase so a cancelled confirm() (Delete) has already set defaultPrevented.
+    document.addEventListener('submit', function (e) {
+      if (e.defaultPrevented) return;
+      var b = e.submitter || e.target.querySelector('button:not([type=button])');
+      if (b) b.classList.add('is-busy');
+    });
+  </script>
+  <style>
+    /* Which lifecycle button shows follows the app's current status, so the
+       fetch handler above only flips [data-status] — no button HTML rebuilt. */
+    [data-status="running"] .act-start { display: none; }
+    [data-status]:not([data-status="running"]) .act-stop { display: none; }
+    [data-app-id].is-busy { opacity: .55; pointer-events: none; }
+  </style>
 </head>
-<body>
+<body x-data="chrome('{{.NavLayout}}')">
 {{if .User}}
-  <header class="topbar">
+  <aside class="sidebar transition-transform duration-300 {{if eq .NavLayout "sidebar"}}translate-x-0{{else}}-translate-x-full{{end}}"
+         :class="{ 'translate-x-0': nav === 'sidebar', '-translate-x-full': nav !== 'sidebar' }">
     <div class="brand">xdev</div>
-    <nav class="topnav">
-      <a href="/">Projects</a>
-      <a href="/events">Activity</a>
-      <a href="/admins">Admins</a>
-      <span class="muted">{{.User.Email}}</span>
+    <nav class="sidenav">
+      <a class="navlink{{if eq .Path "/"}} active{{end}}" href="/">{{template "icon_dashboard" .}}Dashboard</a>
+      <a class="navlink{{if or (hasPrefix .Path "/projects") (hasPrefix .Path "/apps/")}} active{{end}}" href="/projects">{{template "icon_projects" .}}Projects</a>
+      <a class="navlink{{if hasPrefix .Path "/events"}} active{{end}}" href="/events">{{template "icon_activity" .}}Activity</a>
+      <a class="navlink{{if hasPrefix .Path "/database"}} active{{end}}" href="/database">{{template "icon_database" .}}Database</a>
+      <a class="navlink{{if hasPrefix .Path "/wordpress"}} active{{end}}" href="/wordpress">{{template "icon_wordpress" .}}WordPress</a>
+      <a class="navlink{{if hasPrefix .Path "/admins"}} active{{end}}" href="/admins">{{template "icon_admins" .}}Admins</a>
+    </nav>
+    <div class="spacer"></div>
+    {{template "engine_mini" .}}
+    <div class="user-mini">
+      <div class="avatar">{{initials .User.Email}}</div>
+      <div><div class="small" style="font-weight:600">{{.User.Email}}</div><div class="muted small">Administrator</div></div>
+    </div>
+    <div class="sidenav-foot">
+      <button class="link small" type="button" @click="set('topbar')" title="Switch to topbar">{{template "icon_topbar" .}}Switch</button>
       <form method="post" action="/logout" class="inline">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <button class="link" type="submit">Log out</button>
+        <button class="link small" type="submit">{{template "icon_logout" .}}Log out</button>
       </form>
-    </nav>
-  </header>
-{{end}}
+    </div>
+  </aside>
+
+  <div class="min-h-screen transition-[margin] duration-300 {{if eq .NavLayout "sidebar"}}md:ml-[220px]{{end}}"
+       :class="{ 'md:ml-[220px]': nav === 'sidebar', 'ml-0': nav !== 'sidebar' }">
+    <header class="topbar" x-show="nav === 'topbar'"{{if ne .NavLayout "topbar"}} style="display:none"{{end}}>
+      <div class="brand">xdev</div>
+      <nav class="topnav">
+        <a class="navlink{{if eq .Path "/"}} active{{end}}" href="/">{{template "icon_dashboard" .}}Dashboard</a>
+        <a class="navlink{{if or (hasPrefix .Path "/projects") (hasPrefix .Path "/apps/")}} active{{end}}" href="/projects">{{template "icon_projects" .}}Projects</a>
+        <a class="navlink{{if hasPrefix .Path "/events"}} active{{end}}" href="/events">{{template "icon_activity" .}}Activity</a>
+        <a class="navlink{{if hasPrefix .Path "/database"}} active{{end}}" href="/database">{{template "icon_database" .}}Database</a>
+        <a class="navlink{{if hasPrefix .Path "/wordpress"}} active{{end}}" href="/wordpress">{{template "icon_wordpress" .}}WordPress</a>
+        <a class="navlink{{if hasPrefix .Path "/admins"}} active{{end}}" href="/admins">{{template "icon_admins" .}}Admins</a>
+        <span class="spacer"></span>
+        {{template "topbar_search" .}}
+        <div class="topbar-actions">
+          <div class="avatar">{{initials .User.Email}}</div>
+          <button class="link iconbtn" type="button" @click="set('sidebar')" title="Switch to sidebar" aria-label="Switch to sidebar">{{template "icon_sidebar" .}}</button>
+          <form method="post" action="/logout" class="inline">
+            <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+            <button class="link iconbtn" type="submit" title="Log out" aria-label="Log out">{{template "icon_logout" .}}</button>
+          </form>
+        </div>
+      </nav>
+    </header>
+    <main class="container">
+      {{block "content" .}}{{end}}
+    </main>
+  </div>
+{{else}}
   <main class="container">
     {{block "content" .}}{{end}}
   </main>
+{{end}}
 </body>
 </html>{{end}}

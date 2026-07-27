@@ -1,0 +1,55 @@
+{{define "content"}}
+<section class="page-head">
+  <div>
+    <h1>WordPress</h1>
+    <div class="muted small">Central plugins &amp; themes — installed once, shared into every shared-host WordPress site alongside its own.</div>
+  </div>
+  <a class="btn" href="/">← Dashboard</a>
+</section>
+
+{{if .Msg}}<div class="alert" style="border-color:#2f855a;color:#2f855a">{{.Msg}}</div>{{end}}
+{{if .Err}}<div class="alert">{{.Err}}</div>{{end}}
+
+<p class="muted small">Upload a plugin or theme <code>.zip</code> (the same file you'd get from wordpress.org).
+  It's stored once and symlinked into each shared site's <code>wp-content</code>, so every site shares one copy.
+  Activation stays per-site. A site can still install its own plugin/theme with the same name — that one wins for that site.</p>
+
+{{template "wp_pool" dict "Kind" "plugins" "Title" "Plugins" "Items" .Plugins "CSRF" .CSRF}}
+{{template "wp_pool" dict "Kind" "themes" "Title" "Themes" "Items" .Themes "CSRF" .CSRF}}
+{{end}}
+
+{{define "wp_pool"}}
+<div class="card">
+  <div class="app-card-head" style="margin-bottom:10px">
+    <h2 style="margin:0">{{.Title}}</h2>
+    <span class="spacer"></span>
+    <form class="inline" method="post" action="/wordpress/pool/upload" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input type="hidden" name="kind" value="{{.Kind}}">
+      <input type="file" name="file" accept=".zip" required>
+      <button class="primary" type="submit">Upload</button>
+    </form>
+  </div>
+  {{if .Items}}
+  <table class="table">
+    <tr><th>Name</th><th></th></tr>
+    {{range .Items}}
+    <tr>
+      <td><code>{{.Name}}</code></td>
+      <td class="nowrap">
+        <form class="inline" method="post" action="/wordpress/pool/remove"
+              onsubmit="return confirm('Remove shared {{$.Kind}} {{.Name}} from all sites?')">
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+          <input type="hidden" name="kind" value="{{.Kind}}">
+          <input type="hidden" name="name" value="{{.Name}}">
+          <button class="danger" type="submit">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+  </table>
+  {{else}}
+  <p class="muted small">No shared {{.Kind}} yet.</p>
+  {{end}}
+</div>
+{{end}}

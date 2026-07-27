@@ -1,94 +1,177 @@
 {{define "content"}}
 <section class="page-head">
-  <h1>Projects</h1>
+  <div>
+    <h1>Dashboard</h1>
+    <div class="muted small">{{.Running}} of {{.TotalApps}} apps running{{if gt .Stopped 0}} · {{.Stopped}} stopped{{end}} · {{.Host.Hostname}}</div>
+  </div>
   <a class="primary btn" href="/projects/new">+ New project</a>
 </section>
 
-<section class="card">
-  <h3>Host resources</h3>
-  <div class="host-grid">
-    <div class="host-stat">
-      <div class="host-label">CPU</div>
-      <div class="bar"><span style="width:{{f1 .Host.CPUPct}}%"></span></div>
-      <div class="muted small">{{f1 .Host.CPUPct}}%</div>
-    </div>
-    <div class="host-stat">
-      <div class="host-label">Memory</div>
-      <div class="bar"><span style="width:{{f1 .Host.MemPct}}%"></span></div>
-      <div class="muted small">{{gib .Host.MemUsed}} / {{gib .Host.MemTotal}} GB</div>
-    </div>
-    <div class="host-stat">
-      <div class="host-label">Disk (/)</div>
-      <div class="bar"><span style="width:{{f1 .Host.DiskPct}}%"></span></div>
-      <div class="muted small">{{gib .Host.DiskUsed}} / {{gib .Host.DiskTotal}} GB</div>
-    </div>
+<section class="card kpi-strip">
+  <div class="kpi-cell">
+    <div class="kpi-label">Projects</div>
+    <div class="kpi-num">{{len .Projects}}</div>
+    <div class="muted small">{{.TotalApps}} apps total</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Running</div>
+    <div class="kpi-num ok">{{.Running}}</div>
+    <div class="muted small">{{if gt .Stopped 0}}{{.Stopped}} stopped · {{.FirstStopped}}{{else}}all apps healthy{{end}}</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Containers</div>
+    <div class="kpi-num">{{if .ContainersOK}}{{.Containers}}{{else}}—{{end}}</div>
+    <div class="muted small">{{.Engine}}</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Certificates</div>
+    <div class="kpi-num{{if .CertsOK}} ok{{end}}">{{if .CertsOK}}{{.Certificates}}{{else}}—{{end}}</div>
+    <div class="muted small">{{if .CertsOK}}{{.Certificates}} active{{else}}proxy off{{end}}</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Backups</div>
+    <div class="kpi-num">{{if .Backups}}{{.Backups}}{{else}}—{{end}}</div>
+    <div class="muted small">{{if .BackupLast}}last run {{.BackupLast}}{{else}}none yet{{end}}</div>
+  </div>
+  <div class="kpi-cell">
+    <div class="kpi-label">Databases</div>
+    <div class="kpi-num">{{if .TotalDBs}}{{.TotalDBs}}{{else}}—{{end}}</div>
+    <div class="muted small"><a href="/database">{{.SharedDBs}} shared · {{.DedicatedDBs}} dedicated</a></div>
   </div>
 </section>
 
-<section class="runtime-bar card">
-  <h3>Container engine</h3>
-  {{if .EngineMsg}}<div class="alert ok">{{.EngineMsg}}</div>{{end}}
-  <div class="runtime-grid">
-    {{with .Runtime.Podman}}
-    <div class="runtime {{if and .Installed .ComposeOK}}ok{{else}}off{{end}}">
-      <span class="dot"></span>
-      <div class="grow">
-        <strong>podman {{if eq $.Engine "podman"}}<span class="tag">active</span>{{end}}</strong>
-        <div class="muted small">
-          {{if .Installed}}{{.Version}}{{else}}not installed{{end}}
-          {{if .ComposeOK}} · compose ✓{{else if .Installed}} · compose missing{{end}}
-          {{if .Ready}} · <span class="up">daemon up</span>{{else if .Installed}} · <span class="down">daemon down</span>{{end}}
-        </div>
-      </div>
-      {{if and .Installed .ComposeOK (ne $.Engine "podman")}}
-      <form class="inline" method="post" action="/settings/engine">
-        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-        <input type="hidden" name="engine" value="podman">
-        <button type="submit">Use podman</button>
-      </form>
-      {{end}}
+{{template "host_resources" .}}
+
+<section class="card" x-data="hostChart()">
+  <div class="chart-head">
+    <div>
+      <h2>Host utilization</h2>
+      <div class="muted small">CPU &amp; memory · {{.Host.Hostname}}</div>
     </div>
-    {{end}}
-    {{with .Runtime.Docker}}
-    <div class="runtime {{if and .Installed .ComposeOK}}ok{{else}}off{{end}}">
-      <span class="dot"></span>
-      <div class="grow">
-        <strong>docker {{if eq $.Engine "docker"}}<span class="tag">active</span>{{end}}</strong>
-        <div class="muted small">
-          {{if .Installed}}{{.Version}}{{else}}not installed{{end}}
-          {{if .ComposeOK}} · compose ✓{{else if .Installed}} · compose missing{{end}}
-          {{if .Ready}} · <span class="up">daemon up</span>{{else if .Installed}} · <span class="down">daemon down</span>{{end}}
-        </div>
-      </div>
-      {{if and .Installed .ComposeOK (ne $.Engine "docker")}}
-      <form class="inline" method="post" action="/settings/engine">
-        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-        <input type="hidden" name="engine" value="docker">
-        <button type="submit">Use docker</button>
-      </form>
-      {{end}}
+    <span class="spacer"></span>
+    <span class="legend-dot" style="background:var(--accent)"></span><span class="muted small">CPU</span>
+    <span class="legend-dot" style="background:var(--ok);margin-left:12px"></span><span class="muted small">Memory</span>
+    <div class="range-pills">
+      <span :class="{active: range==='1h'}" @click="load('1h')">1h</span>
+      <span :class="{active: range==='24h'}" @click="load('24h')">24h</span>
+      <span :class="{active: range==='7d'}" @click="load('7d')">7d</span>
     </div>
-    {{end}}
   </div>
-  <p class="muted small">Switching applies to <strong>new</strong> projects; existing projects keep the engine they were created with.</p>
+  <div id="hostChart" style="height:260px"></div>
 </section>
 
-{{if .Projects}}
-  <div class="project-list">
-    {{range .Projects}}
-    <a class="card project" href="/projects/{{.Slug}}">
-      <div>
-        <strong>{{.Name}}</strong>
-        <div class="muted small">{{.BaseDomain}} · {{.Environment}}</div>
-      </div>
-      <span class="badge">{{.AppCount}} app{{if ne .AppCount 1}}s{{end}}</span>
-    </a>
+<div class="grid-main">
+  <section class="card apps-table-card" x-data="appsRealtime()">
+    <div class="apps-table-head">
+      <h2>Apps</h2>
+      <span class="spacer"></span>
+      <label class="switch" title="Live-poll CPU &amp; memory">
+        <input type="checkbox" @change="toggle($event.target.checked)">
+        <span class="slider"></span>
+      </label>
+      <span class="muted small" style="margin:0 14px 0 8px">Realtime</span>
+      <a href="/projects" class="small" style="color:var(--accent);text-decoration:none;font-weight:600">All projects →</a>
+    </div>
+    {{if .Apps}}
+    <table class="table">
+      <tr class="muted small"><th style="text-align:left">App</th><th style="text-align:left">Type</th><th style="text-align:left">CPU</th><th style="text-align:left">Memory</th><th style="text-align:left">Status</th></tr>
+      {{range .Apps}}
+      <tr data-app-id="{{.ID}}" data-status="{{.Status}}">
+        <td><a href="/projects/{{.ProjectSlug}}" style="color:var(--text);text-decoration:none;font-weight:600">{{.ProjectName}}<span class="muted">/</span>{{.Name}}</a></td>
+        <td class="muted">{{.Type}}</td>
+        <td><span id="cpu-{{.ID}}">{{if .HasMetrics}}{{f1 .CPUPct}}%{{else}}—{{end}}</span></td>
+        <td class="muted"><span id="mem-{{.ID}}">{{if .HasMetrics}}{{.MemMiB}} MiB{{else}}—{{end}}</span></td>
+        <td>
+          <span class="status-label {{.Status}}"><span class="status"></span>{{.Status}}</span>
+          <form class="inline act-start" method="post" action="/apps/{{.ID}}/start">
+            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+            <button type="submit" class="small-btn">Start</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </table>
+    {{else}}
+    <p class="muted small">No apps yet.</p>
     {{end}}
+  </section>
+
+  <div class="side-col">
+    {{template "events_card" .}}
+    {{template "engine_card" .}}
   </div>
-{{else}}
-  <div class="empty card">
-    <h2>No projects yet</h2>
-    <p class="muted">A project groups your apps — backend, frontend, WordPress, static sites — under one base domain and a shared network. Creating projects and apps arrives in Phase 1.</p>
-  </div>
-{{end}}
+</div>
+
+<link rel="stylesheet" href="/static/uPlot.min.css">
+<script src="/static/uPlot.iife.min.js"></script>
+<script>
+function hostChart() {
+  return {
+    range: '24h',
+    chart: null,
+    init() { this.load('24h'); window.addEventListener('resize', () => this.render()); },
+    async load(range) {
+      this.range = range;
+      try {
+        const r = await fetch('/host/metrics.json?range=' + range, { credentials: 'same-origin' });
+        this.data = await r.json();
+      } catch (e) {
+        this.data = null;
+      }
+      this.render();
+    },
+    render() {
+      const el = document.getElementById('hostChart');
+      if (!el) return;
+      if (this.chart) { this.chart.destroy(); this.chart = null; }
+      const d = this.data;
+      if (!d || !d.t || d.t.length === 0) {
+        el.innerHTML = '<p class="muted small">' + (d ? 'No samples yet.' : 'Could not load host metrics.') + '</p>';
+        return;
+      }
+      el.innerHTML = '';
+      // Pin the x-axis to the selected window so 1h/24h/7d visibly differ even
+      // when only a little history exists (uPlot otherwise fits x to the data).
+      const now = Math.floor(Date.now() / 1000);
+      const secs = { '1h': 3600, '24h': 86400, '7d': 604800 }[this.range] || 86400;
+      const axis = { stroke: '#96909f', grid: { stroke: 'rgba(255,255,255,0.06)' }, ticks: { stroke: 'rgba(255,255,255,0.06)' } };
+      this.chart = new uPlot({
+        width: el.clientWidth || 1240, height: 260,
+        scales: { x: { time: true, range: [now - secs, now] }, y: { range: [0, 100] } },
+        axes: [axis, axis],
+        series: [
+          {},
+          { label: 'CPU %', stroke: '#b48cff', width: 2, fill: 'rgba(180,140,255,0.10)' },
+          { label: 'Mem %', stroke: '#8ce8b8', width: 2 },
+        ],
+        legend: { show: false },
+      }, [d.t, d.cpu, d.mem], el);
+    },
+  };
+}
+
+// Realtime toggle for the apps table: polls /apps/metrics.json and updates the
+// CPU/Memory cells in place. Off by default; interval cleared when switched off.
+function appsRealtime() {
+  return {
+    on: false,
+    timer: null,
+    toggle(v) {
+      this.on = v;
+      clearInterval(this.timer);
+      if (v) { this.tick(); this.timer = setInterval(() => this.tick(), 5000); }
+    },
+    async tick() {
+      try {
+        const r = await fetch('/apps/metrics.json', { credentials: 'same-origin' });
+        for (const m of await r.json()) {
+          const c = document.getElementById('cpu-' + m.id), me = document.getElementById('mem-' + m.id);
+          if (c) c.textContent = m.has ? m.cpu.toFixed(1) + '%' : '—';
+          if (me) me.textContent = m.has ? m.mem + ' MiB' : '—';
+        }
+      } catch (e) { /* transient; next tick retries */ }
+    },
+  };
+}
+</script>
 {{end}}

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -40,11 +41,6 @@ func Down(ctx context.Context, engine Engine, workdir, project, file string) (st
 	return Compose(ctx, engine, workdir, project, file, "down")
 }
 
-// Start starts existing (stopped) containers without recreating them.
-func Start(ctx context.Context, engine Engine, workdir, project, file string) (string, error) {
-	return Compose(ctx, engine, workdir, project, file, "start")
-}
-
 // Stop stops containers but leaves them around for a quick start.
 func Stop(ctx context.Context, engine Engine, workdir, project, file string) (string, error) {
 	return Compose(ctx, engine, workdir, project, file, "stop")
@@ -58,6 +54,37 @@ func Running(ctx context.Context, engine Engine, workdir, project, file string) 
 		return false
 	}
 	return strings.TrimSpace(out) != ""
+}
+
+// Exec runs a bare `<engine> <args...>` command (not compose) and returns its
+// combined output; on failure the output is wrapped into the error.
+func Exec(ctx context.Context, engine Engine, args ...string) (string, error) {
+	out, err := exec.CommandContext(ctx, string(engine), args...).CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("%s %s failed: %w\n%s",
+			engine, strings.Join(args, " "), err, string(out))
+	}
+	return string(out), nil
+}
+
+// ExecToFile runs `<engine> <args...>` streaming stdout to path (e.g. a
+// mariadb-dump); stderr is captured and wrapped into the error on failure.
+func ExecToFile(ctx context.Context, engine Engine, path string, args ...string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	var stderr strings.Builder
+	cmd := exec.CommandContext(ctx, string(engine), args...)
+	cmd.Stdout = f
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		os.Remove(path) // don't leave a truncated file behind
+		return fmt.Errorf("%s %s failed: %w\n%s",
+			engine, strings.Join(args, " "), err, stderr.String())
+	}
+	return nil
 }
 
 // NetworkCreate creates a named network if it doesn't already exist. Both

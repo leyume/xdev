@@ -148,6 +148,14 @@ func runServer(o *options) error {
 		return err
 	}
 
+	// Keep Caddy's data (local CA, certs) inside the repo data dir instead of
+	// the OS default. Both caddyDataDir() and Caddy itself honor XDG_DATA_HOME,
+	// so this pins the local CA to <data>/caddy — the same host path you mount
+	// into a Caddy container. ponytail: env lever, no new flag needed.
+	if os.Getenv("XDG_DATA_HOME") == "" {
+		os.Setenv("XDG_DATA_HOME", cfg.DataDir)
+	}
+
 	// --- core services -------------------------------------------------------
 	st, err := store.Open(cfg.DBPath)
 	if err != nil {
@@ -169,7 +177,7 @@ func runServer(o *options) error {
 	// Supervisor for static (host) apps; their log files live under the data dir.
 	sup := hostproc.NewSupervisor(filepath.Join(cfg.DataDir, "run"))
 	defer sup.StopAll()
-	appSvc := apps.New(st, engine, sup)
+	appSvc := apps.New(st, engine, sup, filepath.Join(cfg.DataDir, "wp"))
 
 	// --- reverse proxy (Caddy) ----------------------------------------------
 	pm := proxy.NewManager(o.caddyAdmin, o.httpsPort, o.httpPort, o.acmeEmail, o.localCertTTL)
@@ -215,7 +223,7 @@ func runServer(o *options) error {
 	// --- metrics collector ---------------------------------------------------
 	metricsCtx, stopMetrics := context.WithCancel(context.Background())
 	defer stopMetrics()
-	go metrics.New(st, engine).Run(metricsCtx)
+	go metrics.New(st, engine, sup).Run(metricsCtx)
 
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,

@@ -4,11 +4,13 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"xdev/internal/runtime"
@@ -17,7 +19,8 @@ import (
 
 // appDir returns an app's on-disk root: <project.Dir>/<app-slug>. For container
 // apps this is the parent of _/ and app/; for static apps it holds the code
-// directly. Derived from the compose path when present, else from the project.
+// directly; shared-WP sites live under data/wp/sites instead. Derived from the
+// compose path when present, else from the project.
 func (s *Service) appDir(app store.App) string {
 	if app.ComposePath != "" {
 		return filepath.Dir(filepath.Dir(app.ComposePath))
@@ -25,6 +28,9 @@ func (s *Service) appDir(app store.App) string {
 	proj, err := s.store.ProjectByID(app.ProjectID)
 	if err != nil {
 		return ""
+	}
+	if app.IsSharedWP() {
+		return s.wpSiteDir(proj.Slug, app.Slug) // docroot: wp-config.php + wp-content/
 	}
 	return filepath.Join(proj.Dir, app.Slug)
 }
@@ -36,7 +42,14 @@ func (s *Service) Logs(id int64, tail int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if app.IsStatic() {
+	if app.IsProxy() {
+		return "Proxy app — traffic is forwarded upstream; there are no local logs.", nil
+	}
+	if app.IsSharedWP() {
+		return "Shared-host WordPress — PHP runs in the platform xdev-wp container, shared by every site; see `" +
+			app.Runtime + " logs " + wpHostContainer + "`.", nil
+	}
+	if app.IsHostProc() {
 		proj, err := s.store.ProjectByID(app.ProjectID)
 		if err != nil {
 			return "", err
@@ -59,7 +72,7 @@ func (s *Service) envPath(id int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if app.IsStatic() {
+	if app.IsHostProc() {
 		return filepath.Join(s.appDir(app), ".env"), nil
 	}
 	return filepath.Join(s.appDir(app), "app", ".env"), nil
@@ -102,13 +115,68 @@ func (s *Service) backupsDirFor(app store.App, backupsRoot string) (string, erro
 	return filepath.Join(backupsRoot, proj.Slug+"_"+app.Slug), nil
 }
 
+// Import restores a .tar.gz backup over an existing app: the app is stopped,
+// the archive is unpacked into its directory, and it is started again. Files in
+// the archive replace files at the same path; anything already there and not in
+// the archive is left alone.
+// ponytail: overlay, not a clean replace — the archive can't silently delete an
+// app's data, at the cost of leaving stale files behind. Wipe-then-extract is
+// the upgrade if exact-mirror restores ever matter.
+func (s *Service) Import(id int64, archive io.Reader) error {
+	app, err := s.store.AppByID(id)
+	if err != nil {
+		return err
+	}
+	dir := s.appDir(app)
+	if dir == "" {
+		return errors.New("app has no directory to import into")
+	}
+	if err := s.Stop(id); err != nil {
+		return err
+	}
+	if err := extractAppArchive(archive, dir, app.IsHostProc()); err != nil {
+		return err
+	}
+	return s.Start(id)
+}
+
+// extractAppArchive unpacks a backup .tar.gz into an app directory. For
+// container apps the archive's _/ is skipped so the compose file xdev just
+// rendered for *this* app (its ports, container names and network) survives —
+// importing someone else's compose would point the app at the wrong stack.
+func extractAppArchive(archive io.Reader, dir string, hostProc bool) error {
+	if hostProc {
+		return untarGz(archive, dir)
+	}
+	return untarGzFilter(archive, dir, func(name string) bool {
+		return name != "_" && !strings.HasPrefix(name, "_/")
+	})
+}
+
 // Backup writes a timestamped .tar.gz of the app's directory (compose + content)
-// under backupsRoot and returns the archive path. Named volumes (e.g. databases)
-// are not included — back those up separately.
+// under backupsRoot and returns the archive path. Dedicated per-app databases
+// (named volumes / _volumes) are not included — back those up separately; a
+// shared-mode app additionally gets a mariadb-dump of its database written next
+// to the archive.
 func (s *Service) Backup(id int64, backupsRoot string) (string, error) {
 	app, err := s.store.AppByID(id)
 	if err != nil {
 		return "", err
+	}
+	if app.DBMode == store.DBShared {
+		proj, err := s.store.ProjectByID(app.ProjectID)
+		if err != nil {
+			return "", err
+		}
+		engine := s.sel.Current()
+		if app.Runtime != "" {
+			engine = runtime.Engine(app.Runtime)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
+		defer cancel()
+		if _, err := s.dumpSharedDB(ctx, engine, app, sharedDBName(proj.Slug, app.Slug), backupsRoot); err != nil {
+			return "", err
+		}
 	}
 	dir, err := s.backupsDirFor(app, backupsRoot)
 	if err != nil {

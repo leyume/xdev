@@ -1,16 +1,31 @@
 package store
 
-import "path/filepath"
+import (
+	"fmt"
+	"path/filepath"
+	"strconv"
+)
+
+// Settings keys for the shared WordPress host (PLANx §C1), written by the apps
+// service when the first shared site is created and read back here to build
+// each site's route.
+const (
+	WPHostDirKey     = "wp_host_dir"      // absolute path of data/wp on the host
+	WPHostFPMPortKey = "wp_host_fpm_port" // host port publishing xdev-wp's fpm :9000
+)
 
 // RouteInfo is a hostname paired with the upstream its app is served from — the
 // pair the reverse proxy needs to route traffic. Exactly one of Port (a host
-// port to reverse-proxy to) or Root (a directory for Caddy to file-server) is
-// set; Root is used by serve-mode static apps that have no process.
+// port to reverse-proxy to), Root (a directory for Caddy to file-server), or
+// Upstream (a proxy app's remote URL) is set. Shared-WP sites set Root plus
+// FCGIPort (*.php handed to the wp-host fpm pool).
 type RouteInfo struct {
-	Host  string
-	Port  int
-	Root  string // filesystem dir to serve directly (serve-mode static apps)
-	Local bool   // local (.test, internal CA) vs public (ACME)
+	Host     string
+	Port     int
+	Root     string // filesystem dir to serve directly (serve-mode static apps, shared-WP sites)
+	FCGIPort int    // fastcgi host port for *.php under Root (shared-WP sites)
+	Upstream string // remote URL to forward to (proxy apps)
+	Local    bool   // local (.test, internal CA) vs public (ACME)
 }
 
 // AppServiceDomain returns the hostname of an app's secondary-service route
@@ -84,15 +99,25 @@ func (s *Store) CreateDomain(appID int64, hostname string, isLocal bool, sslMode
 
 // ProxyRoutes returns every domain whose app has a routable upstream, for
 // building the reverse-proxy config: a published host port (containers and
-// command-mode static apps), or — for serve-mode static apps — the on-disk
-// directory Caddy should file-server directly.
+// command-mode static apps), a serve-mode static app's on-disk directory to
+// file-server, a shared-WP site's docroot + fastcgi port, or a proxy app's
+// remote upstream URL. Proxy and shared-WP apps only route while running
+// (stop = drop the route; there is nothing else to stop).
 func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
+	// Shared-WP routes need the wp-host settings (written on first shared-site
+	// create, so present whenever a shared-WP row exists).
+	wpDir, _ := s.GetSetting(WPHostDirKey)
+	wpPortStr, _ := s.GetSetting(WPHostFPMPortKey)
+	wpPort, _ := strconv.Atoi(wpPortStr)
+
 	rows, err := s.db.Query(`
-		SELECT d.hostname, d.port, a.port, d.is_local, a.type, a.serve_mode, a.root_dir, a.slug, p.dir
+		SELECT d.hostname, d.port, a.port, d.is_local, a.type, a.serve_mode, a.root_dir, a.upstream, a.wp_mode, a.slug, p.slug, p.dir
 		FROM domains d
 		JOIN apps a ON a.id = d.app_id
 		JOIN projects p ON p.id = a.project_id
 		WHERE d.port > 0 OR a.port > 0 OR (a.type = 'static' AND a.serve_mode = 'serve')
+		   OR (a.type = 'proxy' AND a.status = 'running')
+		   OR (a.wp_mode = 'shared' AND a.status = 'running')
 		ORDER BY d.hostname`)
 	if err != nil {
 		return nil, err
@@ -103,15 +128,31 @@ func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 	for rows.Next() {
 		var r RouteInfo
 		var isLocal, domainPort, appPort int
-		var appType, serveMode, rootDir, slug, projDir string
-		if err := rows.Scan(&r.Host, &domainPort, &appPort, &isLocal, &appType, &serveMode, &rootDir, &slug, &projDir); err != nil {
+		var appType, serveMode, rootDir, upstream, wpMode, slug, projSlug, projDir string
+		if err := rows.Scan(&r.Host, &domainPort, &appPort, &isLocal, &appType, &serveMode, &rootDir, &upstream, &wpMode, &slug, &projSlug, &projDir); err != nil {
 			return nil, err
 		}
 		r.Local = isLocal == 1
 		switch {
+		case domainPort > 0 && appType == "mail":
+			// Stalwart's admin console serves over HTTPS (self-signed) on its own
+			// port; Caddy proxies to it over TLS with verification skipped (loopback).
+			r.Upstream = fmt.Sprintf("https://127.0.0.1:%d", domainPort)
 		case domainPort > 0:
 			// Secondary service domain (e.g. Adminer): route straight to its port.
 			r.Port = domainPort
+		case appType == TypeProxy:
+			// Proxy apps forward to a remote URL instead of a local port.
+			r.Upstream = upstream
+		case wpMode == WPShared:
+			// Shared-WP sites: Caddy file-serves the docroot and hands *.php to
+			// the wp-host fpm port. Without the settings there is no PHP handler,
+			// and a bare file_server would serve wp-config.php source — skip.
+			if wpDir == "" || wpPort == 0 {
+				continue
+			}
+			r.Root = filepath.Join(wpDir, "sites", projSlug+"_"+slug)
+			r.FCGIPort = wpPort
 		case appType == TypeStatic && serveMode == ServeStatic:
 			// Serve-mode static apps have no upstream port; Caddy serves their
 			// files from <project.dir>/<slug>/<root_dir> directly.

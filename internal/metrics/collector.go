@@ -17,19 +17,29 @@ import (
 )
 
 const (
-	interval  = 10 * time.Second
-	retention = 24 * time.Hour
+	interval      = 10 * time.Second
+	retention     = 24 * time.Hour     // per-app container samples
+	hostRetention = 7 * 24 * time.Hour // host samples — backs the dashboard 7d pill
 )
 
 // Collector periodically samples container stats into the store.
 type Collector struct {
-	store *store.Store
-	sel   *runtime.Selector
+	store    *store.Store
+	sel      *runtime.Selector
+	procs    ProcSource         // static (host-process) apps; may be nil
+	lastProc map[int64]procMark // per-app CPU accumulator for %-from-delta
 }
 
-// New creates a Collector that samples whichever engines are usable.
-func New(st *store.Store, sel *runtime.Selector) *Collector {
-	return &Collector{store: st, sel: sel}
+// procMark is the previous CPU reading for a host-process app.
+type procMark struct {
+	cpuSecs float64
+	at      time.Time
+}
+
+// New creates a Collector that samples whichever engines are usable, plus the
+// host processes of static apps via procs (nil disables host-process sampling).
+func New(st *store.Store, sel *runtime.Selector, procs ProcSource) *Collector {
+	return &Collector{store: st, sel: sel, procs: procs, lastProc: map[int64]procMark{}}
 }
 
 // Run loops until ctx is cancelled, sampling every interval.
@@ -47,8 +57,25 @@ func (c *Collector) Run(ctx context.Context) {
 	}
 }
 
-// collectOnce reads `stats` once, aggregates per app, and stores a row each.
+// collectOnce samples the host once, then reads `stats`, aggregates per app,
+// and stores a row each.
 func (c *Collector) collectOnce(ctx context.Context) {
+	now := time.Now()
+
+	// Host-level snapshot, independent of whether any apps exist. HostSnapshot
+	// blocks ~200ms measuring CPU — fine at the 10s interval.
+	h := HostSnapshot()
+	if err := c.store.InsertHostMetric(now, h.CPUPct, h.MemPct()); err != nil {
+		log.Printf("host metrics insert: %v", err)
+	}
+	c.store.PruneHostMetricsBefore(now.Add(-hostRetention))
+
+	// Static apps run as host processes (no container), so sample them here.
+	// Runs regardless of the container path below (a host may have only static
+	// apps), and the app-metrics prune is hoisted here so it always applies.
+	c.sampleHostProcs(now)
+	c.store.PruneMetricsBefore(now.Add(-retention))
+
 	prefixes, err := c.store.AppPrefixes()
 	if err != nil || len(prefixes) == 0 {
 		return
@@ -76,17 +103,42 @@ func (c *Collector) collectOnce(ctx context.Context) {
 		}
 	}
 
-	now := time.Now()
-	limitByID := map[int64]int64{}
-	for _, p := range prefixes {
-		limitByID[p.ID] = p.MemLimit
-	}
 	for id, a := range byApp {
-		if err := c.store.InsertMetric(id, now, a.cpu, a.mem, limitByID[id]); err != nil {
+		if err := c.store.InsertMetric(id, now, a.cpu, a.mem); err != nil {
 			log.Printf("metrics insert: %v", err)
 		}
 	}
-	c.store.PruneMetricsBefore(now.Add(-retention))
+}
+
+// sampleHostProcs records a CPU/memory sample for each running static (host-
+// process) app. CPU% is the change in cumulative CPU time since the last tick
+// over wall-clock elapsed — so the first sample after an app starts reports 0%
+// (no baseline yet) and later ticks report real usage. RSS is instantaneous.
+func (c *Collector) sampleHostProcs(now time.Time) {
+	if c.procs == nil {
+		return
+	}
+	live := c.procs.PIDs()
+	for id, pid := range live {
+		cpuSecs, rss := procTotals(pid)
+		cpuPct := 0.0
+		if last, ok := c.lastProc[id]; ok {
+			if dt := now.Sub(last.at).Seconds(); dt > 0 {
+				cpuPct = (cpuSecs - last.cpuSecs) / dt * 100
+			}
+		}
+		c.lastProc[id] = procMark{cpuSecs: cpuSecs, at: now}
+		if err := c.store.InsertMetric(id, now, cpuPct, int64(rss)); err != nil {
+			log.Printf("host-proc metrics insert: %v", err)
+		}
+	}
+	// Drop accumulators for apps that are no longer running so the map doesn't
+	// grow across restarts/deletes.
+	for id := range c.lastProc {
+		if _, ok := live[id]; !ok {
+			delete(c.lastProc, id)
+		}
+	}
 }
 
 type sample struct {

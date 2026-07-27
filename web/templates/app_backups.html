@@ -1,6 +1,6 @@
 {{define "content"}}
 <div class="crumbs">
-  <a href="/">Projects</a> /
+  <a href="/projects">Projects</a> /
   <a href="/projects/{{.Project.Slug}}">{{.Project.Name}}</a> /
   <strong>{{.App.Name}} backups</strong>
 </div>
@@ -14,6 +14,16 @@
     <button class="primary" type="submit">Back up now</button>
   </form>
 </section>
+<div class="card">
+  <form method="post" action="/apps/{{.App.ID}}/import" enctype="multipart/form-data"
+        data-confirm="Import a backup over {{.App.Name}}? Files in the archive replace the app's current files.">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label>Import a backup <span class="muted">(overwrites this app's files from a <code>.tar.gz</code>, then restarts it)</span>
+      <input type="file" name="archive" accept=".tar.gz,.tgz,application/gzip" required>
+    </label>
+    <button type="submit">Import over this app</button>
+  </form>
+</div>
 {{if .Backups}}
 <div class="card">
   <table class="table">

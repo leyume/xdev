@@ -10,6 +10,7 @@ package templates
 import (
 	"bytes"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"strconv"
@@ -28,9 +29,15 @@ type Data struct {
 	AppType     string
 	Env         string // local | prod (selects compose.prod.yml.tmpl when prod)
 	HostPort    int
-	AdminerPort int     // published host port for Adminer (laravel); 0 = none
+	AdminerPort int     // published host port for the secondary HTTP UI (laravel Adminer, mail admin); 0 = none
 	CPULimit    float64 // cores; 0 = unlimited
 	MemLimit    int64   // bytes; 0 = unlimited
+
+	// Shared-database mode (PLANx §B): the app uses the platform xdev-db MariaDB
+	// on the external xdev_shared network instead of its own db service.
+	SharedDB bool
+	DBName   string // database AND user name on xdev-db (<project>_<app>)
+	DBPass   string // generated password for that user
 }
 
 // HasLimits reports whether any resource limit is set (drives the deploy block).
@@ -56,8 +63,11 @@ type TypeInfo struct {
 func Catalog() []TypeInfo {
 	return []TypeInfo{
 		{"static", "Static", "Static site/app served by xdev with your system Node — no container. Code lives directly in the app folder.", true},
+		{"go", "Go", "Go app built and run on the host with your system Go toolchain — no container. Code lives directly in the app folder.", true},
+		{"proxy", "Proxy", "Forward this domain to another server — just a Caddy route to an upstream URL. No container, process, or files.", true},
 		{"wordpress", "WordPress", "WordPress + MariaDB, code in app/.", true},
 		{"laravel", "Laravel", "Laravel on Octane/Swoole + MariaDB + Redis (drop your app in app/).", true},
+		{"mail", "Mail", "Full mail server — Stalwart (SMTP/IMAP, admin UI for domains, mailboxes, DKIM) + SnappyMail webmail. Prod needs port 25 open and MX/SPF/DKIM DNS records.", true},
 	}
 }
 
@@ -102,6 +112,13 @@ func RenderCompose(appType string, d Data) (string, error) {
 	return buf.String(), nil
 }
 
+// AdminerCSS returns the bundled Adminer stylesheet (the Pepa Linha dark theme
+// the laravel apps ship in their db/), so the platform's shared Adminer can
+// mount the same design instead of the image's older built-in one.
+func AdminerCSS() ([]byte, error) {
+	return filesFS.ReadFile("files/laravel/infra/db/adminer.css")
+}
+
 // ScaffoldFiles returns the relative path -> contents of every file under
 // files/<type>/scaffold/, to be written into the app's content directory.
 // Returns an empty map if the type has no scaffold.
@@ -124,7 +141,7 @@ func embeddedFiles(appType, sub string) (map[string][]byte, error) {
 	err := fs.WalkDir(filesFS, root, func(p string, de fs.DirEntry, err error) error {
 		if err != nil {
 			// No such dir for this type is fine.
-			if strings.Contains(err.Error(), "file does not exist") {
+			if errors.Is(err, fs.ErrNotExist) {
 				return fs.SkipAll
 			}
 			return err
@@ -140,7 +157,7 @@ func embeddedFiles(appType, sub string) (map[string][]byte, error) {
 		out[rel] = data
 		return nil
 	})
-	if err != nil && !strings.Contains(err.Error(), "file does not exist") {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 	return out, nil

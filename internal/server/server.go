@@ -30,7 +30,7 @@ type Server struct {
 	projects   *projects.Service
 	apps       *apps.Service
 	reconciler *platform.Reconciler
-	httpsPort  int // public HTTPS port, for building site URLs
+	httpsPort  int                           // public HTTPS port, for building site URLs
 	tmpl       map[string]*template.Template // page name -> parsed template set
 	mux        *http.ServeMux
 }
@@ -51,12 +51,12 @@ func (s *Server) Handler() http.Handler { return s.mux }
 // parseTemplates builds one template set per page, each combined with the
 // shared layout so {{block "content"}} resolves per page.
 func (s *Server) parseTemplates() error {
-	pages := []string{"setup", "login", "dashboard", "project_new", "project", "app_metrics",
-		"app_logs", "app_env", "app_backups", "events", "admins"}
+	pages := []string{"setup", "login", "dashboard", "projects", "project_new", "project", "app_metrics",
+		"app_logs", "app_env", "app_backups", "events", "admins", "database", "database_detail", "wordpress"}
 	s.tmpl = make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		t, err := template.New(p).Funcs(tmplFuncs()).ParseFS(web.TemplatesFS,
-			"templates/layout.html", "templates/"+p+".html")
+			"templates/layout.html", "templates/partials.html", "templates/twstyles.html", "templates/"+p+".html")
 		if err != nil {
 			return err
 		}
@@ -83,9 +83,13 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /logout", s.auth.RequireAuth(s.handleLogout))
 
 	// Dashboard (protected).
-	mux.HandleFunc("GET /{$}", s.auth.RequireAuth(s.handleDashboard))
+	mux.HandleFunc("GET /{$}", s.auth.RequireAuth(s.handleHomeDashboard))
+
+	// Global search (topbar).
+	mux.HandleFunc("GET /search", s.auth.RequireAuth(s.handleSearch))
 
 	// Projects.
+	mux.HandleFunc("GET /projects", s.auth.RequireAuth(s.handleProjectsList))
 	mux.HandleFunc("GET /projects/new", s.auth.RequireAuth(s.handleProjectNewForm))
 	mux.HandleFunc("POST /projects", s.auth.RequireAuth(s.handleProjectCreate))
 	mux.HandleFunc("GET /projects/{slug}", s.auth.RequireAuth(s.handleProjectDetail))
@@ -99,8 +103,10 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /apps/{id}/refresh", s.auth.RequireAuth(s.handleAppRefresh))
 
 	// App metrics.
+	mux.HandleFunc("GET /apps/metrics.json", s.auth.RequireAuth(s.handleAppsMetricsJSON))
 	mux.HandleFunc("GET /apps/{id}/metrics", s.auth.RequireAuth(s.handleAppMetrics))
 	mux.HandleFunc("GET /apps/{id}/metrics.json", s.auth.RequireAuth(s.handleAppMetricsJSON))
+	mux.HandleFunc("GET /host/metrics.json", s.auth.RequireAuth(s.handleHostMetricsJSON))
 
 	// App ops: logs, env editor, backups.
 	mux.HandleFunc("GET /apps/{id}/logs", s.auth.RequireAuth(s.handleAppLogs))
@@ -108,8 +114,14 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /apps/{id}/env", s.auth.RequireAuth(s.handleAppEnvSave))
 	mux.HandleFunc("POST /apps/{id}/domain", s.auth.RequireAuth(s.handleAppDomain))
 	mux.HandleFunc("POST /apps/{id}/backup", s.auth.RequireAuth(s.handleAppBackupCreate))
+	mux.HandleFunc("POST /apps/{id}/import", s.auth.RequireAuth(s.handleAppImport))
 	mux.HandleFunc("GET /apps/{id}/backups", s.auth.RequireAuth(s.handleAppBackups))
 	mux.HandleFunc("GET /apps/{id}/backups/{name}", s.auth.RequireAuth(s.handleBackupDownload))
+
+	// App ops: inline HTML fragments for the lazily-loaded project-page tabs.
+	mux.HandleFunc("GET /apps/{id}/logs/partial", s.auth.RequireAuth(s.handleAppLogsPartial))
+	mux.HandleFunc("GET /apps/{id}/env/partial", s.auth.RequireAuth(s.handleAppEnvPartial))
+	mux.HandleFunc("GET /apps/{id}/backups/partial", s.auth.RequireAuth(s.handleAppBackupsPartial))
 
 	// Activity / audit log.
 	mux.HandleFunc("GET /events", s.auth.RequireAuth(s.handleEvents))
@@ -117,6 +129,23 @@ func (s *Server) routes() {
 	// Settings.
 	mux.HandleFunc("POST /settings/engine", s.auth.RequireAuth(s.handleSetEngine))
 	mux.HandleFunc("POST /settings/hosts-sync", s.auth.RequireAuth(s.handleHostsSync))
+
+	// Shared MariaDB (platform service).
+	mux.HandleFunc("GET /database", s.auth.RequireAuth(s.handleDatabase))
+	mux.HandleFunc("GET /database/{name}", s.auth.RequireAuth(s.handleDatabaseDetail))
+	mux.HandleFunc("POST /database/restart", s.auth.RequireAuth(s.handleDBRestart))
+	mux.HandleFunc("POST /database/update", s.auth.RequireAuth(s.handleDBUpdate))
+	mux.HandleFunc("POST /database/adminer", s.auth.RequireAuth(s.handleAdminer))
+	mux.HandleFunc("POST /database/db/create", s.auth.RequireAuth(s.handleDBCreate))
+	mux.HandleFunc("POST /database/db/drop", s.auth.RequireAuth(s.handleDBDrop))
+	mux.HandleFunc("POST /database/user/create", s.auth.RequireAuth(s.handleDBUserCreate))
+	mux.HandleFunc("POST /database/user/password", s.auth.RequireAuth(s.handleDBUserPassword))
+	mux.HandleFunc("POST /database/user/drop", s.auth.RequireAuth(s.handleDBUserDrop))
+
+	// Central WordPress plugin/theme pools (shared across all shared-host sites).
+	mux.HandleFunc("GET /wordpress", s.auth.RequireAuth(s.handleWordPress))
+	mux.HandleFunc("POST /wordpress/pool/upload", s.auth.RequireAuth(s.handleWPPoolUpload))
+	mux.HandleFunc("POST /wordpress/pool/remove", s.auth.RequireAuth(s.handleWPPoolRemove))
 
 	// Admins (multi-admin management).
 	mux.HandleFunc("GET /admins", s.auth.RequireAuth(s.handleAdmins))
@@ -144,6 +173,19 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, page string, dat
 	}
 	if sess, ok := auth.SessionFrom(r); ok {
 		data["CSRF"] = sess.CSRFToken
+	}
+	data["Path"] = r.URL.Path
+	data["NavLayout"] = "topbar"
+	if c, err := r.Cookie("xdev_nav"); err == nil && c.Value == "sidebar" {
+		data["NavLayout"] = "sidebar"
+	}
+	// Engine info backs the sidebar's engine mini-status on every page (cheap —
+	// s.engine.Info() is a cached field). Handlers may override for their cards.
+	if _, ok := data["Engine"]; !ok {
+		data["Engine"] = string(s.engine.Current())
+	}
+	if _, ok := data["Runtime"]; !ok {
+		data["Runtime"] = s.engine.Info()
 	}
 
 	t, ok := s.tmpl[page]

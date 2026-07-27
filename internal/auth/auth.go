@@ -181,15 +181,26 @@ func (s *Service) RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
-		if !isSafeMethod(r.Method) && r.FormValue("csrf_token") != sess.CSRFToken {
-			http.Error(w, "invalid CSRF token", http.StatusForbidden)
-			return
+		if !isSafeMethod(r.Method) {
+			// Cap the body before the CSRF check reads it: r.FormValue parses the
+			// whole multipart form (spilling uploads to temp files), so a limit
+			// applied later in the handler would already be too late.
+			r.Body = http.MaxBytesReader(w, r.Body, MaxRequestBody)
+			if r.FormValue("csrf_token") != sess.CSRFToken {
+				http.Error(w, "invalid CSRF token", http.StatusForbidden)
+				return
+			}
 		}
 		ctx := context.WithValue(r.Context(), ctxUser, user)
 		ctx = context.WithValue(ctx, ctxSession, sess)
 		next(w, r.WithContext(ctx))
 	}
 }
+
+// MaxRequestBody bounds any authenticated write request. It has to clear the
+// largest legitimate upload (an app backup archive) while still stopping a
+// runaway body from filling the disk with temp files.
+const MaxRequestBody = 1 << 30 // 1 GiB
 
 func isSafeMethod(m string) bool {
 	return m == http.MethodGet || m == http.MethodHead || m == http.MethodOptions

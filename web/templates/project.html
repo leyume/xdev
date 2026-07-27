@@ -1,16 +1,17 @@
 {{define "content"}}
-<div class="crumbs"><a href="/">Project</a> / <strong>{{.Project.Name}}</strong></div>
+<div x-data="{ addOpen: false }" @keydown.escape.window="addOpen = false">
+<div class="crumbs"><a href="/projects">Projects</a> / <strong>{{.Project.Name}}</strong></div>
 <section class="page-head">
   <div>
-    <h1>{{.Project.Name}}</h1>
-    <div class="muted small">{{.Project.BaseDomain}} · {{.Project.Environment}} · network
-      <code>{{.Project.NetworkName}}</code></div>
+    <div class="title-row">
+      <h1>{{.Project.Name}}</h1>
+      <span class="status-pill {{if eq .AppsRunning (len .Apps)}}ok{{else}}warn{{end}}">
+        <span class="status running"></span>{{.AppsRunning}} of {{len .Apps}} running
+      </span>
+    </div>
+    <div class="muted small">{{.Project.BaseDomain}} · {{.Project.Environment}} · network <code>{{.Project.NetworkName}}</code></div>
   </div>
-  <form class="inline" method="post" action="/projects/{{.Project.Slug}}/delete"
-    onsubmit="return confirm('Delete project {{.Project.Name}} and all its apps?')">
-    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-    <button class="danger" type="submit">Delete project</button>
-  </form>
+  <button class="primary" type="button" @click="addOpen = true">+ Add app</button>
 </section>
 
 {{if .Error}}<div class="alert">{{.Error}}</div>{{end}}
@@ -30,139 +31,310 @@
 </div>
 {{end}}
 {{if .ProxyEnabled}}
-<p class="muted small trust-hint">🔒 For a trusted padlock on local HTTPS, run once: <code>sudo caddy trust</code></p>
+<div class="alert warn-banner">🔒 For a trusted padlock on local HTTPS, run once: <code>sudo caddy trust</code></div>
 {{end}}
 
-<h3>Apps</h3>
-{{if .Apps}}
-<div class="app-list">
-  {{range .Apps}}
-  <div class="card app">
-    <div class="app-main">
-      <span class="status {{.Status}}" title="{{.Status}}"></span>
-      <div>
-        <strong>{{.Name}}</strong> <span class="muted small">{{.Type}}</span>
-        {{if or .CPULimit .MemLimit}}<span class="muted small">·
-          {{if .CPULimit}}{{f1 .CPULimit}} CPU{{end}}{{if .MemLimit}} {{mib .MemLimit}}MB{{end}}</span>{{end}}
-        <div class="muted small">
-          {{$host := .Domain}}
-          {{if $.ProxyEnabled}}
-          {{if eq $.HTTPSPort 443}}
-          <a href="https://{{$host}}" target="_blank">https://{{$host}}</a>
-          {{else}}
-          <a href="https://{{$host}}:{{$.HTTPSPort}}" target="_blank">https://{{$host}}:{{$.HTTPSPort}}</a>
-          {{end}}
-          {{else}}
-          {{$host}}
-          {{end}}
-          {{if .Port}} · <a href="http://127.0.0.1:{{.Port}}" target="_blank">:{{.Port}} direct</a>{{end}}
-        </div>
+<div class="grid-main">
+  <div class="app-cards">
+    {{if .Apps}}
+    {{range .Apps}}
+    <div class="card app-card" x-data="{collapsed:true, tab:'metrics', loaded:{},
+        open(t){ this.tab=t; if(t!=='metrics' && !this.loaded[t]){ this.loaded[t]=true; this.fetchPartial(t); } },
+        async fetchPartial(t){ const el=this.$refs[t];
+          try{ const r=await fetch('/apps/{{.ID}}/'+t+'/partial',{credentials:'same-origin'}); el.innerHTML=await r.text(); }
+          catch(e){ el.textContent='Could not load.'; } }}">
+      <div class="app-card-head" data-app-id="{{.ID}}" data-status="{{.Status}}"
+           @click="collapsed=!collapsed" role="button" tabindex="0"
+           @keydown.enter="collapsed=!collapsed" @keydown.space.prevent="collapsed=!collapsed"
+           :aria-expanded="(!collapsed).toString()">
+        <span class="chevron ico" :class="{'is-collapsed':collapsed}">{{template "icon_chevron" .}}</span>
+        <span class="status {{.Status}}" title="{{.Status}}"></span>
+        <span class="app-card-name">{{.Name}}</span>
+        <span class="chip">{{.Type}}</span>
+        {{if eq .WPMode "shared"}}<span class="chip">shared host</span>{{end}}
+        <span class="spacer"></span>
+        <form class="inline act-stop" method="post" action="/apps/{{.ID}}/stop" @click.stop>
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button type="submit">Stop</button>
+        </form>
+        <form class="inline act-start" method="post" action="/apps/{{.ID}}/start" @click.stop>
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button class="primary" type="submit">Start</button>
+        </form>
+        <form class="inline" method="post" action="/apps/{{.ID}}/refresh" title="Refresh status" @click.stop>
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button type="submit">↻</button>
+        </form>
+        <form class="inline" method="post" action="/apps/{{.ID}}/delete" @click.stop
+          data-confirm="Delete app {{.Name}}?">
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button class="danger" type="submit">Delete</button>
+        </form>
+      </div>
+
+      <div class="app-card-body" x-show="!collapsed">
+      <div class="app-card-meta">
+        {{$host := .Domain}}
+        {{if $.ProxyEnabled}}
+          {{if eq $.HTTPSPort 443}}<a href="https://{{$host}}" target="_blank">https://{{$host}}</a>
+          {{else}}<a href="https://{{$host}}:{{$.HTTPSPort}}" target="_blank">https://{{$host}}:{{$.HTTPSPort}}</a>{{end}}
+        {{else}}{{$host}}{{end}}
+        {{if .Port}}<span class="muted">·</span><a href="http://127.0.0.1:{{.Port}}" target="_blank" class="muted">:{{.Port}} direct</a>{{end}}
+        {{if .Upstream}}<span class="muted">→ {{.Upstream}}</span>{{end}}
         {{$adm := index $.AdminerDomains .ID}}
-        {{if $adm}}
-        <div class="muted small">Adminer:
+        {{$admLabel := "Adminer"}}{{if eq .Type "mail"}}{{$admLabel = "Mail admin"}}{{end}}
+        {{if $adm}}<span class="muted">·</span>
           {{if $.ProxyEnabled}}
-          {{if eq $.HTTPSPort 443}}<a href="https://{{$adm}}" target="_blank">https://{{$adm}}</a>
-          {{else}}<a href="https://{{$adm}}:{{$.HTTPSPort}}" target="_blank">https://{{$adm}}:{{$.HTTPSPort}}</a>{{end}}
-          {{else}}{{$adm}}{{end}}
-        </div>
+            {{if eq $.HTTPSPort 443}}<a href="https://{{$adm}}" target="_blank">{{$admLabel}}</a>
+            {{else}}<a href="https://{{$adm}}:{{$.HTTPSPort}}" target="_blank">{{$admLabel}}</a>{{end}}
+          {{else}}<span class="muted">{{$admLabel}}: {{$adm}}</span>{{end}}
         {{end}}
-        <div class="app-links small">
-          <a href="/apps/{{.ID}}/metrics">Metrics</a> ·
-          <a href="/apps/{{.ID}}/logs">Logs</a> ·
-          <a href="/apps/{{.ID}}/env">Env</a> ·
-          <a href="/apps/{{.ID}}/backups">Backups</a>
-        </div>
+        {{if or (eq .DBMode "shared") (eq .WPMode "shared")}}<span class="muted">·</span><a href="/database" title="Manage the shared database & Adminer">Shared DB ↗</a>{{end}}
+        {{if or .CPULimit .MemLimit}}<span class="muted">· {{if .CPULimit}}{{f1 .CPULimit}} CPU{{end}}{{if .MemLimit}} {{mib .MemLimit}}MB{{end}}</span>{{end}}
+      </div>
+
+      <div class="tabs">
+        {{if ne .Type "proxy"}}{{/* proxy apps have nothing local to measure, log, or back up */}}
+        <span class="tab" :class="{active: tab==='metrics'}" @click="tab='metrics'">Metrics</span>
+        <span class="tab" :class="{active: tab==='logs'}" @click="open('logs')">Logs</span>
+        {{if ne .WPMode "shared"}}{{/* shared-host WP is configured by wp-config.php, not .env */}}
+        <span class="tab" :class="{active: tab==='env'}" @click="open('env')">Env</span>
+        {{end}}
+        <span class="tab" :class="{active: tab==='backups'}" @click="open('backups')">Backups</span>
+        {{end}}
+        <span class="spacer"></span>
         <form class="domain-edit" method="post" action="/apps/{{.ID}}/domain">
           <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
           <input type="text" name="domain" value="{{.Domain}}" spellcheck="false" aria-label="domain">
           <button type="submit">Set domain</button>
         </form>
       </div>
-    </div>
-    <div class="app-actions">
-      {{if eq .Status "running"}}
-      <form class="inline" method="post" action="/apps/{{.ID}}/stop">
-        <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button type="submit">Stop</button>
-      </form>
-      {{else}}
-      <form class="inline" method="post" action="/apps/{{.ID}}/start">
-        <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button class="primary" type="submit">Start</button>
-      </form>
+
+      {{if ne .Type "proxy"}}
+      <div class="tab-panel" x-show="tab==='metrics'">
+        <div id="cpuChart-{{.ID}}" class="mini-chart"></div>
+        <div id="memChart-{{.ID}}" class="mini-chart"></div>
+      </div>
+      <div class="tab-panel" x-show="tab==='logs'" style="display:none">
+        <div x-ref="logs"><div class="muted small">Loading…</div></div>
+        <div class="muted small"><a href="/apps/{{.ID}}/logs">open full logs ↗</a></div>
+      </div>
+      <div class="tab-panel" x-show="tab==='env'" style="display:none">
+        <div x-ref="env"><div class="muted small">Loading…</div></div>
+        <div class="muted small"><a href="/apps/{{.ID}}/env">edit .env ↗</a></div>
+      </div>
+      <div class="tab-panel" x-show="tab==='backups'" style="display:none">
+        <div x-ref="backups"><div class="muted small">Loading…</div></div>
+        <div class="muted small"><a href="/apps/{{.ID}}/backups">manage backups ↗</a></div>
+      </div>
       {{end}}
-      <form class="inline" method="post" action="/apps/{{.ID}}/refresh" title="Refresh status">
-        <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button type="submit">↻</button>
-      </form>
-      <form class="inline" method="post" action="/apps/{{.ID}}/delete"
-        onsubmit="return confirm('Delete app {{.Name}}?')">
-        <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button class="danger" type="submit">Delete</button>
-      </form>
+      </div>
     </div>
+    {{end}}
+    {{else}}
+    <div class="empty card">
+      <p class="muted">No apps yet — add your first one.</p>
+    </div>
+    {{end}}
   </div>
-  {{end}}
-</div>
-{{else}}
-<div class="empty card">
-  <p class="muted">No apps yet — add your first one below.</p>
-</div>
-{{end}}
 
-<h3 class="mt">Add app</h3>
-<div class="card form-card">
-  <form method="post" action="/projects/{{.Project.Slug}}/apps" x-data="{type:'static', serve:'serve'}">
-    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-    <label>App name
-      <input type="text" name="name" required placeholder="e.g. frontend">
-    </label>
-    <label>Type
-      <select name="type" x-model="type">
-        {{range .Catalog}}
-        <option value="{{.Type}}" {{if not .Available}}disabled{{end}}>{{.Name}}{{if not .Available}} — soon{{end}}
-        </option>
+  <div class="side-col">
+    <section class="card">
+      <h3>Project activity</h3>
+      {{if .Activity}}
+      <div class="event-list">
+        {{range .Activity}}
+        <div class="event-row">
+          <span class="dot {{.Level}}"></span>
+          <div>
+            <div class="small" style="font-weight:600">{{.Message}}</div>
+            <div class="muted small">{{.TS}}</div>
+          </div>
+        </div>
         {{end}}
-      </select>
-    </label>
-    <label>Domain <span class="muted">(optional — blank serves this app at <code>{{.Project.BaseDomain}}</code>)</span>
-      <input type="text" name="domain" placeholder="{{.Project.BaseDomain}}  ·  or  api.{{.Project.BaseDomain}}">
-    </label>
+      </div>
+      {{else}}
+      <p class="muted small">No activity yet.</p>
+      {{end}}
+    </section>
 
-    <!-- Static apps: run on the host's system Node, no container. -->
-    <template x-if="type==='static'">
-      <div>
-        <label>How to serve
-          <select name="serve_mode" x-model="serve">
-            <option value="serve">Serve files — Caddy serves a folder directly (no process)</option>
-            <option value="command">Run a command — system Node dev/build server</option>
+    <section class="card danger-zone">
+      <h3 style="color:var(--danger)">Danger zone</h3>
+      <p class="muted small">Removes every app, the network, and all volumes.</p>
+      <form method="post" action="/projects/{{.Project.Slug}}/delete"
+        onsubmit="return confirm('Delete project {{.Project.Name}} and all its apps?')">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="danger" type="submit" style="width:100%">Delete project</button>
+      </form>
+    </section>
+  </div>
+</div>
+
+<!-- Add-app modal (triggered by the header button; Alpine scope wraps the page). -->
+<div class="modal-overlay" x-show="addOpen" x-cloak @click.self="addOpen = false">
+  <div class="modal card form-card" role="dialog" aria-modal="true" aria-label="Add app">
+    <div class="modal-head">
+      <h3 style="margin:0">Add app</h3>
+      <button type="button" class="link iconbtn" title="Close" aria-label="Close" @click="addOpen = false">✕</button>
+    </div>
+    <form method="post" action="/projects/{{.Project.Slug}}/apps" enctype="multipart/form-data"
+          x-data="{type:'static', serve:'serve', wp:'shared', godb:''}">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <label>App name
+        <input type="text" name="name" required placeholder="e.g. frontend">
+      </label>
+      <label>Type
+        <select name="type" x-model="type">
+          {{range .Catalog}}
+          <option value="{{.Type}}" {{if not .Available}}disabled{{end}}>{{.Name}}{{if not .Available}} — soon{{end}}
+          </option>
+          {{end}}
+        </select>
+      </label>
+      <label>Domain <span class="muted">(optional — blank serves this app at <code>{{.Project.BaseDomain}}</code>)</span>
+        <input type="text" name="domain" placeholder="{{.Project.BaseDomain}}  ·  or  api.{{.Project.BaseDomain}}">
+      </label>
+
+      <!-- Static apps: run on the host's system Node, no container. -->
+      <template x-if="type==='static'">
+        <div>
+          <label>How to serve
+            <select name="serve_mode" x-model="serve">
+              <option value="serve">Serve files — Caddy serves a folder directly (no process)</option>
+              <option value="command">Run a command — system Node dev/build server</option>
+            </select>
+          </label>
+          <label x-show="serve==='serve'">Folder to serve <span class="muted">(subdir, optional — e.g. <code>dist</code>; blank = app folder)</span>
+            <input type="text" name="root_dir" placeholder="dist" spellcheck="false">
+          </label>
+          <label>Build command <span class="muted">(optional, runs once with system Node — e.g. <code>npm ci &amp;&amp; npm run build</code>)</span>
+            <input type="text" name="build_cmd" placeholder="npm ci &amp;&amp; npm run build" spellcheck="false">
+          </label>
+          <label x-show="serve==='command'">Start command <span class="muted">(long-running; <code>$PORT</code> is set for you)</span>
+            <input type="text" name="start_cmd" placeholder="npm install &amp;&amp; npm run dev -- --host 127.0.0.1 --port $PORT" spellcheck="false">
+          </label>
+        </div>
+      </template>
+
+      <!-- Go apps: built and supervised on the host with the system Go toolchain. -->
+      <template x-if="type==='go'">
+        <div>
+          <label>Database <span class="muted">(does this app need one?)</span>
+            <select name="db_mode" x-model="godb">
+              <option value="">No database</option>
+              <option value="shared">Yes — one on the shared xdev MariaDB</option>
+            </select>
+          </label>
+          <p class="muted small" x-show="godb==='shared'" style="margin:-2px 0 10px">
+            A database and user are created for this app, and its <code>.env</code> is written with
+            <code>DB_HOST</code>/<code>DB_PORT</code>/<code>DB_NAME</code>/<code>DB_USER</code>/<code>DB_PASSWORD</code>/<code>DB_DSN</code>
+            — xdev loads them into the app's environment on start.
+          </p>
+          <label>Build command <span class="muted">(runs once before start — blank = <code>go build -o app .</code>)</span>
+            <input type="text" name="build_cmd" placeholder="go build -o app ." spellcheck="false">
+          </label>
+          <label>Start command <span class="muted">(long-running; <code>$PORT</code> is set for you — blank = <code>./app</code>)</span>
+            <input type="text" name="start_cmd" placeholder="./app" spellcheck="false">
+          </label>
+        </div>
+      </template>
+
+      <!-- Proxy: just a Caddy route forwarding the domain to another server. -->
+      <template x-if="type==='proxy'">
+        <label>Upstream URL <span class="muted">(the server to forward to — e.g. <code>http://10.0.0.5:3000</code>)</span>
+          <input type="text" name="upstream" required placeholder="https://other-server.example" spellcheck="false">
+        </label>
+      </template>
+
+      <!-- WordPress: served by the shared platform PHP host (saves RAM) or its own container. -->
+      <template x-if="type==='wordpress'">
+        <label>WordPress
+          <select name="wp_mode" x-model="wp">
+            <option value="shared">Shared host — served by the platform PHP-FPM pool, shared database (saves RAM)</option>
+            <option value="separate">Separate container — this app runs its own WordPress stack</option>
           </select>
         </label>
-        <label x-show="serve==='serve'">Folder to serve <span class="muted">(subdir, optional — e.g. <code>dist</code>; blank = app folder)</span>
-          <input type="text" name="root_dir" placeholder="dist" spellcheck="false">
+      </template>
+
+      <!-- Laravel / separate-container WordPress: one shared xdev MariaDB (saves RAM)
+           or a per-app one. Shared-host WordPress always uses the shared DB. -->
+      <template x-if="type==='laravel' || (type==='wordpress' && wp==='separate')">
+        <label>Database
+          <select name="db_mode">
+            <option value="shared">Shared — one xdev-managed MariaDB for all apps (saves RAM)</option>
+            <option value="dedicated">Dedicated — this app runs its own MariaDB container</option>
+          </select>
         </label>
-        <label>Build command <span class="muted">(optional, runs once with system Node — e.g. <code>npm ci &amp;&amp; npm run build</code>)</span>
-          <input type="text" name="build_cmd" placeholder="npm ci &amp;&amp; npm run build" spellcheck="false">
+      </template>
+
+      <!-- Laravel: pick the hostname for the bundled Adminer DB UI. -->
+      <template x-if="type==='laravel'">
+        <label>Adminer domain <span class="muted">(DB UI — blank = <code>adminer.&lt;app-domain&gt;</code>)</span>
+          <input type="text" name="adminer_domain" placeholder="adminer.{{.Project.BaseDomain}}" spellcheck="false">
         </label>
-        <label x-show="serve==='command'">Start command <span class="muted">(long-running; <code>$PORT</code> is set for you)</span>
-          <input type="text" name="start_cmd" placeholder="npm install &amp;&amp; npm run dev -- --host 127.0.0.1 --port $PORT" spellcheck="false">
+      </template>
+
+      <!-- Mail: pick the hostname for the Stalwart admin UI. -->
+      <template x-if="type==='mail'">
+        <label>Admin domain <span class="muted">(mail admin UI — blank = <code>admin.&lt;app-domain&gt;</code>)</span>
+          <input type="text" name="adminer_domain" placeholder="admin.mail.{{.Project.BaseDomain}}" spellcheck="false">
+        </label>
+      </template>
+
+      <!-- Import: start this app from a backup archive instead of a fresh scaffold. -->
+      <template x-if="type!=='proxy'">
+        <label>Import <span class="muted">(optional — a <code>.tar.gz</code> backup to start this app from)</span>
+          <input type="file" name="archive" accept=".tar.gz,.tgz,application/gzip">
+        </label>
+      </template>
+
+      <!-- Container apps: resource limits apply (not host processes, routes, or shared-host sites). -->
+      <div class="row2" x-show="type!=='static' && type!=='go' && type!=='proxy' && !(type==='wordpress' && wp==='shared')">
+        <label>CPU limit <span class="muted">(cores, optional)</span>
+          <input type="number" name="cpu_cores" step="0.25" min="0" placeholder="e.g. 1.0">
+        </label>
+        <label>Memory limit <span class="muted">(MB, optional)</span>
+          <input type="number" name="memory_mb" step="64" min="0" placeholder="e.g. 512">
         </label>
       </div>
-    </template>
+      <button class="primary" type="submit">Create &amp; start app</button>
+    </form>
+  </div>
+</div>
 
-    <!-- Laravel: pick the hostname for the bundled Adminer DB UI. -->
-    <template x-if="type==='laravel'">
-      <label>Adminer domain <span class="muted">(DB UI — blank = <code>adminer.&lt;app-domain&gt;</code>)</span>
-        <input type="text" name="adminer_domain" placeholder="adminer.{{.Project.BaseDomain}}" spellcheck="false">
-      </label>
-    </template>
-
-    <!-- Container apps: resource limits apply (not host processes). -->
-    <div class="row2" x-show="type!=='static'">
-      <label>CPU limit <span class="muted">(cores, optional)</span>
-        <input type="number" name="cpu_cores" step="0.25" min="0" placeholder="e.g. 1.0">
-      </label>
-      <label>Memory limit <span class="muted">(MB, optional)</span>
-        <input type="number" name="memory_mb" step="64" min="0" placeholder="e.g. 512">
-      </label>
-    </div>
-    <button class="primary" type="submit">Create &amp; start app</button>
-  </form>
+<link rel="stylesheet" href="/static/uPlot.min.css">
+<script src="/static/uPlot.iife.min.js"></script>
+<script>
+(function () {
+  {{range .Apps}}
+  loadAppChart({{.ID}});
+  {{end}}
+  function opts(label, color, width) {
+    const axis = { stroke: '#96909f', grid: { stroke: 'rgba(255,255,255,0.06)' }, ticks: { stroke: 'rgba(255,255,255,0.06)' } };
+    return {
+      width: width, height: 140,
+      scales: { x: { time: true } },
+      axes: [axis, axis],
+      series: [{}, { label: label, stroke: color, width: 2, fill: color + '22' }],
+      legend: { show: false },
+    };
+  }
+  async function loadAppChart(id) {
+    const cpuEl = document.getElementById('cpuChart-' + id);
+    const memEl = document.getElementById('memChart-' + id);
+    if (!cpuEl || !memEl) return;
+    const w = Math.min(360, cpuEl.clientWidth || 360);
+    try {
+      const r = await fetch(`/apps/${id}/metrics.json`, { credentials: 'same-origin' });
+      const d = await r.json();
+      if (!d.t || d.t.length === 0) {
+        cpuEl.innerHTML = '<p class="muted small">No samples yet.</p>';
+        memEl.innerHTML = '';
+        return;
+      }
+      new uPlot(opts('CPU %', '#b48cff', w), [d.t, d.cpu], cpuEl);
+      new uPlot(opts('MiB', '#8ce8b8', w), [d.t, d.mem], memEl);
+    } catch (e) {
+      cpuEl.innerHTML = '<p class="muted small">Could not load metrics.</p>';
+    }
+  }
+})();
+</script>
 </div>
 {{end}}

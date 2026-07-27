@@ -1,0 +1,1416 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="./support.js"></script>
+</head>
+
+<body>
+  <x-dc>
+    <helmet data-dc-atomics="">
+      <meta name="design_doc_mode" content="canvas">
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&amp;family=Sora:wght@400;500;600;700&amp;family=Archivo:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap"
+        rel="stylesheet">
+      <style>
+        body {
+          margin: 0;
+          background: #141517;
+          font-family: system-ui, sans-serif
+        }
+
+        a {
+          color: #9be8c4;
+          text-decoration: none
+        }
+
+        a:hover {
+          color: #c3f2da
+        }
+
+        .dv-turn {
+          padding: 40px 44px 32px;
+          border-bottom: 1px solid rgba(255, 255, 255, .08);
+          scroll-margin-top: 16px
+        }
+
+        .dv-thd {
+          display: flex;
+          align-items: baseline;
+          gap: 10px;
+          margin: 0 0 20px
+        }
+
+        .dv-tid {
+          font: 600 10px ui-monospace, Menlo, monospace;
+          padding: 3px 7px;
+          background: #f2f2f0;
+          color: #141517;
+          border-radius: 4px;
+          text-decoration: none
+        }
+
+        .dv-tname {
+          font: 600 13px/1.2 system-ui, sans-serif;
+          color: #f2f2f0
+        }
+
+        .dv-opts {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 32px;
+          align-items: flex-start
+        }
+
+        .dv-opt {
+          flex: none;
+          display: flex;
+          flex-direction: column;
+          gap: 9px;
+          scroll-margin-top: 16px
+        }
+
+        .dv-oid {
+          font: 600 10.5px ui-monospace, Menlo, monospace;
+          padding: 3px 7px;
+          background: rgba(255, 255, 255, .12);
+          color: #f2f2f0;
+          border-radius: 5px;
+          text-decoration: none
+        }
+
+        .dv-olabel {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+          font: 400 11px/1.3 system-ui, sans-serif;
+          color: rgba(255, 255, 255, .55)
+        }
+
+        .dv-card {
+          max-width: 100%;
+          background: #0b0c0d;
+          border: 1px solid rgba(255, 255, 255, .09);
+          border-radius: 10px;
+          box-shadow: 0 2px 12px rgba(0, 0, 0, .4);
+          overflow: hidden
+        }
+
+        .dv-opt:target .dv-oid {
+          background: #4de3a4;
+          color: #08110d
+        }
+
+        .dv-next {
+          margin: 22px 0 0;
+          font: 12px/1.5 system-ui, sans-serif;
+          color: rgba(255, 255, 255, .5)
+        }
+      </style>
+    </helmet>
+
+    <section class="dv-turn" id="t4">
+      <div class="dv-thd"><a class="dv-tid" href="#t4">4</a><span class="dv-tname">Project detail — one project's apps,
+          in the <a class="dv-oid" href="#3a">3a</a>/<a class="dv-oid" href="#2a">2a</a> system</span></div>
+      <div class="dv-opts">
+
+        <div class="dv-opt" id="4a">
+          <div class="dv-olabel"><a class="dv-oid" href="#4a">4a</a>Project · WV — app cards with per-app tabs · add app
+            &amp; danger zone in a side column (nav flips in Tweaks)</div>
+          <div class="dv-card" style="width:1440px">
+            <div data-screen-label="4a project detail"
+              style="display:flex;flex-direction:column;min-height:920px;background:radial-gradient(1000px 500px at 20% -10%, rgba(180,140,255,0.08), transparent 60%), #0D0B12;font-family:'DM Sans',sans-serif;color:#ECEAF2">
+
+              <sc-if value="{{ topbarNav }}" hint-placeholder-val="{{ true }}">
+                <div
+                  style="display:flex;align-items:center;gap:28px;padding:0 44px;height:64px;border-bottom:1px solid rgba(255,255,255,0.07);background:rgba(255,255,255,0.02);backdrop-filter:blur(16px)">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div
+                      style="width:28px;height:28px;border-radius:50%;background:conic-gradient(from 210deg,#B48CFF,#6E4BC4 55%,#B48CFF);display:flex;align-items:center;justify-content:center">
+                      <div style="width:11px;height:11px;background:#0D0B12;border-radius:50%"></div>
+                    </div>
+                    <div style="font-size:16.5px;font-weight:700;letter-spacing:-0.01em">xdev</div>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:4px">
+                    <span style="font-size:13.5px;font-weight:500;color:#96909F;padding:7px 14px">Dashboard</span>
+                    <span
+                      style="font-size:13.5px;font-weight:600;color:#B48CFF;background:rgba(180,140,255,0.12);padding:7px 14px;border-radius:8px">Projects</span>
+                    <span style="font-size:13.5px;font-weight:500;color:#96909F;padding:7px 14px">Events</span>
+                    <span style="font-size:13.5px;font-weight:500;color:#96909F;padding:7px 14px">Admins</span>
+                  </div>
+                  <div style="flex:1"></div>
+                  <div
+                    style="display: flex; align-items: center; gap: 9px; height: 36px; padding: 0 13px; border-radius: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: #96909F; font-size: 13px; width: 276px; box-sizing: border-box">
+                    <svg width="12" height="12" viewBox="0 0 13 13">
+                      <circle cx="5.5" cy="5.5" r="4" fill="none" stroke="#96909F" stroke-width="1.5"></circle>
+                      <path d="M9 9 L12 12" stroke="#96909F" stroke-width="1.5" stroke-linecap="round"></path>
+                    </svg>Search projects &amp; apps…<span
+                      style="margin-left:auto;font-size:11px;border:1px solid rgba(255,255,255,0.1);border-radius:5px;padding:1px 6px">⌘K</span>
+                  </div>
+                  <div
+                    style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#39304d,#221c30);display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:#B48CFF;border:1px solid rgba(180,140,255,0.3)">
+                    LI</div>
+                </div>
+              </sc-if>
+
+              <div style="display:flex;flex:1;min-height:0">
+                <sc-if value="{{ sidebarNav }}" hint-placeholder-val="{{ false }}">
+                  <div
+                    style="width:232px;flex:none;display:flex;flex-direction:column;gap:6px;padding:26px 18px;border-right:1px solid rgba(255,255,255,0.07);background:rgba(255,255,255,0.02)">
+                    <div style="display:flex;align-items:center;gap:10px;padding:4px 10px 24px">
+                      <div
+                        style="width:28px;height:28px;border-radius:50%;background:conic-gradient(from 210deg,#B48CFF,#6E4BC4 55%,#B48CFF);display:flex;align-items:center;justify-content:center">
+                        <div style="width:11px;height:11px;background:#0D0B12;border-radius:50%"></div>
+                      </div>
+                      <div style="font-size:16.5px;font-weight:700;letter-spacing:-0.01em">xdev</div>
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;color:#96909F;font-size:13.5px;font-weight:500">
+                      <span
+                        style="width:6px;height:6px;border-radius:2px;background:#96909F;opacity:.5;flex:none"></span>Dashboard
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;background:rgba(180,140,255,0.12);color:#B48CFF;font-size:13.5px;font-weight:600;border:1px solid rgba(180,140,255,0.18)">
+                      <span style="width:6px;height:6px;border-radius:50%;background:#B48CFF;flex:none"></span>Projects
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;color:#96909F;font-size:13.5px;font-weight:500">
+                      <span
+                        style="width:6px;height:6px;border-radius:2px;background:#96909F;opacity:.5;flex:none"></span>Events
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;color:#96909F;font-size:13.5px;font-weight:500">
+                      <span
+                        style="width:6px;height:6px;border-radius:2px;background:#96909F;opacity:.5;flex:none"></span>Admins
+                    </div>
+                    <div style="flex:1"></div>
+                    <div
+                      style="display:flex;align-items:center;gap:9px;padding:11px 12px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
+                      <span style="width:7px;height:7px;border-radius:50%;background:#8CE8B8;flex:none"></span>
+                      <div style="display:flex;flex-direction:column;gap:1px">
+                        <div style="font-size:12.5px;font-weight:600">podman 5.8.2</div>
+                        <div style="font-size:11px;color:#96909F">engine · daemon up</div>
+                      </div>
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
+                      <div
+                        style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#39304d,#221c30);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#B48CFF">
+                        LI</div>
+                      <div style="display:flex;flex-direction:column;gap:1px">
+                        <div style="font-size:12.5px;font-weight:600">li@one.com</div>
+                        <div style="font-size:11px;color:#96909F">Administrator</div>
+                      </div>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <div style="flex:1;display:flex;flex-direction:column;gap:26px;padding:34px 56px 56px;min-width:0">
+                  <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span
+                      style="color:#B48CFF;font-weight:600">Projects</span><span style="color:#96909F">/</span><span
+                      style="font-weight:600">WV</span></div>
+
+                  <div style="display:flex;align-items:flex-end;gap:20px">
+                    <div style="display:flex;flex-direction:column;gap:8px">
+                      <div style="display:flex;align-items:center;gap:14px">
+                        <div style="font-size:28px;font-weight:700;letter-spacing:-0.02em">WV</div><span
+                          style="display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#8CE8B8"><span
+                            style="width:7px;height:7px;border-radius:50%;background:#8CE8B8"></span>2 of 2
+                          running</span>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:10px;font-size:13.5px;color:#96909F">wv.dev ·
+                        local · network <span
+                          style="font-size:12px;font-weight:600;color:#ECEAF2;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);padding:2px 9px;border-radius:5px">xdev_wv</span>
+                      </div>
+                    </div>
+                    <div style="flex:1"></div>
+                    <div
+                      style="height:40px;display:flex;align-items:center;padding:0 20px;border-radius:8px;background:#B48CFF;color:#161022;font-size:13.5px;font-weight:700;box-shadow:0 6px 20px rgba(180,140,255,0.28)">
+                      + Add app</div>
+                  </div>
+
+                  <div
+                    style="display:flex;align-items:center;gap:10px;padding:13px 18px;border-radius:8px;background:rgba(242,193,78,0.07);border:1px solid rgba(242,193,78,0.18);font-size:13px;color:#ECEAF2">
+                    <span style="color:#F2C14E">🔒</span>For a trusted padlock on local HTTPS, run once:<span
+                      style="font-size:12px;font-weight:600;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);padding:3px 10px;border-radius:5px">sudo
+                      caddy trust</span></div>
+
+                  <div style="display:grid;grid-template-columns:2.1fr 1fr;gap:24px;align-items:start">
+                    <!-- apps -->
+                    <div style="display:flex;flex-direction:column;gap:20px">
+                      <div
+                        style="display:flex;flex-direction:column;gap:18px;padding:26px 30px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)">
+                        <div style="display:flex;align-items:center;gap:12px">
+                          <span style="width:8px;height:8px;border-radius:50%;background:#8CE8B8;flex:none"></span>
+                          <span style="font-size:17px;font-weight:700">frontend</span>
+                          <span
+                            style="font-size:10.5px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:5px">static</span>
+                          <div style="flex:1"></div>
+                          <span
+                            style="font-size:12.5px;font-weight:600;border:1px solid rgba(255,255,255,0.14);padding:6px 14px;border-radius:8px">Stop</span>
+                          <span
+                            style="font-size:12.5px;font-weight:600;border:1px solid rgba(255,255,255,0.14);padding:6px 12px;border-radius:8px">↻</span>
+                          <span
+                            style="font-size:12.5px;font-weight:600;color:#F58C8C;border:1px solid rgba(245,140,140,0.3);padding:6px 14px;border-radius:8px">Delete</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:14px;font-size:13px"><span
+                            style="color:#B48CFF;font-weight:600">https://app.wv.dev</span><span
+                            style="color:#96909F">·</span><span style="color:#96909F">:20016 direct</span><span
+                            style="color:#96909F">·</span><span style="color:#96909F">up 6d · 0.4% CPU · 38 MiB</span>
+                        </div>
+                        <div
+                          style="display:flex;align-items:center;gap:6px;border-top:1px solid rgba(255,255,255,0.06);padding-top:16px">
+                          <span
+                            style="font-size:12.5px;font-weight:600;color:#B48CFF;background:rgba(180,140,255,0.12);padding:6px 14px;border-radius:8px">Metrics</span>
+                          <span style="font-size:12.5px;font-weight:500;color:#96909F;padding:6px 14px">Logs</span>
+                          <span style="font-size:12.5px;font-weight:500;color:#96909F;padding:6px 14px">Env</span>
+                          <span style="font-size:12.5px;font-weight:500;color:#96909F;padding:6px 14px">Backups</span>
+                          <div style="flex:1"></div>
+                          <span style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:#96909F"><span
+                              style="font-size:12px;font-weight:600;color:#ECEAF2;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);padding:6px 12px;border-radius:8px">app.wv.dev</span><span
+                              style="font-size:12.5px;font-weight:600;color:#ECEAF2;border:1px solid rgba(255,255,255,0.14);padding:6px 12px;border-radius:8px">Set
+                              domain</span></span>
+                        </div>
+                      </div>
+
+                      <div
+                        style="display:flex;flex-direction:column;gap:18px;padding:26px 30px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)">
+                        <div style="display:flex;align-items:center;gap:12px">
+                          <span style="width:8px;height:8px;border-radius:50%;background:#8CE8B8;flex:none"></span>
+                          <span style="font-size:17px;font-weight:700">api</span>
+                          <span
+                            style="font-size:10.5px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:5px">laravel</span>
+                          <div style="flex:1"></div>
+                          <span
+                            style="font-size:12.5px;font-weight:600;border:1px solid rgba(255,255,255,0.14);padding:6px 14px;border-radius:8px">Stop</span>
+                          <span
+                            style="font-size:12.5px;font-weight:600;border:1px solid rgba(255,255,255,0.14);padding:6px 12px;border-radius:8px">↻</span>
+                          <span
+                            style="font-size:12.5px;font-weight:600;color:#F58C8C;border:1px solid rgba(245,140,140,0.3);padding:6px 14px;border-radius:8px">Delete</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:14px;font-size:13px"><span
+                            style="color:#B48CFF;font-weight:600">https://api.wv.dev</span><span
+                            style="color:#96909F">·</span><span style="color:#96909F">:20014 direct</span><span
+                            style="color:#96909F">·</span><span style="color:#B48CFF">Adminer</span><span
+                            style="color:#96909F">·</span><span style="color:#96909F">up 6d · 1.8% CPU · 487 MiB</span>
+                        </div>
+                        <div
+                          style="display:flex;align-items:center;gap:6px;border-top:1px solid rgba(255,255,255,0.06);padding-top:16px">
+                          <span
+                            style="font-size:12.5px;font-weight:600;color:#B48CFF;background:rgba(180,140,255,0.12);padding:6px 14px;border-radius:8px">Metrics</span>
+                          <span style="font-size:12.5px;font-weight:500;color:#96909F;padding:6px 14px">Logs</span>
+                          <span style="font-size:12.5px;font-weight:500;color:#96909F;padding:6px 14px">Env</span>
+                          <span style="font-size:12.5px;font-weight:500;color:#96909F;padding:6px 14px">Backups</span>
+                          <div style="flex:1"></div>
+                          <span style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:#96909F"><span
+                              style="font-size:12px;font-weight:600;color:#ECEAF2;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);padding:6px 12px;border-radius:8px">api.wv.dev</span><span
+                              style="font-size:12.5px;font-weight:600;color:#ECEAF2;border:1px solid rgba(255,255,255,0.14);padding:6px 12px;border-radius:8px">Set
+                              domain</span></span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- side column -->
+                    <div style="display:flex;flex-direction:column;gap:24px">
+                      <div
+                        style="display:flex;flex-direction:column;gap:16px;padding:24px 28px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)">
+                        <div
+                          style="font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                          Add app</div>
+                        <div style="display:flex;flex-direction:column;gap:7px">
+                          <div style="font-size:12.5px;font-weight:600">App name</div>
+                          <div
+                            style="height:38px;display:flex;align-items:center;padding:0 13px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#96909F;font-size:13px">
+                            e.g. frontend</div>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:7px">
+                          <div style="font-size:12.5px;font-weight:600">Type</div>
+                          <div
+                            style="height:38px;display:flex;align-items:center;padding:0 13px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:13px">
+                            Static<span style="margin-left:auto;color:#96909F">⌄</span></div>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:7px">
+                          <div style="font-size:12.5px;font-weight:600">Domain <span
+                              style="color:#96909F;font-weight:400">(optional)</span></div>
+                          <div
+                            style="height:38px;display:flex;align-items:center;padding:0 13px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#96909F;font-size:13px">
+                            blank serves at wv.dev</div>
+                        </div>
+                        <div
+                          style="height:40px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:#B48CFF;color:#161022;font-size:13.5px;font-weight:700;margin-top:4px">
+                          Create app</div>
+                      </div>
+
+                      <div
+                        style="display:flex;flex-direction:column;gap:14px;padding:24px 28px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)">
+                        <div
+                          style="font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                          Project activity</div>
+                        <div style="display:flex;gap:12px;align-items:flex-start"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;margin-top:6px;flex:none"></span>
+                          <div style="display:flex;flex-direction:column;gap:2px">
+                            <div style="font-size:13px;font-weight:600">backup completed · api</div>
+                            <div style="font-size:11.5px;color:#96909F">13:47</div>
+                          </div>
+                        </div>
+                        <div style="display:flex;gap:12px;align-items:flex-start"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#B48CFF;margin-top:6px;flex:none"></span>
+                          <div style="display:flex;flex-direction:column;gap:2px">
+                            <div style="font-size:13px;font-weight:600">cert issued · api.wv.dev</div>
+                            <div style="font-size:11.5px;color:#96909F">11:58</div>
+                          </div>
+                        </div>
+                        <div style="display:flex;gap:12px;align-items:flex-start"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;margin-top:6px;flex:none"></span>
+                          <div style="display:flex;flex-direction:column;gap:2px">
+                            <div style="font-size:13px;font-weight:600">app started · frontend</div>
+                            <div style="font-size:11.5px;color:#96909F">yesterday</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        style="display:flex;flex-direction:column;gap:12px;padding:24px 28px;border-radius:10px;background:rgba(245,140,140,0.04);border:1px solid rgba(245,140,140,0.18)">
+                        <div
+                          style="font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#F58C8C">
+                          Danger zone</div>
+                        <div style="font-size:12.5px;color:#96909F;line-height:1.5">Removes both apps, the network and
+                          all volumes.</div>
+                        <div
+                          style="height:38px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:#F58C8C;border:1px solid rgba(245,140,140,0.3);font-size:13px;font-weight:700">
+                          Delete project</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <p class="dv-next">Try next: "app detail with metrics/logs/env/backups as tabs" · "make the caddy-trust note
+        dismissible" · "empty state for a new project"</p>
+    </section>
+
+    <section class="dv-turn" id="t3">
+      <div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">Home dashboard — <a class="dv-oid"
+            href="#1b">1b</a>'s layout + chart, real xdev data (<a class="dv-oid" href="#2a">2a</a> stays as the
+          Projects page)</span></div>
+      <div class="dv-opts">
+
+        <div class="dv-opt" id="3a">
+          <div class="dv-olabel"><a class="dv-oid" href="#3a">3a</a>Dashboard — KPI strip · host utilization chart ·
+            apps needing attention · events (nav flips in Tweaks)</div>
+          <div class="dv-card" style="width:1440px">
+            <div data-screen-label="3a xdev home dashboard"
+              style="display:flex;flex-direction:column;min-height:920px;background:radial-gradient(1000px 500px at 20% -10%, rgba(180,140,255,0.08), transparent 60%), #0D0B12;font-family:'DM Sans',sans-serif;color:#ECEAF2">
+
+              <sc-if value="{{ topbarNav }}" hint-placeholder-val="{{ true }}">
+                <div
+                  style="display:flex;align-items:center;gap:28px;padding:0 44px;height:64px;border-bottom:1px solid rgba(255,255,255,0.07);background:rgba(255,255,255,0.02);backdrop-filter:blur(16px)">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div
+                      style="width:28px;height:28px;border-radius:50%;background:conic-gradient(from 210deg,#B48CFF,#6E4BC4 55%,#B48CFF);display:flex;align-items:center;justify-content:center">
+                      <div style="width:11px;height:11px;background:#0D0B12;border-radius:50%"></div>
+                    </div>
+                    <div style="font-size:16.5px;font-weight:700;letter-spacing:-0.01em">xdev</div>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:4px">
+                    <span
+                      style="font-size:13.5px;font-weight:600;color:#B48CFF;background:rgba(180,140,255,0.12);padding:7px 14px;border-radius:8px">Dashboard</span>
+                    <span style="font-size:13.5px;font-weight:500;color:#96909F;padding:7px 14px">Projects</span>
+                    <span style="font-size:13.5px;font-weight:500;color:#96909F;padding:7px 14px">Events</span>
+                    <span style="font-size:13.5px;font-weight:500;color:#96909F;padding:7px 14px">Admins</span>
+                  </div>
+                  <div style="flex:1"></div>
+                  <div
+                    style="display: flex; align-items: center; gap: 9px; height: 42px; padding: 0 13px; border-radius: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: #96909F; font-size: 13px; width: 274px; box-sizing: border-box">
+                    <svg width="12" height="12" viewBox="0 0 13 13">
+                      <circle cx="5.5" cy="5.5" r="4" fill="none" stroke="#96909F" stroke-width="1.5"></circle>
+                      <path d="M9 9 L12 12" stroke="#96909F" stroke-width="1.5" stroke-linecap="round"></path>
+                    </svg>Search projects &amp; apps…<span
+                      style="margin-left:auto;font-size:11px;border:1px solid rgba(255,255,255,0.1);border-radius:5px;padding:1px 6px">⌘K</span>
+                  </div>
+                  <div
+                    style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#39304d,#221c30);display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:#B48CFF;border:1px solid rgba(180,140,255,0.3)">
+                    LI</div>
+
+                </div>
+              </sc-if>
+
+              <div style="display:flex;flex:1;min-height:0">
+                <sc-if value="{{ sidebarNav }}" hint-placeholder-val="{{ false }}">
+                  <div
+                    style="width:232px;flex:none;display:flex;flex-direction:column;gap:6px;padding:26px 18px;border-right:1px solid rgba(255,255,255,0.07);background:rgba(255,255,255,0.02)">
+                    <div style="display:flex;align-items:center;gap:10px;padding:4px 10px 24px">
+                      <div
+                        style="width:28px;height:28px;border-radius:50%;background:conic-gradient(from 210deg,#B48CFF,#6E4BC4 55%,#B48CFF);display:flex;align-items:center;justify-content:center">
+                        <div style="width:11px;height:11px;background:#0D0B12;border-radius:50%"></div>
+                      </div>
+                      <div style="font-size:16.5px;font-weight:700;letter-spacing:-0.01em">xdev</div>
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;background:rgba(180,140,255,0.12);color:#B48CFF;font-size:13.5px;font-weight:600;border:1px solid rgba(180,140,255,0.18)">
+                      <span style="width:6px;height:6px;border-radius:50%;background:#B48CFF;flex:none"></span>Dashboard
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;color:#96909F;font-size:13.5px;font-weight:500">
+                      <span
+                        style="width:6px;height:6px;border-radius:2px;background:#96909F;opacity:.5;flex:none"></span>Projects
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;color:#96909F;font-size:13.5px;font-weight:500">
+                      <span
+                        style="width:6px;height:6px;border-radius:2px;background:#96909F;opacity:.5;flex:none"></span>Events
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;color:#96909F;font-size:13.5px;font-weight:500">
+                      <span
+                        style="width:6px;height:6px;border-radius:2px;background:#96909F;opacity:.5;flex:none"></span>Admins
+                    </div>
+                    <div style="flex:1"></div>
+                    <div
+                      style="display:flex;align-items:center;gap:9px;padding:11px 12px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
+                      <span style="width:7px;height:7px;border-radius:50%;background:#8CE8B8;flex:none"></span>
+                      <div style="display:flex;flex-direction:column;gap:1px">
+                        <div style="font-size:12.5px;font-weight:600">podman 5.8.2</div>
+                        <div style="font-size:11px;color:#96909F">engine · daemon up</div>
+                      </div>
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
+                      <div
+                        style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#39304d,#221c30);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#B48CFF">
+                        LI</div>
+                      <div style="display:flex;flex-direction:column;gap:1px">
+                        <div style="font-size:12.5px;font-weight:600">li@one.com</div>
+                        <div style="font-size:11px;color:#96909F">Administrator</div>
+                      </div>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <div style="flex:1;display:flex;flex-direction:column;gap:30px;padding:38px 56px 56px;min-width:0">
+                  <div style="display:flex;align-items:flex-end;gap:20px">
+                    <div style="display:flex;flex-direction:column;gap:6px">
+                      <div style="font-size:28px;font-weight:700;letter-spacing:-0.02em">Good morning, Li</div>
+                      <div style="font-size:13.5px;color:#96909F">11 of 12 apps running · 1 stopped · everything else
+                        looks healthy</div>
+                    </div>
+                    <div style="flex:1"></div>
+                    <div
+                      style="height:40px;display:flex;align-items:center;padding:0 20px;border-radius:8px;background:#B48CFF;color:#161022;font-size:13.5px;font-weight:700;box-shadow:0 6px 20px rgba(180,140,255,0.28)">
+                      + New project</div>
+                  </div>
+
+                  <!-- KPI strip -->
+                  <div
+                    style="display:grid;grid-template-columns:repeat(5,1fr);border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px);overflow:hidden">
+                    <div style="display:flex;flex-direction:column;gap:8px;padding:24px 28px">
+                      <div
+                        style="font-size:11.5px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                        Projects</div>
+                      <div style="font-size:32px;font-weight:700;letter-spacing:-0.03em">5</div>
+                      <div style="font-size:12.5px;color:#96909F">12 apps total</div>
+                    </div>
+                    <div
+                      style="display:flex;flex-direction:column;gap:8px;padding:24px 28px;border-left:1px solid rgba(255,255,255,0.06)">
+                      <div
+                        style="font-size:11.5px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                        Running</div>
+                      <div style="font-size:32px;font-weight:700;letter-spacing:-0.03em;color:#8CE8B8">11</div>
+                      <div style="font-size:12.5px;color:#96909F">1 stopped · bizepp/api</div>
+                    </div>
+                    <div
+                      style="display:flex;flex-direction:column;gap:8px;padding:24px 28px;border-left:1px solid rgba(255,255,255,0.06)">
+                      <div
+                        style="font-size:11.5px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                        Containers</div>
+                      <div style="font-size:32px;font-weight:700;letter-spacing:-0.03em">27</div>
+                      <div style="font-size:12.5px;color:#96909F">podman · 3 restarts / 24h</div>
+                    </div>
+                    <div
+                      style="display:flex;flex-direction:column;gap:8px;padding:24px 28px;border-left:1px solid rgba(255,255,255,0.06)">
+                      <div
+                        style="font-size:11.5px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                        Certificates</div>
+                      <div style="font-size:32px;font-weight:700;letter-spacing:-0.03em;color:#F2C14E">8</div>
+                      <div style="font-size:12.5px;color:#96909F">1 renews in 6 days</div>
+                    </div>
+                    <div
+                      style="display:flex;flex-direction:column;gap:8px;padding:24px 28px;border-left:1px solid rgba(255,255,255,0.06)">
+                      <div
+                        style="font-size:11.5px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                        Backups</div>
+                      <div style="font-size:32px;font-weight:700;letter-spacing:-0.03em">14</div>
+                      <div style="font-size:12.5px;color:#96909F">this week · last 13:47</div>
+                    </div>
+                  </div>
+
+                  <!-- host resources -->
+                  <div
+                    style="display:flex;flex-direction:column;gap:20px;padding:24px 32px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)">
+                    <div style="display:flex;align-items:baseline;gap:10px">
+                      <div
+                        style="font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                        Host resources</div>
+                      <div style="flex:1"></div>
+                      <div style="font-size:12px;color:#96909F">macbook-dev · uptime 42d</div>
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:32px">
+                      <div style="display:flex;flex-direction:column;gap:9px">
+                        <div style="display:flex;justify-content:space-between;align-items:baseline"><span
+                            style="font-size:13px;color:#96909F">CPU</span><span
+                            style="font-size:15px;font-weight:700">13.7%</span></div>
+                        <div style="height:6px;border-radius:99px;background:rgba(255,255,255,0.06)">
+                          <div style="width:14%;height:100%;border-radius:99px;background:#B48CFF"></div>
+                        </div>
+                      </div>
+                      <div style="display:flex;flex-direction:column;gap:9px">
+                        <div style="display:flex;justify-content:space-between;align-items:baseline"><span
+                            style="font-size:13px;color:#96909F">Memory</span><span
+                            style="font-size:15px;font-weight:700">13.1<span style="color:#96909F;font-weight:500"> / 16
+                              GB</span></span></div>
+                        <div style="height:6px;border-radius:99px;background:rgba(255,255,255,0.06)">
+                          <div style="width:82%;height:100%;border-radius:99px;background:#B48CFF"></div>
+                        </div>
+                      </div>
+                      <div style="display:flex;flex-direction:column;gap:9px">
+                        <div style="display:flex;justify-content:space-between;align-items:baseline"><span
+                            style="font-size:13px;color:#96909F">Disk /</span><span
+                            style="font-size:15px;font-weight:700">422<span style="color:#96909F;font-weight:500"> / 460
+                              GB</span></span></div>
+                        <div style="height:6px;border-radius:99px;background:rgba(255,255,255,0.06)">
+                          <div style="width:92%;height:100%;border-radius:99px;background:#F2C14E"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- utilization chart -->
+                  <div
+                    style="display:flex;flex-direction:column;gap:20px;padding:28px 32px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)">
+                    <div style="display:flex;align-items:center;gap:16px">
+                      <div style="display:flex;flex-direction:column;gap:3px">
+                        <div style="font-size:16px;font-weight:700">Host utilization</div>
+                        <div style="font-size:12.5px;color:#96909F">CPU &amp; memory · macbook-dev · rolling 24 hours
+                        </div>
+                      </div>
+                      <div style="flex:1"></div>
+                      <div style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#96909F"><span
+                          style="width:10px;height:3px;border-radius:2px;background:#B48CFF"></span>CPU</div>
+                      <div
+                        style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#96909F;margin-left:12px">
+                        <span style="width:10px;height:3px;border-radius:2px;background:#8CE8B8"></span>Memory</div>
+                      <div
+                        style="display:flex;gap:4px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:3px;margin-left:20px">
+                        <span
+                          style="font-size:12px;font-weight:600;padding:5px 14px;border-radius:6px;color:#96909F">1h</span>
+                        <span
+                          style="font-size:12px;font-weight:600;padding:5px 14px;border-radius:6px;background:rgba(180,140,255,0.15);color:#B48CFF">24h</span>
+                        <span
+                          style="font-size:12px;font-weight:600;padding:5px 14px;border-radius:6px;color:#96909F">7d</span>
+                      </div>
+                    </div>
+                    <svg width="100%" height="220" viewBox="0 0 1240 220" preserveAspectRatio="none">
+                      <line x1="0" y1="55" x2="1240" y2="55" stroke="rgba(255,255,255,0.05)"></line>
+                      <line x1="0" y1="110" x2="1240" y2="110" stroke="rgba(255,255,255,0.05)"></line>
+                      <line x1="0" y1="165" x2="1240" y2="165" stroke="rgba(255,255,255,0.05)"></line>
+                      <polygon
+                        points="0,160 100,148 200,155 300,124 400,134 500,105 600,116 700,92 800,108 900,76 1000,92 1100,66 1240,78 1240,220 0,220"
+                        fill="rgba(180,140,255,0.10)"></polygon>
+                      <polyline
+                        points="0,160 100,148 200,155 300,124 400,134 500,105 600,116 700,92 800,108 900,76 1000,92 1100,66 1240,78"
+                        fill="none" stroke="#B48CFF" stroke-width="2.5"></polyline>
+                      <polyline
+                        points="0,120 100,116 200,122 300,110 400,114 500,100 600,106 700,96 800,100 900,88 1000,94 1100,84 1240,90"
+                        fill="none" stroke="#8CE8B8" stroke-width="2"></polyline>
+                    </svg>
+                    <div style="display:flex;justify-content:space-between;font-size:11.5px;color:#96909F">
+                      <span>00:00</span><span>04:00</span><span>08:00</span><span>12:00</span><span>16:00</span><span>20:00</span><span>now</span>
+                    </div>
+                  </div>
+
+                  <!-- apps + right column -->
+                  <div style="display:grid;grid-template-columns:2.1fr 1fr;gap:24px;align-items:start">
+                    <div
+                      style="display:flex;flex-direction:column;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px);overflow:hidden">
+                      <div style="display:flex;align-items:center;padding:22px 28px 16px">
+                        <div style="font-size:16px;font-weight:700">Apps</div>
+                        <div style="flex:1"></div><span style="font-size:13px;font-weight:600;color:#B48CFF">All
+                          projects →</span>
+                      </div>
+                      <div
+                        style="display:grid;grid-template-columns:2fr 1fr 0.8fr 1.1fr 1.1fr;gap:12px;padding:10px 28px;font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#96909F;border-bottom:1px solid rgba(255,255,255,0.06)">
+                        <span>App</span><span>Type</span><span>CPU</span><span>Memory</span><span>Status</span></div>
+                      <div
+                        style="display:grid;grid-template-columns:2fr 1fr 0.8fr 1.1fr 1.1fr;gap:12px;align-items:center;padding:16px 28px;font-size:13.5px;border-bottom:1px solid rgba(255,255,255,0.045)">
+                        <span style="font-weight:600">bpm<span style="color:#96909F">/</span>queue</span><span
+                          style="color:#96909F">laravel</span><span style="color:#F58C8C;font-weight:700">—</span><span
+                          style="color:#96909F">—</span><span
+                          style="justify-self:start;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#F58C8C"><span
+                            style="width:7px;height:7px;border-radius:50%;background:#F58C8C;box-shadow:0 0 8px rgba(245,140,140,0.7)"></span>Error
+                          · restarting</span></div>
+                      <div
+                        style="display:grid;grid-template-columns:2fr 1fr 0.8fr 1.1fr 1.1fr;gap:12px;align-items:center;padding:16px 28px;font-size:13.5px;border-bottom:1px solid rgba(255,255,255,0.045)">
+                        <span style="font-weight:600">bizepp<span style="color:#96909F">/</span>api</span><span
+                          style="color:#96909F">laravel</span><span style="color:#96909F">—</span><span
+                          style="color:#96909F">—</span><span
+                          style="justify-self:start;display:flex;align-items:center;gap:10px;font-size:12.5px;font-weight:600;color:#96909F"><span
+                            style="width:7px;height:7px;border-radius:50%;border:1.5px solid #96909F;box-sizing:border-box"></span>Stopped<span
+                            style="font-size:11.5px;font-weight:700;color:#ECEAF2;border:1px solid rgba(255,255,255,0.14);padding:3px 10px;border-radius:6px">Start</span></span>
+                      </div>
+                      <div
+                        style="display:grid;grid-template-columns:2fr 1fr 0.8fr 1.1fr 1.1fr;gap:12px;align-items:center;padding:16px 28px;font-size:13.5px;border-bottom:1px solid rgba(255,255,255,0.045)">
+                        <span style="font-weight:600">confectly<span style="color:#96909F">/</span>blog</span><span
+                          style="color:#96909F">wordpress</span><span
+                          style="color:#F2C14E;font-weight:600">61%</span><span style="color:#96909F">1.2 GB</span><span
+                          style="justify-self:start;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#8CE8B8"><span
+                            style="width:7px;height:7px;border-radius:50%;background:#8CE8B8"></span>Running</span>
+                      </div>
+                      <div
+                        style="display:grid;grid-template-columns:2fr 1fr 0.8fr 1.1fr 1.1fr;gap:12px;align-items:center;padding:16px 28px;font-size:13.5px;border-bottom:1px solid rgba(255,255,255,0.045)">
+                        <span style="font-weight:600">wv<span style="color:#96909F">/</span>api</span><span
+                          style="color:#96909F">laravel</span><span>1.8%</span><span style="color:#96909F">487
+                          MiB</span><span
+                          style="justify-self:start;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#8CE8B8"><span
+                            style="width:7px;height:7px;border-radius:50%;background:#8CE8B8"></span>Running</span>
+                      </div>
+                      <div
+                        style="display:grid;grid-template-columns:2fr 1fr 0.8fr 1.1fr 1.1fr;gap:12px;align-items:center;padding:16px 28px;font-size:13.5px">
+                        <span style="font-weight:600">wv<span style="color:#96909F">/</span>frontend</span><span
+                          style="color:#96909F">static</span><span>0.4%</span><span style="color:#96909F">38
+                          MiB</span><span
+                          style="justify-self:start;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#8CE8B8"><span
+                            style="width:7px;height:7px;border-radius:50%;background:#8CE8B8"></span>Running</span>
+                      </div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:24px">
+                      <div
+                        style="display:flex;flex-direction:column;gap:15px;padding:24px 28px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)">
+                        <div style="font-size:16px;font-weight:700">Recent events</div>
+                        <div style="display:flex;gap:12px;align-items:flex-start"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#F58C8C;margin-top:6px;flex:none"></span>
+                          <div style="display:flex;flex-direction:column;gap:2px">
+                            <div style="font-size:13.5px;font-weight:600">app crashed · bpm/queue</div>
+                            <div style="font-size:12px;color:#96909F">exit 137 · 4m ago</div>
+                          </div>
+                        </div>
+                        <div style="display:flex;gap:12px;align-items:flex-start"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;margin-top:6px;flex:none"></span>
+                          <div style="display:flex;flex-direction:column;gap:2px">
+                            <div style="font-size:13.5px;font-weight:600">app started · bpm/api</div>
+                            <div style="font-size:12px;color:#96909F">14:02</div>
+                          </div>
+                        </div>
+                        <div style="display:flex;gap:12px;align-items:flex-start"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;margin-top:6px;flex:none"></span>
+                          <div style="display:flex;flex-direction:column;gap:2px">
+                            <div style="font-size:13.5px;font-weight:600">backup completed · wv/api</div>
+                            <div style="font-size:12px;color:#96909F">13:47</div>
+                          </div>
+                        </div>
+                        <div style="display:flex;gap:12px;align-items:flex-start"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#B48CFF;margin-top:6px;flex:none"></span>
+                          <div style="display:flex;flex-direction:column;gap:2px">
+                            <div style="font-size:13.5px;font-weight:600">domain set · blog.confectly.dev</div>
+                            <div style="font-size:12px;color:#96909F">12:30</div>
+                          </div>
+                        </div>
+                        <div style="display:flex;gap:12px;align-items:flex-start"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#B48CFF;margin-top:6px;flex:none"></span>
+                          <div style="display:flex;flex-direction:column;gap:2px">
+                            <div style="font-size:13.5px;font-weight:600">cert issued · api.wv.dev</div>
+                            <div style="font-size:12px;color:#96909F">11:58</div>
+                          </div>
+                        </div>
+                        <div style="font-size:12.5px;font-weight:600;color:#B48CFF;margin-top:2px">All events →</div>
+                      </div>
+                      <div
+                        style="display:flex;flex-direction:column;gap:14px;padding:24px 28px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)">
+                        <div
+                          style="font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                          Container engine</div>
+                        <div style="display:flex;align-items:center;gap:10px"><span
+                            style="width:7px;height:7px;border-radius:50%;background:#8CE8B8;flex:none"></span><span
+                            style="font-size:13.5px;font-weight:600">podman 5.8.2</span><span
+                            style="font-size:10px;font-weight:700;letter-spacing:0.06em;color:#B48CFF;background:rgba(180,140,255,0.13);padding:2px 7px;border-radius:5px">ACTIVE</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:10px"><span
+                            style="width:7px;height:7px;border-radius:50%;background:#F58C8C;flex:none"></span><span
+                            style="font-size:13.5px;font-weight:600;color:#96909F">docker 29.5.2</span><span
+                            style="flex:1"></span><span
+                            style="font-size:12px;font-weight:600;border:1px solid rgba(255,255,255,0.14);padding:5px 12px;border-radius:8px">Use
+                            docker</span></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <p class="dv-next">Try next: "design the project detail screen" · "app detail with metrics/logs/env/backups tabs"
+        · "tweak the KPI picks in <a class="dv-oid" href="#3a">3a</a>"</p>
+    </section>
+
+    <section class="dv-turn" id="t2">
+      <div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Refining <a class="dv-oid"
+            href="#1b">1b</a> for the real product — DM Sans · reduced radius · nav flips topbar↔sidebar in
+          Tweaks</span></div>
+      <div class="dv-opts">
+
+        <div class="dv-opt" id="2a">
+          <div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Nova × xdev — Projects dashboard · host resources ·
+            engine · events (open Tweaks to switch nav)</div>
+          <div class="dv-card" style="width:1440px">
+            <div data-screen-label="2a xdev dashboard"
+              style="display:flex;flex-direction:column;min-height:920px;background:radial-gradient(1000px 500px at 20% -10%, rgba(180,140,255,0.08), transparent 60%), #0D0B12;font-family:'DM Sans',sans-serif;color:#ECEAF2">
+
+              <sc-if value="{{ topbarNav }}" hint-placeholder-val="{{ true }}">
+                <div
+                  style="display:flex;align-items:center;gap:28px;padding:0 44px;height:64px;border-bottom:1px solid rgba(255,255,255,0.07);background:rgba(255,255,255,0.02);backdrop-filter:blur(16px)">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div
+                      style="width:28px;height:28px;border-radius:50%;background:conic-gradient(from 210deg,#B48CFF,#6E4BC4 55%,#B48CFF);display:flex;align-items:center;justify-content:center">
+                      <div style="width:11px;height:11px;background:#0D0B12;border-radius:50%"></div>
+                    </div>
+                    <div style="font-size:16.5px;font-weight:700;letter-spacing:-0.01em">xdev</div>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:4px">
+                    <span style="font-size:13.5px;font-weight:500;color:#96909F;padding:7px 14px">Dashboard</span><span
+                      style="font-size:13.5px;font-weight:600;color:#B48CFF;background:rgba(180,140,255,0.12);padding:7px 14px;border-radius:8px">Projects</span>
+                    <span style="font-size:13.5px;font-weight:500;color:#96909F;padding:7px 14px">Events</span>
+                    <span style="font-size:13.5px;font-weight:500;color:#96909F;padding:7px 14px">Admins</span>
+                  </div>
+                  <div style="flex:1"></div>
+
+                  <div
+                    style="display: flex; align-items: center; gap: 9px; height: 36px; padding: 0 13px; border-radius: 8px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: #96909F; font-size: 13px; width: 277px; box-sizing: border-box">
+                    <svg width="12" height="12" viewBox="0 0 13 13">
+                      <circle cx="5.5" cy="5.5" r="4" fill="none" stroke="#96909F" stroke-width="1.5"></circle>
+                      <path d="M9 9 L12 12" stroke="#96909F" stroke-width="1.5" stroke-linecap="round"></path>
+                    </svg>Search projects &amp; apps…<span
+                      style="margin-left:auto;font-size:11px;border:1px solid rgba(255,255,255,0.1);border-radius:5px;padding:1px 6px">⌘K</span>
+                  </div>
+                  <div
+                    style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#39304d,#221c30);display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:#B48CFF;border:1px solid rgba(180,140,255,0.3)">
+                    LI</div>
+                </div>
+              </sc-if>
+
+              <div style="display:flex;flex:1;min-height:0">
+                <sc-if value="{{ sidebarNav }}" hint-placeholder-val="{{ false }}">
+                  <div
+                    style="width:232px;flex:none;display:flex;flex-direction:column;gap:6px;padding:26px 18px;border-right:1px solid rgba(255,255,255,0.07);background:rgba(255,255,255,0.02)">
+                    <div style="display:flex;align-items:center;gap:10px;padding:4px 10px 24px">
+                      <div
+                        style="width:28px;height:28px;border-radius:50%;background:conic-gradient(from 210deg,#B48CFF,#6E4BC4 55%,#B48CFF);display:flex;align-items:center;justify-content:center">
+                        <div style="width:11px;height:11px;background:#0D0B12;border-radius:50%"></div>
+                      </div>
+                      <div style="font-size:16.5px;font-weight:700;letter-spacing:-0.01em">xdev</div>
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;background:rgba(180,140,255,0.12);color:#B48CFF;font-size:13.5px;font-weight:600;border:1px solid rgba(180,140,255,0.18)">
+                      <span style="width:6px;height:6px;border-radius:50%;background:#B48CFF;flex:none"></span>Projects
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;color:#96909F;font-size:13.5px;font-weight:500">
+                      <span
+                        style="width:6px;height:6px;border-radius:2px;background:#96909F;opacity:.5;flex:none"></span>Events
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;color:#96909F;font-size:13.5px;font-weight:500">
+                      <span
+                        style="width:6px;height:6px;border-radius:2px;background:#96909F;opacity:.5;flex:none"></span>Admins
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;color:#96909F;font-size:13.5px;font-weight:500">
+                      <span
+                        style="width:6px;height:6px;border-radius:2px;background:#96909F;opacity:.5;flex:none"></span>Settings
+                    </div>
+                    <div style="flex:1"></div>
+                    <div
+                      style="display:flex;align-items:center;gap:9px;padding:11px 12px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
+                      <span style="width:7px;height:7px;border-radius:50%;background:#8CE8B8;flex:none"></span>
+                      <div style="display:flex;flex-direction:column;gap:1px">
+                        <div style="font-size:12.5px;font-weight:600">podman 5.8.2</div>
+                        <div style="font-size:11px;color:#96909F">engine · daemon up</div>
+                      </div>
+                    </div>
+                    <div
+                      style="display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
+                      <div
+                        style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#39304d,#221c30);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#B48CFF">
+                        LI</div>
+                      <div style="display:flex;flex-direction:column;gap:1px">
+                        <div style="font-size:12.5px;font-weight:600">li@one.com</div>
+                        <div style="font-size:11px;color:#96909F">Administrator</div>
+                      </div>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <div style="flex:1;display:flex;flex-direction:column;gap:28px;padding:36px 52px 52px;min-width:0">
+                  <div style="display:flex;align-items:flex-end;gap:20px">
+                    <div style="display:flex;flex-direction:column;gap:5px">
+                      <div style="font-size:28px;font-weight:700;letter-spacing:-0.02em">Projects</div>
+                      <div style="font-size:13.5px;color:#96909F">5 projects · 12 apps · 11 running · macbook-dev</div>
+                    </div>
+                    <div style="flex:1"></div>
+                    <div
+                      style="height:40px;display:flex;align-items:center;padding:0 20px;border-radius:8px;background:#B48CFF;color:#161022;font-size:13.5px;font-weight:700;box-shadow:0 6px 20px rgba(180,140,255,0.28)">
+                      + New project</div>
+                  </div>
+
+                  <!-- host resources + engine -->
+                  <div style="display:grid;grid-template-columns:1.6fr 1fr;gap:20px">
+                    <div
+                      style="display:flex;flex-direction:column;gap:20px;padding:24px 28px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)">
+                      <div style="display:flex;align-items:baseline;gap:10px">
+                        <div
+                          style="font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                          Host resources</div>
+                        <div style="flex:1"></div>
+                        <div style="font-size:12px;color:#96909F">uptime 42d</div>
+                      </div>
+                      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:26px">
+                        <div style="display:flex;flex-direction:column;gap:9px">
+                          <div style="display:flex;justify-content:space-between;align-items:baseline"><span
+                              style="font-size:13px;color:#96909F">CPU</span><span
+                              style="font-size:15px;font-weight:700">13.7%</span></div>
+                          <div style="height:6px;border-radius:99px;background:rgba(255,255,255,0.06)">
+                            <div style="width:14%;height:100%;border-radius:99px;background:#B48CFF"></div>
+                          </div>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:9px">
+                          <div style="display:flex;justify-content:space-between;align-items:baseline"><span
+                              style="font-size:13px;color:#96909F">Memory</span><span
+                              style="font-size:15px;font-weight:700">13.1<span style="color:#96909F;font-weight:500"> /
+                                16 GB</span></span></div>
+                          <div style="height:6px;border-radius:99px;background:rgba(255,255,255,0.06)">
+                            <div style="width:82%;height:100%;border-radius:99px;background:#B48CFF"></div>
+                          </div>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:9px">
+                          <div style="display:flex;justify-content:space-between;align-items:baseline"><span
+                              style="font-size:13px;color:#96909F">Disk /</span><span
+                              style="font-size:15px;font-weight:700">422<span style="color:#96909F;font-weight:500"> /
+                                460 GB</span></span></div>
+                          <div style="height:6px;border-radius:99px;background:rgba(255,255,255,0.06)">
+                            <div style="width:92%;height:100%;border-radius:99px;background:#F2C14E"></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      style="display:flex;flex-direction:column;gap:12px;padding:24px 28px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)">
+                      <div
+                        style="font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                        Container engine</div>
+                      <div style="display:flex;align-items:center;gap:10px"><span
+                          style="width:7px;height:7px;border-radius:50%;background:#8CE8B8;flex:none"></span><span
+                          style="font-size:13.5px;font-weight:600">podman 5.8.2</span><span
+                          style="font-size:10px;font-weight:700;letter-spacing:0.06em;color:#B48CFF;background:rgba(180,140,255,0.13);padding:2px 7px;border-radius:5px">ACTIVE</span><span
+                          style="font-size:12px;color:#96909F">compose ✓</span></div>
+                      <div style="display:flex;align-items:center;gap:10px"><span
+                          style="width:7px;height:7px;border-radius:50%;background:#F58C8C;flex:none"></span><span
+                          style="font-size:13.5px;font-weight:600;color:#96909F">docker 29.5.2</span><span
+                          style="font-size:12px;color:#F58C8C">daemon down</span><span style="flex:1"></span><span
+                          style="font-size:12px;font-weight:600;border:1px solid rgba(255,255,255,0.14);padding:5px 12px;border-radius:8px">Use
+                          docker</span></div>
+                      <div style="font-size:11.5px;color:#96909F;line-height:1.5">Switching applies to new projects
+                        only.</div>
+                    </div>
+                  </div>
+
+                  <!-- project cards -->
+                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px">
+                    <div
+                      style="display:flex;flex-direction:column;gap:14px;padding:24px 26px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)"
+                      style-hover="border-color:rgba(180,140,255,0.35)">
+                      <div style="display:flex;align-items:baseline;gap:10px">
+                        <div style="font-size:16.5px;font-weight:700">WV</div>
+                        <div style="flex:1"></div><span
+                          style="font-size:11px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:3px 9px;border-radius:5px">2
+                          apps</span>
+                      </div>
+                      <div style="font-size:12.5px;color:#96909F">wv.dev · local · xdev_wv</div>
+                      <div
+                        style="display:flex;flex-direction:column;gap:9px;border-top:1px solid rgba(255,255,255,0.06);padding-top:14px">
+                        <div style="display:flex;align-items:center;gap:9px;font-size:13px"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;flex:none"></span><span
+                            style="font-weight:600">frontend</span><span
+                            style="font-size:10.5px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:5px">static</span><span
+                            style="flex:1"></span><span style="font-size:12px;color:#96909F">app.wv.dev</span></div>
+                        <div style="display:flex;align-items:center;gap:9px;font-size:13px"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;flex:none"></span><span
+                            style="font-weight:600">api</span><span
+                            style="font-size:10.5px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:5px">laravel</span><span
+                            style="flex:1"></span><span style="font-size:12px;color:#96909F">api.wv.dev</span></div>
+                      </div>
+                    </div>
+                    <div
+                      style="display:flex;flex-direction:column;gap:14px;padding:24px 26px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)"
+                      style-hover="border-color:rgba(180,140,255,0.35)">
+                      <div style="display:flex;align-items:baseline;gap:10px">
+                        <div style="font-size:16.5px;font-weight:700">Confectly</div>
+                        <div style="flex:1"></div><span
+                          style="font-size:11px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:3px 9px;border-radius:5px">3
+                          apps</span>
+                      </div>
+                      <div style="font-size:12.5px;color:#96909F">confectly.dev · local · xdev_confectly</div>
+                      <div
+                        style="display:flex;flex-direction:column;gap:9px;border-top:1px solid rgba(255,255,255,0.06);padding-top:14px">
+                        <div style="display:flex;align-items:center;gap:9px;font-size:13px"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;flex:none"></span><span
+                            style="font-weight:600">frontend</span><span
+                            style="font-size:10.5px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:5px">static</span><span
+                            style="flex:1"></span><span style="font-size:12px;color:#96909F">confectly.dev</span></div>
+                        <div style="display:flex;align-items:center;gap:9px;font-size:13px"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;flex:none"></span><span
+                            style="font-weight:600">api</span><span
+                            style="font-size:10.5px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:5px">laravel</span><span
+                            style="flex:1"></span><span style="font-size:12px;color:#96909F">api.confectly.dev</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:9px;font-size:13px"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;flex:none"></span><span
+                            style="font-weight:600">blog</span><span
+                            style="font-size:10.5px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:5px">wordpress</span><span
+                            style="flex:1"></span><span style="font-size:12px;color:#96909F">blog.confectly.dev</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      style="display:flex;flex-direction:column;gap:14px;padding:24px 26px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(242,193,78,0.25);backdrop-filter:blur(16px)"
+                      style-hover="border-color:rgba(180,140,255,0.35)">
+                      <div style="display:flex;align-items:baseline;gap:10px">
+                        <div style="font-size:16.5px;font-weight:700">Bizepp</div>
+                        <div style="flex:1"></div><span
+                          style="font-size:11px;font-weight:700;color:#F2C14E;background:rgba(242,193,78,0.12);padding:3px 9px;border-radius:5px">1
+                          stopped</span>
+                      </div>
+                      <div style="font-size:12.5px;color:#96909F">bizepp.local · local · xdev_bizepp</div>
+                      <div
+                        style="display:flex;flex-direction:column;gap:9px;border-top:1px solid rgba(255,255,255,0.06);padding-top:14px">
+                        <div style="display:flex;align-items:center;gap:9px;font-size:13px"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;flex:none"></span><span
+                            style="font-weight:600">frontend</span><span
+                            style="font-size:10.5px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:5px">static</span><span
+                            style="flex:1"></span><span style="font-size:12px;color:#96909F">bizepp.local</span></div>
+                        <div style="display:flex;align-items:center;gap:9px;font-size:13px"><span
+                            style="width:6px;height:6px;border-radius:50%;border:1.5px solid #96909F;box-sizing:border-box;flex:none"></span><span
+                            style="font-weight:600;color:#96909F">api</span><span
+                            style="font-size:10.5px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:5px">laravel</span><span
+                            style="flex:1"></span><span
+                            style="font-size:11.5px;font-weight:700;color:#ECEAF2;border:1px solid rgba(255,255,255,0.14);padding:3px 10px;border-radius:6px">Start</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      style="display:flex;flex-direction:column;gap:14px;padding:24px 26px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)"
+                      style-hover="border-color:rgba(180,140,255,0.35)">
+                      <div style="display:flex;align-items:baseline;gap:10px">
+                        <div style="font-size:16.5px;font-weight:700">BPM</div>
+                        <div style="flex:1"></div><span
+                          style="font-size:11px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:3px 9px;border-radius:5px">4
+                          apps</span>
+                      </div>
+                      <div style="font-size:12.5px;color:#96909F">bpm.local · local · xdev_bpm</div>
+                      <div
+                        style="display:flex;flex-direction:column;gap:9px;border-top:1px solid rgba(255,255,255,0.06);padding-top:14px">
+                        <div style="display:flex;align-items:center;gap:9px;font-size:13px"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;flex:none"></span><span
+                            style="font-weight:600">api</span><span
+                            style="font-size:10.5px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:5px">laravel</span><span
+                            style="flex:1"></span><span style="font-size:12px;color:#96909F">api.bpm.local</span></div>
+                        <div style="display:flex;align-items:center;gap:9px;font-size:13px"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;flex:none"></span><span
+                            style="font-weight:600">admin</span><span
+                            style="font-size:10.5px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:5px">static</span><span
+                            style="flex:1"></span><span style="font-size:12px;color:#96909F">admin.bpm.local</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:9px;font-size:13px"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;flex:none"></span><span
+                            style="font-weight:600">queue</span><span
+                            style="font-size:10.5px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:5px">laravel</span><span
+                            style="flex:1"></span><span style="font-size:12px;color:#96909F">—</span></div>
+                        <div style="display:flex;align-items:center;gap:9px;font-size:13px"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;flex:none"></span><span
+                            style="font-weight:600">docs</span><span
+                            style="font-size:10.5px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:5px">static</span><span
+                            style="flex:1"></span><span style="font-size:12px;color:#96909F">docs.bpm.local</span></div>
+                      </div>
+                    </div>
+                    <div
+                      style="display:flex;flex-direction:column;gap:14px;padding:24px 26px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)"
+                      style-hover="border-color:rgba(180,140,255,0.35)">
+                      <div style="display:flex;align-items:baseline;gap:10px">
+                        <div style="font-size:16.5px;font-weight:700">TT</div>
+                        <div style="flex:1"></div><span
+                          style="font-size:11px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:3px 9px;border-radius:5px">1
+                          app</span>
+                      </div>
+                      <div style="font-size:12.5px;color:#96909F">tt.local · local · xdev_tt</div>
+                      <div
+                        style="display:flex;flex-direction:column;gap:9px;border-top:1px solid rgba(255,255,255,0.06);padding-top:14px">
+                        <div style="display:flex;align-items:center;gap:9px;font-size:13px"><span
+                            style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;flex:none"></span><span
+                            style="font-weight:600">site</span><span
+                            style="font-size:10.5px;font-weight:600;color:#96909F;background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:5px">static</span><span
+                            style="flex:1"></span><span style="font-size:12px;color:#96909F">tt.local</span></div>
+                      </div>
+                    </div>
+                    <div
+                      style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px 26px;border-radius:10px;border:1.5px dashed rgba(255,255,255,0.14);color:#96909F;min-height:150px">
+                      <div
+                        style="width:34px;height:34px;border-radius:8px;background:rgba(180,140,255,0.1);color:#B48CFF;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:500">
+                        +</div>
+                      <div style="font-size:13px;font-weight:600">New project</div>
+                      <div style="font-size:11.5px;color:#96909F">network + base domain + auto-SSL</div>
+                    </div>
+                  </div>
+
+                  <!-- events -->
+                  <div
+                    style="display:flex;flex-direction:column;gap:16px;padding:24px 28px;border-radius:10px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)">
+                    <div style="display:flex;align-items:center">
+                      <div
+                        style="font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                        Recent events</div>
+                      <div style="flex:1"></div><span style="font-size:12.5px;font-weight:600;color:#B48CFF">All events
+                        →</span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 40px">
+                      <div style="display:flex;align-items:center;gap:12px;font-size:13px"><span
+                          style="font-size:12px;color:#96909F;width:42px;flex:none">14:02</span><span
+                          style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;flex:none"></span><span>app
+                          started · <span style="font-weight:600">bpm/api</span></span></div>
+                      <div style="display:flex;align-items:center;gap:12px;font-size:13px"><span
+                          style="font-size:12px;color:#96909F;width:42px;flex:none">12:30</span><span
+                          style="width:6px;height:6px;border-radius:50%;background:#B48CFF;flex:none"></span><span>domain
+                          set · <span style="font-weight:600">blog.confectly.dev</span></span></div>
+                      <div style="display:flex;align-items:center;gap:12px;font-size:13px"><span
+                          style="font-size:12px;color:#96909F;width:42px;flex:none">13:47</span><span
+                          style="width:6px;height:6px;border-radius:50%;background:#8CE8B8;flex:none"></span><span>backup
+                          completed · <span style="font-weight:600">wv/api</span></span></div>
+                      <div style="display:flex;align-items:center;gap:12px;font-size:13px"><span
+                          style="font-size:12px;color:#96909F;width:42px;flex:none">11:58</span><span
+                          style="width:6px;height:6px;border-radius:50%;background:#B48CFF;flex:none"></span><span>cert
+                          issued · <span style="font-weight:600">api.wv.dev</span></span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <p class="dv-next">Try next: "flip <a class="dv-oid" href="#2a">2a</a> to sidebar" (or use Tweaks) · "design the
+        project detail screen in this style" · "riff on the project cards"</p>
+    </section>
+
+    <section class="dv-turn" id="t1">
+      <div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">xDev fleet dashboard — three
+          directions + logo lockups</span></div>
+      <div class="dv-opts">
+
+        <!-- ============ 1b NOVA — top bar nav, violet ============ -->
+        <div class="dv-opt" id="1b">
+          <div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Nova — refined top bar · violet · hairline dividers,
+            airiest · Sora</div>
+          <div class="dv-card" style="width:1440px">
+            <div data-screen-label="1b Nova dashboard"
+              style="min-height:960px;background:radial-gradient(1000px 500px at 20% -10%, rgba(180,140,255,0.08), transparent 60%), #0D0B12;font-family:'Sora',sans-serif;color:#ECEAF2">
+
+              <!-- top bar -->
+              <div
+                style="display:flex;align-items:center;gap:32px;padding:0 44px;height:68px;border-bottom:1px solid rgba(255,255,255,0.07);background:rgba(255,255,255,0.02);backdrop-filter:blur(16px)">
+                <div style="display:flex;align-items:center;gap:11px">
+                  <div
+                    style="width:30px;height:30px;border-radius:50%;background:conic-gradient(from 210deg,#B48CFF,#6E4BC4 55%,#B48CFF);display:flex;align-items:center;justify-content:center">
+                    <div style="width:12px;height:12px;background:#0D0B12;border-radius:50%"></div>
+                  </div>
+                  <div style="font-size:17px;font-weight:700;letter-spacing:-0.01em">xdev</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span
+                    style="font-size:13.5px;font-weight:600;color:#B48CFF;background:rgba(180,140,255,0.12);padding:8px 16px;border-radius:99px">Fleet</span>
+                  <span style="font-size:13.5px;font-weight:500;color:#96909F;padding:8px 16px">Servers</span>
+                  <span style="font-size:13.5px;font-weight:500;color:#96909F;padding:8px 16px">Projects</span>
+                  <span style="font-size:13.5px;font-weight:500;color:#96909F;padding:8px 16px">Activity</span>
+                  <span style="font-size:13.5px;font-weight:500;color:#96909F;padding:8px 16px">Admins</span>
+                </div>
+                <div style="flex:1"></div>
+                <div
+                  style="display:flex;align-items:center;gap:9px;height:38px;padding:0 14px;border-radius:99px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#96909F;font-size:13px;width:220px">
+                  <svg width="12" height="12" viewBox="0 0 13 13">
+                    <circle cx="5.5" cy="5.5" r="4" fill="none" stroke="#96909F" stroke-width="1.5"></circle>
+                    <path d="M9 9 L12 12" stroke="#96909F" stroke-width="1.5" stroke-linecap="round"></path>
+                  </svg>Search…</div>
+                <div
+                  style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#39304d,#221c30);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#B48CFF;border:1px solid rgba(180,140,255,0.3)">
+                  LI</div>
+              </div>
+
+              <div
+                style="display:flex;flex-direction:column;gap:36px;padding:40px 64px 56px;max-width:1440px;box-sizing:border-box">
+                <div style="display:flex;align-items:flex-end;gap:20px">
+                  <div style="display:flex;flex-direction:column;gap:6px">
+                    <div style="font-size:30px;font-weight:700;letter-spacing:-0.025em">Good morning, Li</div>
+                    <div style="font-size:14px;color:#96909F;font-weight:400">Your fleet is 96.6% healthy · 4 alerts
+                      need attention</div>
+                  </div>
+                  <div style="flex:1"></div>
+                  <div
+                    style="height:42px;display:flex;align-items:center;padding:0 22px;border-radius:99px;background:#B48CFF;color:#161022;font-size:14px;font-weight:700;box-shadow:0 8px 24px rgba(180,140,255,0.3)">
+                    + Add server</div>
+                </div>
+
+                <!-- KPI strip, hairline dividers -->
+                <div
+                  style="display:grid;grid-template-columns:repeat(5,1fr);border-radius:20px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px);overflow:hidden">
+                  <div style="display:flex;flex-direction:column;gap:10px;padding:28px 30px">
+                    <div
+                      style="font-size:12px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                      Servers</div>
+                    <div style="font-size:36px;font-weight:600;letter-spacing:-0.03em">1,284</div>
+                    <div style="font-size:12.5px;color:#96909F">6 regions</div>
+                  </div>
+                  <div
+                    style="display:flex;flex-direction:column;gap:10px;padding:28px 30px;border-left:1px solid rgba(255,255,255,0.06)">
+                    <div
+                      style="font-size:12px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                      Online</div>
+                    <div style="font-size:36px;font-weight:600;letter-spacing:-0.03em;color:#8CE8B8">1,241</div>
+                    <div style="font-size:12.5px;color:#96909F">96.6% of fleet</div>
+                  </div>
+                  <div
+                    style="display:flex;flex-direction:column;gap:10px;padding:28px 30px;border-left:1px solid rgba(255,255,255,0.06)">
+                    <div
+                      style="font-size:12px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                      Degraded</div>
+                    <div style="font-size:36px;font-weight:600;letter-spacing:-0.03em;color:#F2C14E">31</div>
+                    <div style="font-size:12.5px;color:#96909F">+6 since 08:00</div>
+                  </div>
+                  <div
+                    style="display:flex;flex-direction:column;gap:10px;padding:28px 30px;border-left:1px solid rgba(255,255,255,0.06)">
+                    <div
+                      style="font-size:12px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                      Offline</div>
+                    <div style="font-size:36px;font-weight:600;letter-spacing:-0.03em;color:#F58C8C">12</div>
+                    <div style="font-size:12.5px;color:#96909F">2 acknowledged</div>
+                  </div>
+                  <div
+                    style="display:flex;flex-direction:column;gap:10px;padding:28px 30px;border-left:1px solid rgba(255,255,255,0.06)">
+                    <div
+                      style="font-size:12px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:#96909F">
+                      Containers</div>
+                    <div style="font-size:36px;font-weight:600;letter-spacing:-0.03em">8,912</div>
+                    <div style="font-size:12.5px;color:#96909F">312 restarts / 24h</div>
+                  </div>
+                </div>
+
+                <!-- chart full width -->
+                <div
+                  style="display:flex;flex-direction:column;gap:20px;padding:30px 34px;border-radius:20px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)">
+                  <div style="display:flex;align-items:center;gap:16px">
+                    <div style="display:flex;flex-direction:column;gap:3px">
+                      <div style="font-size:16px;font-weight:600">Fleet utilization</div>
+                      <div style="font-size:12.5px;color:#96909F">CPU &amp; memory · rolling 24 hours</div>
+                    </div>
+                    <div style="flex:1"></div>
+                    <div style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#96909F"><span
+                        style="width:10px;height:3px;border-radius:2px;background:#B48CFF"></span>CPU</div>
+                    <div
+                      style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#96909F;margin-left:12px">
+                      <span style="width:10px;height:3px;border-radius:2px;background:#8CE8B8"></span>Memory</div>
+                    <div
+                      style="display:flex;gap:4px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:99px;padding:3px;margin-left:20px">
+                      <span
+                        style="font-size:12px;font-weight:600;padding:5px 14px;border-radius:99px;color:#96909F">1h</span>
+                      <span
+                        style="font-size:12px;font-weight:600;padding:5px 14px;border-radius:99px;background:rgba(180,140,255,0.15);color:#B48CFF">24h</span>
+                      <span
+                        style="font-size:12px;font-weight:600;padding:5px 14px;border-radius:99px;color:#96909F">7d</span>
+                    </div>
+                  </div>
+                  <svg width="100%" height="220" viewBox="0 0 1240 220" preserveAspectRatio="none">
+                    <line x1="0" y1="55" x2="1240" y2="55" stroke="rgba(255,255,255,0.05)"></line>
+                    <line x1="0" y1="110" x2="1240" y2="110" stroke="rgba(255,255,255,0.05)"></line>
+                    <line x1="0" y1="165" x2="1240" y2="165" stroke="rgba(255,255,255,0.05)"></line>
+                    <polygon
+                      points="0,160 100,148 200,155 300,124 400,134 500,105 600,116 700,92 800,108 900,76 1000,92 1100,66 1240,78 1240,220 0,220"
+                      fill="rgba(180,140,255,0.10)"></polygon>
+                    <polyline
+                      points="0,160 100,148 200,155 300,124 400,134 500,105 600,116 700,92 800,108 900,76 1000,92 1100,66 1240,78"
+                      fill="none" stroke="#B48CFF" stroke-width="2.5"></polyline>
+                    <polyline
+                      points="0,120 100,116 200,122 300,110 400,114 500,100 600,106 700,96 800,100 900,88 1000,94 1100,84 1240,90"
+                      fill="none" stroke="#8CE8B8" stroke-width="2" stroke-dasharray="1 0"></polyline>
+                  </svg>
+                  <div style="display:flex;justify-content:space-between;font-size:11.5px;color:#96909F">
+                    <span>00:00</span><span>04:00</span><span>08:00</span><span>12:00</span><span>16:00</span><span>20:00</span><span>now</span>
+                  </div>
+                </div>
+
+                <!-- table + right column -->
+                <div style="display:grid;grid-template-columns:2.1fr 1fr;gap:24px">
+                  <div
+                    style="display:flex;flex-direction:column;border-radius:20px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px);overflow:hidden">
+                    <div style="display:flex;align-items:center;padding:24px 30px 18px">
+                      <div style="font-size:16px;font-weight:600">Needs attention</div>
+                      <div style="flex:1"></div><span style="font-size:13px;font-weight:600;color:#B48CFF">All servers
+                        →</span>
+                    </div>
+                    <div
+                      style="display:grid;grid-template-columns:2.2fr 1.1fr 1fr 1.2fr 1fr;gap:12px;padding:10px 30px;font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#96909F;border-bottom:1px solid rgba(255,255,255,0.06)">
+                      <span>Host</span><span>Region</span><span>CPU</span><span>Memory</span><span>Status</span></div>
+                    <div
+                      style="display:grid;grid-template-columns:2.2fr 1.1fr 1fr 1.2fr 1fr;gap:12px;align-items:center;padding:17px 30px;font-size:13.5px;border-bottom:1px solid rgba(255,255,255,0.045)">
+                      <span style="font-weight:600">worker-eu-west-07</span><span
+                        style="color:#96909F">eu-west-2</span><span
+                        style="color:#F58C8C;font-weight:600">91%</span><span style="color:#96909F">30.6/32
+                        GB</span><span
+                        style="justify-self:start;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#F58C8C"><span
+                          style="width:7px;height:7px;border-radius:50%;background:#F58C8C;box-shadow:0 0 8px rgba(245,140,140,0.7)"></span>Critical</span>
+                    </div>
+                    <div
+                      style="display:grid;grid-template-columns:2.2fr 1.1fr 1fr 1.2fr 1fr;gap:12px;align-items:center;padding:17px 30px;font-size:13.5px;border-bottom:1px solid rgba(255,255,255,0.045)">
+                      <span style="font-weight:600">db-eu-west-03</span><span
+                        style="color:#96909F">eu-west-2</span><span
+                        style="color:#F2C14E;font-weight:600">78%</span><span style="color:#96909F">27.1/32
+                        GB</span><span
+                        style="justify-self:start;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#F2C14E"><span
+                          style="width:7px;height:7px;border-radius:50%;background:#F2C14E"></span>Degraded</span></div>
+                    <div
+                      style="display:grid;grid-template-columns:2.2fr 1.1fr 1fr 1.2fr 1fr;gap:12px;align-items:center;padding:17px 30px;font-size:13.5px;border-bottom:1px solid rgba(255,255,255,0.045)">
+                      <span style="font-weight:600">cache-us-west-02</span><span
+                        style="color:#96909F">us-west-2</span><span
+                        style="color:#F2C14E;font-weight:600">74%</span><span style="color:#96909F">12.8/16
+                        GB</span><span
+                        style="justify-self:start;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#F2C14E"><span
+                          style="width:7px;height:7px;border-radius:50%;background:#F2C14E"></span>Degraded</span></div>
+                    <div
+                      style="display:grid;grid-template-columns:2.2fr 1.1fr 1fr 1.2fr 1fr;gap:12px;align-items:center;padding:17px 30px;font-size:13.5px;border-bottom:1px solid rgba(255,255,255,0.045)">
+                      <span style="font-weight:600">edge-us-east-01</span><span
+                        style="color:#96909F">us-east-1</span><span>34%</span><span style="color:#96909F">6.2/16
+                        GB</span><span
+                        style="justify-self:start;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#8CE8B8"><span
+                          style="width:7px;height:7px;border-radius:50%;background:#8CE8B8"></span>Healthy</span></div>
+                    <div
+                      style="display:grid;grid-template-columns:2.2fr 1.1fr 1fr 1.2fr 1fr;gap:12px;align-items:center;padding:17px 30px;font-size:13.5px">
+                      <span style="font-weight:600">app-ap-south-11</span><span
+                        style="color:#96909F">ap-south-1</span><span>22%</span><span style="color:#96909F">3.4/8
+                        GB</span><span
+                        style="justify-self:start;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#8CE8B8"><span
+                          style="width:7px;height:7px;border-radius:50%;background:#8CE8B8"></span>Healthy</span></div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:24px">
+                    <div
+                      style="display:flex;flex-direction:column;gap:16px;padding:26px 30px;border-radius:20px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)">
+                      <div style="font-size:16px;font-weight:600">Alerts</div>
+                      <div style="display:flex;gap:12px;align-items:flex-start"><span
+                          style="width:7px;height:7px;border-radius:50%;background:#F58C8C;margin-top:6px;flex:none"></span>
+                        <div style="display:flex;flex-direction:column;gap:2px">
+                          <div style="font-size:13.5px;font-weight:600">High memory · worker-eu-west-07</div>
+                          <div style="font-size:12px;color:#96909F">2m ago</div>
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:12px;align-items:flex-start"><span
+                          style="width:7px;height:7px;border-radius:50%;background:#F2C14E;margin-top:6px;flex:none"></span>
+                        <div style="display:flex;flex-direction:column;gap:2px">
+                          <div style="font-size:13.5px;font-weight:600">Cert renews in 6 days · api.wv.dev</div>
+                          <div style="font-size:12px;color:#96909F">24m ago</div>
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:12px;align-items:flex-start"><span
+                          style="width:7px;height:7px;border-radius:50%;background:#F2C14E;margin-top:6px;flex:none"></span>
+                        <div style="display:flex;flex-direction:column;gap:2px">
+                          <div style="font-size:13.5px;font-weight:600">Disk 81% · db-eu-west-03</div>
+                          <div style="font-size:12px;color:#96909F">1h ago</div>
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:12px;align-items:flex-start"><span
+                          style="width:7px;height:7px;border-radius:50%;background:#8CE8B8;margin-top:6px;flex:none"></span>
+                        <div style="display:flex;flex-direction:column;gap:2px">
+                          <div style="font-size:13.5px;font-weight:600">Backup completed · db-eu-west-03</div>
+                          <div style="font-size:12px;color:#96909F">2h ago</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      style="display:flex;flex-direction:column;gap:18px;padding:26px 30px;border-radius:20px;background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.07);backdrop-filter:blur(16px)">
+                      <div style="font-size:16px;font-weight:600">Container engine</div>
+                      <div style="display:flex;align-items:center;gap:12px"><span
+                          style="width:8px;height:8px;border-radius:50%;background:#8CE8B8"></span>
+                        <div style="display:flex;flex-direction:column;gap:1px;flex:1">
+                          <div style="font-size:13.5px;font-weight:600">podman 5.8.2 <span
+                              style="font-size:10.5px;font-weight:700;letter-spacing:0.06em;color:#B48CFF;background:rgba(180,140,255,0.13);padding:2px 8px;border-radius:99px;margin-left:6px">ACTIVE</span>
+                          </div>
+                          <div style="font-size:12px;color:#96909F">compose ✓ · daemon up</div>
+                        </div>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:12px"><span
+                          style="width:8px;height:8px;border-radius:50%;background:#F58C8C"></span>
+                        <div style="display:flex;flex-direction:column;gap:1px;flex:1">
+                          <div style="font-size:13.5px;font-weight:600">docker 29.5.2</div>
+                          <div style="font-size:12px;color:#96909F">daemon down</div>
+                        </div><span
+                          style="font-size:12.5px;font-weight:600;color:#ECEAF2;border:1px solid rgba(255,255,255,0.14);padding:7px 14px;border-radius:99px">Use
+                          docker</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+
+        <!-- ============ logo lockups ============ -->
+
+        <div class="dv-opt" id="1e">
+          <div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a>Logo — orbital ring mark (pairs with <a
+              class="dv-oid" href="#1b">1b</a>)</div>
+          <div class="dv-card" style="width:340px">
+            <div
+              style="display:flex;flex-direction:column;align-items:center;gap:18px;padding:48px 32px;background:#0D0B12">
+              <div
+                style="width:64px;height:64px;border-radius:50%;background:conic-gradient(from 210deg,#B48CFF,#6E4BC4 55%,#B48CFF);display:flex;align-items:center;justify-content:center;box-shadow:0 10px 30px rgba(180,140,255,0.3)">
+                <div style="width:26px;height:26px;background:#0D0B12;border-radius:50%"></div>
+              </div>
+              <div
+                style="font-family:'Sora',sans-serif;font-size:30px;font-weight:700;color:#ECEAF2;letter-spacing:-0.02em">
+                xdev</div>
+              <div style="font-size:11.5px;color:#96909F;letter-spacing:0.22em;font-family:'Sora',sans-serif">
+                INFRASTRUCTURE</div>
+            </div>
+          </div>
+        </div>
+
+
+  </x-dc>
+  <script type="text/x-dc" data-dc-script
+    data-props="{&quot;navStyle&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;topbar&quot;,&quot;sidebar&quot;],&quot;default&quot;:&quot;topbar&quot;,&quot;tsType&quot;:&quot;'topbar'|'sidebar'&quot;,&quot;section&quot;:&quot;2a — Nova × xdev&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const nav = this.props.navStyle ?? 'topbar';
+    return {
+      topbarNav: nav === 'topbar',
+      sidebarNav: nav === 'sidebar'
+    };
+  }
+}
+</script>
+</body>
+
+</html>

@@ -2,7 +2,10 @@
 // slugs ("my-cool-site") and resolves collisions by suffixing -2, -3, ...
 package naming
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // Slugify lowercases, keeps [a-z0-9], and collapses everything else to single
 // dashes. Always returns a non-empty result.
@@ -37,25 +40,9 @@ func Unique(name string, taken func(string) bool) string {
 		return base
 	}
 	for i := 2; ; i++ {
-		candidate := base + "-" + itoa(i)
+		candidate := base + "-" + strconv.Itoa(i)
 		if !taken(candidate) {
 			return candidate
 		}
 	}
-}
-
-// itoa is a tiny non-allocating-ish integer formatter (avoids importing strconv
-// for one call site and keeps intent obvious).
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
 }

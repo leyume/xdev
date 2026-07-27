@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"xdev/internal/apps"
+	"xdev/internal/store"
 	"xdev/internal/templates"
 )
 
@@ -82,10 +83,19 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	if len(candidates) > 0 {
 		needsHosts = s.reconciler.MissingHosts(candidates)
 	}
+	running := 0
+	for _, a := range apps {
+		if a.Status == store.AppRunning {
+			running++
+		}
+	}
+	activity, _ := s.store.ListEventsByProject(proj.ID, 8)
 	s.render(w, r, "project", viewData{
 		"Title":          proj.Name + " · xdev",
 		"Project":        proj,
 		"Apps":           apps,
+		"AppsRunning":    running,
+		"Activity":       activity,
 		"AdminerDomains": adminerDomains,
 		"Catalog":        templates.Catalog(),
 		"Error":          r.URL.Query().Get("error"),
@@ -105,7 +115,7 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	apps, _ := s.store.ListAppsByProject(proj.ID)
 	for _, a := range apps {
-		_ = s.apps.Delete(a.ID)
+		_ = s.apps.Delete(a.ID, s.backupsRoot())
 	}
 	name := proj.Name
 	if err := s.projects.Delete(proj.ID); err != nil {
@@ -114,7 +124,7 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.AddEvent(0, 0, "warn", "Deleted project "+name)
 	s.reconcile()
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, "/projects", http.StatusSeeOther)
 }
 
 // handleAppCreate adds an app to a project and starts it.
@@ -124,6 +134,15 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// An optional backup archive makes this a multipart submit; FormValue still
+	// reads the text fields either way.
+	archive, closeArchive, err := uploadedArchive(r)
+	if err != nil {
+		redirectWithError(w, r, "/projects/"+proj.Slug, err)
+		return
+	}
+	defer closeArchive()
+
 	cpu, _ := strconv.ParseFloat(r.FormValue("cpu_cores"), 64)
 	memMB, _ := strconv.ParseInt(r.FormValue("memory_mb"), 10, 64)
 	var memBytes int64
@@ -141,7 +160,11 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		RootDir:       r.FormValue("root_dir"),
 		BuildCmd:      r.FormValue("build_cmd"),
 		StartCmd:      r.FormValue("start_cmd"),
+		Upstream:      r.FormValue("upstream"),
 		AdminerDomain: r.FormValue("adminer_domain"),
+		DBMode:        r.FormValue("db_mode"),
+		WPMode:        r.FormValue("wp_mode"),
+		Archive:       archive,
 	})
 	if err != nil {
 		redirectWithError(w, r, "/projects/"+proj.Slug, err)
@@ -163,9 +186,10 @@ func (s *Server) handleAppRefresh(w http.ResponseWriter, r *http.Request) {
 	s.appAction(w, r, "", func(id int64) error { _, err := s.apps.RefreshStatus(id); return err })
 }
 
-// handleAppDelete removes an app and returns to its project page.
+// handleAppDelete removes an app (dumping its shared database into the backups
+// dir first, if it has one) and returns to its project page.
 func (s *Server) handleAppDelete(w http.ResponseWriter, r *http.Request) {
-	s.appAction(w, r, "Deleted", s.apps.Delete)
+	s.appAction(w, r, "Deleted", func(id int64) error { return s.apps.Delete(id, s.backupsRoot()) })
 }
 
 // appAction is the shared plumbing for per-app POST actions: parse the id,
@@ -188,7 +212,14 @@ func (s *Server) appAction(w http.ResponseWriter, r *http.Request, verb string, 
 		return
 	}
 	target := "/projects/" + proj.Slug
+	json := wantsJSON(r)
 	if err := fn(id); err != nil {
+		if json {
+			// Non-2xx so the client falls back to a native submit and lands on
+			// the server-rendered error banner.
+			http.Error(w, firstLine(err.Error()), http.StatusInternalServerError)
+			return
+		}
 		redirectWithError(w, r, target, err)
 		return
 	}
@@ -201,7 +232,24 @@ func (s *Server) appAction(w http.ResponseWriter, r *http.Request, verb string, 
 		s.store.AddEvent(proj.ID, aid, "info", verb+" app "+app.Name)
 	}
 	s.reconcile()
+	if json {
+		status := "deleted"
+		if verb != "Deleted" {
+			if fresh, err := s.store.AppByID(id); err == nil {
+				status = fresh.Status
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"` + status + `"}`))
+		return
+	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+// wantsJSON reports whether the caller (our fetch-based UI) wants an in-place
+// JSON reply instead of the classic POST-redirect page reload.
+func wantsJSON(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "application/json")
 }
 
 // redirectWithError redirects to target with a short ?error= message. Compose
@@ -212,10 +260,6 @@ func redirectWithError(w http.ResponseWriter, r *http.Request, target string, er
 }
 
 func firstLine(s string) string {
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			return s[:i]
-		}
-	}
-	return s
+	line, _, _ := strings.Cut(s, "\n")
+	return line
 }

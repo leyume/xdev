@@ -51,7 +51,7 @@ func runDoctor(args []string) error {
 	}
 	sel := runtime.NewSelector(info, override)
 	if sel.Usable(sel.Current()) {
-		d.ok("selected engine", string(sel.Current()), true)
+		d.ok("selected engine", string(sel.Current()))
 	} else {
 		d.fail("selected engine", fmt.Sprintf("%s not usable (needs the binary + compose plugin)", sel.Current()), true)
 	}
@@ -59,7 +59,7 @@ func runDoctor(args []string) error {
 	// --- caddy ---------------------------------------------------------------
 	if o.caddyManage {
 		if path, err := exec.LookPath("caddy"); err == nil {
-			d.ok("caddy", caddyVersion(path), true)
+			d.ok("caddy", caddyVersion(path))
 		} else {
 			d.fail("caddy", "not found on PATH (install caddy, or run with -caddy=false)", true)
 		}
@@ -70,7 +70,7 @@ func runDoctor(args []string) error {
 	// --- ports ---------------------------------------------------------------
 	label := fmt.Sprintf("ports %d / %d", o.httpsPort, o.httpPort)
 	if blocked := unbindablePorts(o.httpsPort, o.httpPort); len(blocked) == 0 {
-		d.ok(label, "bindable", true)
+		d.ok(label, "bindable")
 	} else {
 		d.fail(label, fmt.Sprintf("cannot bind %s (in use or needs privileges)", strings.Join(blocked, ", ")), true)
 	}
@@ -79,7 +79,7 @@ func runDoctor(args []string) error {
 	if err := writableDir(cfg.DataDir); err != nil {
 		d.fail("data dir", fmt.Sprintf("%s not writable: %v", cfg.DataDir, err), true)
 	} else {
-		d.ok("data dir", fmt.Sprintf("%s (db: %s)", cfg.DataDir, cfg.DBPath), true)
+		d.ok("data dir", fmt.Sprintf("%s (db: %s)", cfg.DataDir, cfg.DBPath))
 	}
 	switch {
 	case storeErr != nil:
@@ -90,7 +90,7 @@ func runDoctor(args []string) error {
 		} else if n == 0 {
 			d.fail("admin account", "none yet  → run: xdev create-admin you@example.com", false)
 		} else {
-			d.ok("admin account", "configured", false)
+			d.ok("admin account", "configured")
 		}
 	}
 
@@ -99,7 +99,7 @@ func runDoctor(args []string) error {
 		if err := writableFile(o.hostsFile); err != nil {
 			d.warn("hosts file", fmt.Sprintf("%s not writable (%v) — fine on a server; needed for local .test domains", o.hostsFile, err))
 		} else {
-			d.ok("hosts file", o.hostsFile+" writable", false)
+			d.ok("hosts file", o.hostsFile+" writable")
 		}
 	} else {
 		d.skip("hosts file", "management disabled (-manage-hosts=false)")
@@ -115,9 +115,9 @@ func runDoctor(args []string) error {
 // check failed.
 type doctorReport struct{ failed bool }
 
-func (d *doctorReport) ok(label, detail string, _ bool) { d.print("✓", label, detail) }
-func (d *doctorReport) warn(label, detail string)       { d.print("!", label, detail) }
-func (d *doctorReport) skip(label, detail string)       { d.print("–", label, detail) }
+func (d *doctorReport) ok(label, detail string)   { d.print("✓", label, detail) }
+func (d *doctorReport) warn(label, detail string) { d.print("!", label, detail) }
+func (d *doctorReport) skip(label, detail string) { d.print("–", label, detail) }
 
 func (d *doctorReport) fail(label, detail string, required bool) {
 	d.print("✗", label, detail)
@@ -158,10 +158,7 @@ func caddyVersion(path string) string {
 	if err != nil {
 		return "installed"
 	}
-	line := strings.TrimSpace(string(out))
-	if i := strings.IndexByte(line, '\n'); i >= 0 {
-		line = line[:i]
-	}
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 	if fields := strings.Fields(line); len(fields) > 0 {
 		return fields[0]
 	}

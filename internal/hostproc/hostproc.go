@@ -39,9 +39,9 @@ func NewSupervisor(runDir string) *Supervisor {
 	return &Supervisor{runDir: runDir, procs: map[int64]*proc{}}
 }
 
-// HasNode reports whether the system Node runtime is on PATH.
-func HasNode() bool {
-	_, err := exec.LookPath("node")
+// Has reports whether a toolchain binary (node, go, …) is on PATH.
+func Has(bin string) bool {
+	_, err := exec.LookPath(bin)
 	return err == nil
 }
 
@@ -114,6 +114,23 @@ func (s *Supervisor) Stop(id int64) error {
 		<-p.done
 	}
 	return nil
+}
+
+// PIDs returns the process-group leader pid of each live supervised app, keyed
+// by app id — used by the metrics collector to sample host-process CPU/memory
+// (containers are sampled separately via the engine).
+func (s *Supervisor) PIDs() map[int64]int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[int64]int, len(s.procs))
+	for id, p := range s.procs {
+		if p != nil && p.cmd != nil && p.cmd.Process != nil {
+			if syscall.Kill(-p.cmd.Process.Pid, 0) == nil {
+				out[id] = p.cmd.Process.Pid
+			}
+		}
+	}
+	return out
 }
 
 // Running reports whether app id has a live supervised process.

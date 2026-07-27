@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"strconv"
+	"strings"
 )
 
 // tmplFuncs are small formatting helpers available to all templates.
@@ -15,5 +16,32 @@ func tmplFuncs() template.FuncMap {
 		"f1": func(f float64) string { return strconv.FormatFloat(f, 'f', 1, 64) },
 		// gib formats a byte count as gibibytes with one decimal.
 		"gib": func(b uint64) string { return fmt.Sprintf("%.1f", float64(b)/1073741824) },
+		// hasPrefix drives active-nav-link highlighting from the request path.
+		"hasPrefix": strings.HasPrefix,
+		// dict builds a map from alternating key/value pairs, for passing named
+		// args to a shared sub-template ({{template "x" dict "K" v ...}}).
+		"dict": func(kv ...any) (map[string]any, error) {
+			if len(kv)%2 != 0 {
+				return nil, fmt.Errorf("dict: odd argument count")
+			}
+			m := make(map[string]any, len(kv)/2)
+			for i := 0; i < len(kv); i += 2 {
+				k, ok := kv[i].(string)
+				if !ok {
+					return nil, fmt.Errorf("dict: key %d not a string", i)
+				}
+				m[k] = kv[i+1]
+			}
+			return m, nil
+		},
+		// initials renders a two-letter avatar badge from an email address.
+		"initials": func(email string) string {
+			local, _, _ := strings.Cut(email, "@")
+			local = strings.ToUpper(local)
+			if len(local) >= 2 {
+				return local[:2]
+			}
+			return local
+		},
 	}
 }
