@@ -206,11 +206,25 @@ func (s *Service) ensureWPHost(ctx context.Context, engine runtime.Engine) (int,
 	if err := runtime.NetworkCreate(ctx, engine, sharedDBNetwork); err != nil {
 		return 0, err
 	}
-	// Missing container -> run it (first use pulls the image); stopped -> start.
-	out, err := runtime.Exec(ctx, engine, "container", "inspect",
+	// Reuse the container only if it bind-mounts the CURRENT wp dir at the same
+	// path. One created under a different data dir (e.g. an earlier run) would
+	// mount the wrong tree, so php-fpm couldn't see this data dir's sites — drop
+	// it and recreate. Missing -> run (first use pulls the image); stopped -> start.
+	running, inspectErr := runtime.Exec(ctx, engine, "container", "inspect",
 		"--format", "{{.State.Running}}", wpHostContainer)
+	needRun := inspectErr != nil
+	if inspectErr == nil {
+		mounts, _ := runtime.Exec(ctx, engine, "container", "inspect",
+			"--format", "{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}", wpHostContainer)
+		if !strings.Contains(mounts, s.wpDir+":"+s.wpDir) {
+			if _, rmErr := runtime.Exec(ctx, engine, "rm", "-f", wpHostContainer); rmErr != nil {
+				return 0, fmt.Errorf("wp-host mounts the wrong dir (need %s) and could not be recreated: %w", s.wpDir, rmErr)
+			}
+			needRun = true
+		}
+	}
 	switch {
-	case err != nil:
+	case needRun:
 		if _, err := runtime.Exec(ctx, engine, "run", "-d",
 			"--name", wpHostContainer, "--restart", "unless-stopped",
 			"--network", sharedDBNetwork,
@@ -219,7 +233,7 @@ func (s *Service) ensureWPHost(ctx context.Context, engine runtime.Engine) (int,
 			wpHostImage); err != nil {
 			return 0, err
 		}
-	case strings.TrimSpace(out) != "true":
+	case strings.TrimSpace(running) != "true":
 		if _, err := runtime.Exec(ctx, engine, "start", wpHostContainer); err != nil {
 			return 0, err
 		}
