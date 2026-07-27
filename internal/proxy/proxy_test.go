@@ -103,6 +103,25 @@ func TestAdminReassert(t *testing.T) {
 	}
 }
 
+// TestDisableHTTPSRedirect checks that with the preview toggle the public server
+// also listens on the HTTP port and carries automatic_https.disable_redirects,
+// so sites serve over plain HTTP instead of 308-ing to HTTPS.
+func TestDisableHTTPSRedirect(t *testing.T) {
+	off := NewManager("127.0.0.1:2019", 8444, 8081, "", "")
+	if b, _ := json.Marshal(off.buildConfig(nil)); strings.Contains(string(b), "disable_redirects") {
+		t.Errorf("redirect disable must be off by default\n%s", b)
+	}
+
+	m := NewManager("127.0.0.1:2019", 8444, 8081, "", "")
+	m.disableHTTPSRedirect = true
+	cfg, _ := json.Marshal(m.buildConfig(nil))
+	for _, want := range []string{`"disable_redirects":true`, `":8081"`, `":8444"`} {
+		if !strings.Contains(string(cfg), want) {
+			t.Errorf("preview config missing %q\n%s", want, cfg)
+		}
+	}
+}
+
 // TestWPSharedSiteRoute checks the shared-WP php-site route: file_server rooted
 // at the site dir, the try_files permalink rewrite falling back to index.php,
 // and *.php handed to the wp-host fpm port over fastcgi — while a plain Root
