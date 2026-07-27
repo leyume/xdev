@@ -58,7 +58,12 @@ type Manager struct {
 	// container, dropping the published binding xdev talks to. Empty leaves
 	// admin alone (supervised or systemd Caddy, where loopback admin is fine).
 	adminListen string
-	client      *http.Client
+	// disableHTTPSRedirect makes the public server also listen on the HTTP port
+	// and serve routes there instead of redirecting to HTTPS. For previewing
+	// sites over plain HTTP while on alt ports (no cert obtainable), e.g. behind
+	// another proxy during migration. Off by default (normal HTTP->HTTPS).
+	disableHTTPSRedirect bool
+	client               *http.Client
 }
 
 // NewManager creates a proxy Manager. acmeEmail may be empty; leafLifetime
@@ -80,6 +85,7 @@ func NewManager(adminAddr string, httpsPort, httpPort int, acmeEmail, leafLifeti
 		intermediateLifetime: "8760h", // 1 year; comfortably longer than the leaf
 		upstreamHost:         upstreamHost,
 		adminListen:          os.Getenv("XDEV_CADDY_ADMIN_LISTEN"),
+		disableHTTPSRedirect: os.Getenv("XDEV_DISABLE_HTTPS_REDIRECT") == "true",
 		client:               &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -303,6 +309,12 @@ func (m *Manager) buildConfig(routes []Route) map[string]any {
 	server := map[string]any{
 		"listen": []string{fmt.Sprintf(":%d", m.httpsPort)},
 		"routes": httpRoutes,
+	}
+	// Preview over plain HTTP: also listen on the HTTP port and serve routes there
+	// (no redirect) so sites are viewable without a cert while on alt ports.
+	if m.disableHTTPSRedirect {
+		server["listen"] = []string{fmt.Sprintf(":%d", m.httpsPort), fmt.Sprintf(":%d", m.httpPort)}
+		server["automatic_https"] = map[string]any{"disable_redirects": true}
 	}
 
 	cfg := map[string]any{
