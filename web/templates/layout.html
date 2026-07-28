@@ -38,7 +38,10 @@
                    body: new FormData(f), credentials: 'same-origin' })
         .then(function (r) { if (!r.ok) throw 0; return r.json(); })
         .then(function (d) {
-          if (d.status === 'deleted') { if (host) host.remove(); return; }
+          // [data-app-id] sits on the card *header* (and on the dashboard's row),
+          // so removing it alone would leave the card body behind. Drop the whole
+          // card where there is one; the row is its own host on the dashboard.
+          if (d.status === 'deleted') { if (host) (host.closest('.app-card') || host).remove(); return; }
           if (host) {
             host.dataset.status = d.status;
             host.querySelectorAll('.status').forEach(function (el) { el.className = 'status ' + d.status; });
@@ -81,6 +84,7 @@
       <a class="navlink{{if hasPrefix .Path "/database"}} active{{end}}" href="/database">{{template "icon_database" .}}Database</a>
       <a class="navlink{{if hasPrefix .Path "/wordpress"}} active{{end}}" href="/wordpress">{{template "icon_wordpress" .}}WordPress</a>
       <a class="navlink{{if hasPrefix .Path "/admins"}} active{{end}}" href="/admins">{{template "icon_admins" .}}Admins</a>
+      <a class="navlink{{if hasPrefix .Path "/settings"}} active{{end}}" href="/settings/env">{{template "icon_settings" .}}Configuration</a>
     </nav>
     <div class="spacer"></div>
     {{template "engine_mini" .}}
@@ -108,6 +112,7 @@
         <a class="navlink{{if hasPrefix .Path "/database"}} active{{end}}" href="/database">{{template "icon_database" .}}Database</a>
         <a class="navlink{{if hasPrefix .Path "/wordpress"}} active{{end}}" href="/wordpress">{{template "icon_wordpress" .}}WordPress</a>
         <a class="navlink{{if hasPrefix .Path "/admins"}} active{{end}}" href="/admins">{{template "icon_admins" .}}Admins</a>
+        <a class="navlink{{if hasPrefix .Path "/settings"}} active{{end}}" href="/settings/env">{{template "icon_settings" .}}Configuration</a>
         <span class="spacer"></span>
         {{template "topbar_search" .}}
         <div class="topbar-actions">

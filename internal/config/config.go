@@ -22,6 +22,34 @@ type Config struct {
 	Addr string
 }
 
+// EnvFilePath locates the xdev.env the installer wrote — the file a service
+// reads its XDEV_* settings from. xdev itself is configured from the
+// environment, not this file, so nothing else needs it; the UI shows and edits
+// it so the settings behind a running install are visible in one place.
+//
+// XDEV_ENV_FILE overrides. Otherwise the installer's own locations are checked,
+// in the order install.sh picks them. Returns "" when there is no such file
+// (a bare binary run, or a container that gets env some other way).
+func EnvFilePath() string {
+	if p := os.Getenv("XDEV_ENV_FILE"); p != "" {
+		return p
+	}
+	candidates := []string{
+		"/etc/xdev/xdev.env",           // linux service install
+		"/usr/local/etc/xdev/xdev.env", // macOS root / LaunchDaemon install
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(home, "Library", "Application Support", "xdev", "xdev.env"))
+	}
+	for _, p := range candidates {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
+
 // Load builds a Config from explicit values, falling back to sensible
 // defaults. Empty arguments mean "use the default". Flag parsing happens in
 // main; this keeps the defaulting logic in one place.

@@ -615,6 +615,11 @@ option { background: var(--bg); color: var(--text); }
 .kpi-strip { display: grid; grid-template-columns: repeat(6, 1fr); padding: 0; overflow: hidden; }
 .kpi-cell { display: flex; flex-direction: column; gap: 7px; padding: 20px 24px; border-left: 1px solid var(--border-soft); }
 .kpi-cell:first-child { border-left: none; }
+/* Cells that link somewhere: keep the card's own colours, add a hover affordance.
+   Cells with no matching page stay plain <div>s and are not interactive. */
+a.kpi-cell { color: inherit; text-decoration: none; transition: background-color .15s ease; }
+a.kpi-cell:hover, a.kpi-cell:focus-visible { background: var(--surface-hover, rgba(127,127,127,.08)); }
+a.kpi-cell:hover .kpi-label { color: var(--text); }
 .kpi-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .kpi-num { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
 .kpi-num.ok { color: var(--ok); }

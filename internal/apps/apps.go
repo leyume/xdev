@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	goruntime "runtime" // stdlib; xdev/internal/runtime owns the plain name here
 	"strings"
 	"time"
 
@@ -556,9 +557,15 @@ func (s *Service) startStatic(app store.App) error {
 	// Both the build step and a supervised start command need the app's
 	// toolchain on PATH; serve-mode static apps with no build step need nothing.
 	if app.ServeMode == store.ServeCommand || strings.TrimSpace(app.BuildCmd) != "" {
-		bin, install := "node", "install Node (e.g. `brew install node`) or re-run the xdev installer"
+		// Name the install route for the host OS: `brew` advice on a Linux server
+		// is a dead end, and the installer is the answer on both.
+		bin := "node"
 		if app.Type == store.TypeGo {
-			bin, install = "go", "install Go (e.g. `brew install go`)"
+			bin = "go"
+		}
+		install := "re-run the xdev installer, or install " + bin + " manually"
+		if goruntime.GOOS == "darwin" {
+			install = "brew install " + bin + ", or re-run the xdev installer"
 		}
 		if !hostproc.Has(bin) {
 			s.store.SetAppStatus(app.ID, store.AppError)

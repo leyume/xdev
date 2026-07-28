@@ -1,0 +1,48 @@
+{{define "content"}}
+<section class="page-head">
+  <h1>Configuration</h1>
+  <a class="btn" href="/">← Dashboard</a>
+</section>
+
+{{if .Msg}}<div class="alert" style="border-color:#2f855a;color:#2f855a">{{.Msg}}</div>{{end}}
+{{if .Err}}<div class="alert">{{.Err}}</div>{{end}}
+
+<p class="muted small">
+  These are the <code>XDEV_*</code> settings your service starts with. xdev reads
+  them once at startup, so <strong>a change takes effect only after a restart</strong>
+  — saving here never restarts the service you're currently using.
+  {{if .Path}}<br>File: <code>{{.Path}}</code> · data dir: <code>{{.DataDir}}</code>{{end}}
+</p>
+
+{{if .Path}}
+<div class="card">
+  {{if .Editable}}
+  <form method="post" action="/settings/env"
+        data-confirm="Save {{.Path}}? A bad value can stop xdev from starting — the previous file is kept as .bak.">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <label>xdev.env
+      <textarea name="content" rows="24" spellcheck="false"
+                style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55">{{.Content}}</textarea>
+    </label>
+    <div class="form-actions">
+      <button class="primary" type="submit">Save</button>
+      <span class="muted small">Then restart: <code>sudo systemctl restart xdev</code></span>
+    </div>
+  </form>
+  {{else}}
+  <p class="muted small">Read-only — xdev can't write this file as the user it runs as.</p>
+  <pre style="overflow-x:auto"><code>{{.Content}}</code></pre>
+  {{end}}
+</div>
+
+<div class="card">
+  <h2>Notes</h2>
+  <ul class="muted small" style="margin:0;padding-left:1.1rem;line-height:1.7">
+    <li>Lines must be <code>KEY=VALUE</code> or start with <code>#</code>; anything else is rejected before writing, since a malformed file stops the service from starting.</li>
+    <li>The previous contents are saved next to it as <code>xdev.env.bak</code> on every save.</li>
+    <li><code>XDEV_DISABLE_HTTPS_REDIRECT=true</code> serves sites over plain HTTP with no redirect. It's for previewing on alternate ports during a migration — set it back to <code>false</code> once you're on 80/443.</li>
+    <li>Full reference: <code>deploy/xdev.env.example</code> in the repo, or <code>xdev help</code>.</li>
+  </ul>
+</div>
+{{end}}
+{{end}}
