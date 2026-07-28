@@ -61,6 +61,42 @@ func TestProdComposeSelection(t *testing.T) {
 	}
 }
 
+// TestLaravelProdBootable guards the regression that made a Laravel app in a
+// prod project fail `compose up -d` outright: the code mount was read-only with
+// named volumes carved out of it, so on a freshly created (empty) app/ the
+// nested mountpoints couldn't be created and the app container never started.
+// The prod stack must mount app/ writable and boot through init.sh, exactly
+// like the local one — only the image and hardening differ.
+func TestLaravelProdBootable(t *testing.T) {
+	d := Data{ProjectSlug: "demo", NetworkName: "xdev_demo", AppSlug: "api",
+		AppType: "laravel", Env: "prod", HostPort: 20000, AdminerPort: 20001,
+		SharedDB: true, DBName: "demo_api", DBPass: "p4ss"}
+	out, err := RenderCompose("laravel", d)
+	if err != nil {
+		t.Fatalf("render laravel prod: %v", err)
+	}
+	for _, want := range []string{
+		"- ../app:/var/www/html\n", // writable code mount
+		"./init.sh:/init.sh:ro",    // bootstrap entrypoint mount
+		`command: ["sh", "/init.sh"]`,
+		"APP_ENV: production", // init.sh installs --no-dev and caches config
+		"DB_PORT: 3306",       // parity with the local stack
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("prod laravel compose missing %q\n%s", want, out)
+		}
+	}
+	for _, not := range []string{
+		"../app:/var/www/html:ro",             // ro code mount + nested volumes = unstartable
+		"storage:/var/www/html/storage",       //
+		"cache:/var/www/html/bootstrap/cache", //
+	} {
+		if strings.Contains(out, not) {
+			t.Errorf("prod laravel compose must not contain %q\n%s", not, out)
+		}
+	}
+}
+
 // TestLaravelInfra checks the laravel stack renders its bizepp-style infra
 // (Adminer, _volumes bind-mounts, the init.sh entrypoint) and that its infra
 // support files are embedded.

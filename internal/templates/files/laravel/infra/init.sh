@@ -11,6 +11,19 @@ cd /var/www/html
 
 log() { echo "▶ xdev: $*"; }
 
+# Production (a prod-environment project) installs without dev dependencies and
+# caches config/routes at the end. Everything else is identical, so a Laravel
+# app created in a prod project still comes up instead of needing a deploy
+# pipeline that doesn't exist yet.
+# (`if` rather than `test && x=y`: under `set -e` a failing test as the last
+# command of an && list would abort the script.)
+prod=0
+install_flags="--no-interaction"
+if [ "$APP_ENV" = "production" ]; then
+  prod=1
+  install_flags="--no-interaction --no-dev --optimize-autoloader"
+fi
+
 # 1. Install Laravel on first boot. Build into a temp dir and copy in (incl.
 #    dotfiles) so a stray file in app/ (e.g. a Finder .DS_Store) doesn't trip
 #    composer's "directory not empty" guard.
@@ -25,7 +38,8 @@ fi
 # 2. Ensure PHP dependencies are present.
 if [ ! -f vendor/autoload.php ]; then
   log "composer install…"
-  composer install --no-interaction
+  # shellcheck disable=SC2086 # install_flags is a deliberate word list
+  composer install $install_flags
 fi
 
 # 3. Ensure Octane (Swoole) is installed.
@@ -68,6 +82,13 @@ done
 # 6. Run migrations (non-fatal so a migration hiccup doesn't block serving).
 log "migrate…"
 php artisan migrate --force || true
+
+# 6b. Production: cache config/routes/views. Non-fatal — a cacheable-config
+#     complaint (a closure in a config file) must not stop the app from serving.
+if [ "$prod" = 1 ]; then
+  log "optimize (config/route/view cache)…"
+  php artisan optimize --no-interaction || true
+fi
 
 # 7. Serve via Octane/Swoole (becomes the container's main process).
 log "starting Octane (Swoole) on :8000…"

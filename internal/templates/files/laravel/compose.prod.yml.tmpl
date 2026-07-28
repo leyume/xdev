@@ -2,9 +2,12 @@
 # environment is "prod"). Ported from the bizepp compose.prod.yml.
 # Project: {{.ProjectSlug}}   App: {{.AppSlug}}
 #
-# Uses the hardened Swoole prod image; app code is mounted read-only with
-# writable storage/cache carved out. Build your app (composer install --no-dev +
-# assets) and run migrations BEFORE deploying — do not bootstrap in production.
+# Uses the hardened Swoole prod image. Like the local stack it boots through the
+# mounted _/init.sh, which bootstraps a Laravel install only when app/ has none
+# (a freshly created app) and otherwise goes straight to serving — so deploying
+# built code stays a no-op boot, and creating an app in a prod project still
+# gives you something that runs. APP_ENV=production makes init.sh install
+# without dev dependencies and cache config/routes.
 # Redis persists under _volumes/ (bind-mounts, bizepp format).
 {{- if .SharedDB}}
 #
@@ -18,6 +21,7 @@ services:
     image: docker.io/leyume/swoole:2.0.0-prod
     container_name: {{.ProjectSlug}}_{{.AppSlug}}_app
     restart: unless-stopped
+    command: ["sh", "/init.sh"]
     depends_on:
 {{- if not .SharedDB}}
       - db
@@ -28,20 +32,26 @@ services:
       DB_CONNECTION: mysql
 {{- if .SharedDB}}
       DB_HOST: xdev-db
+      DB_PORT: 3306
       DB_DATABASE: {{.DBName}}
       DB_USERNAME: {{.DBName}}
       DB_PASSWORD: {{.DBPass}}
 {{- else}}
       DB_HOST: db
+      DB_PORT: 3306
       DB_DATABASE: laravel
       DB_USERNAME: laravel
       DB_PASSWORD: ${DB_PASSWORD:-secret}
 {{- end}}
       REDIS_HOST: redis
     volumes:
-      - ../app:/var/www/html:ro
-      - storage:/var/www/html/storage
-      - cache:/var/www/html/bootstrap/cache
+      # Read-write: Laravel needs to write storage/ and bootstrap/cache/ at
+      # runtime, and init.sh bootstraps into an empty app/ on first boot. A
+      # `:ro` code mount with named volumes carved out of it can't work here —
+      # the mountpoints don't exist in an empty app/, so the container fails to
+      # start ("mkdir /var/www/html/storage: read-only file system").
+      - ../app:/var/www/html
+      - ./init.sh:/init.sh:ro
     ports:
       - "{{.HostPort}}:8000"
     healthcheck:
@@ -49,7 +59,9 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      # Generous: a first boot bootstraps Laravel over composer before /up
+      # answers. Later boots serve immediately and pass on the first probe.
+      start_period: 300s
     deploy:
       resources:
         limits:
@@ -115,10 +127,6 @@ services:
 {{- if .SharedDB}}
       - shareddb
 {{- end}}
-
-volumes:
-  storage:
-  cache:
 
 networks:
   internal:

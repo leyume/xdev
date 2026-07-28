@@ -25,10 +25,41 @@ func Compose(ctx context.Context, engine Engine, workdir, project, file string, 
 	cmd.Dir = workdir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(out), fmt.Errorf("%s compose %s failed: %w\n%s",
-			engine, strings.Join(args, " "), err, string(out))
+		return string(out), fmt.Errorf("%s compose %s failed: %w%s\n%s",
+			engine, strings.Join(args, " "), err, salient(string(out)), string(out))
 	}
 	return string(out), nil
+}
+
+// salient picks the one line of engine output worth putting on the error's
+// first line — the UI flashes only that line, and "exit status 1" alone tells
+// nobody anything. Prefers the last line that looks like an error report and
+// falls back to the last non-empty line; returns "" (no suffix) for empty
+// output. The full output still follows on the lines after.
+func salient(out string) string {
+	var last, errLine string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(line, "\r"))
+		if line == "" {
+			continue
+		}
+		last = line
+		if low := strings.ToLower(line); strings.Contains(low, "error") ||
+			strings.Contains(low, "failed") || strings.Contains(low, "cannot") {
+			errLine = line
+		}
+	}
+	if errLine != "" {
+		last = errLine
+	}
+	if last == "" {
+		return ""
+	}
+	const max = 400 // keep it flash-message sized
+	if len(last) > max {
+		last = last[:max] + "…"
+	}
+	return ": " + last
 }
 
 // Up brings the stack up in the background (detached).
@@ -61,8 +92,8 @@ func Running(ctx context.Context, engine Engine, workdir, project, file string) 
 func Exec(ctx context.Context, engine Engine, args ...string) (string, error) {
 	out, err := exec.CommandContext(ctx, string(engine), args...).CombinedOutput()
 	if err != nil {
-		return string(out), fmt.Errorf("%s %s failed: %w\n%s",
-			engine, strings.Join(args, " "), err, string(out))
+		return string(out), fmt.Errorf("%s %s failed: %w%s\n%s",
+			engine, strings.Join(args, " "), err, salient(string(out)), string(out))
 	}
 	return string(out), nil
 }
