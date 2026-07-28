@@ -130,6 +130,21 @@ func (s *Service) ensureWPCore(ctx context.Context) error {
 // untarGz extracts a .tar.gz stream into dest, refusing entries that would
 // escape it. Only files and directories are written — the WP tarball carries
 // nothing else.
+// hasMount reports whether inspect output (one "source:destination" per line)
+// contains a bind of dir at the identical path inside the container. Matching
+// whole lines, not a substring: "/data/wp:/data/wp" is a substring of a mount
+// line for "/other/data/wp:/data/wp", which binds a *different* source at the
+// right destination — exactly the mismatch this check exists to catch.
+func hasMount(inspect, dir string) bool {
+	want := dir + ":" + dir
+	for _, line := range strings.Split(inspect, "\n") {
+		if strings.TrimSpace(line) == want {
+			return true
+		}
+	}
+	return false
+}
+
 func untarGz(r io.Reader, dest string) error {
 	return untarGzFilter(r, dest, nil)
 }
@@ -215,8 +230,8 @@ func (s *Service) ensureWPHost(ctx context.Context, engine runtime.Engine) (int,
 	needRun := inspectErr != nil
 	if inspectErr == nil {
 		mounts, _ := runtime.Exec(ctx, engine, "container", "inspect",
-			"--format", "{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}", wpHostContainer)
-		if !strings.Contains(mounts, s.wpDir+":"+s.wpDir) {
+			"--format", "{{range .Mounts}}{{.Source}}:{{.Destination}}\n{{end}}", wpHostContainer)
+		if !hasMount(mounts, s.wpDir) {
 			if _, rmErr := runtime.Exec(ctx, engine, "rm", "-f", wpHostContainer); rmErr != nil {
 				return 0, fmt.Errorf("wp-host mounts the wrong dir (need %s) and could not be recreated: %w", s.wpDir, rmErr)
 			}
