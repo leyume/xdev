@@ -8,21 +8,21 @@
 </section>
 
 <section class="card kpi-strip">
-  <div class="kpi-cell">
+  <a class="kpi-cell" href="/projects">
     <div class="kpi-label">Projects</div>
     <div class="kpi-num">{{len .Projects}}</div>
     <div class="muted small">{{.TotalApps}} apps total</div>
-  </div>
-  <div class="kpi-cell">
+  </a>
+  <a class="kpi-cell" href="/projects">
     <div class="kpi-label">Running</div>
     <div class="kpi-num ok">{{.Running}}</div>
     <div class="muted small">{{if gt .Stopped 0}}{{.Stopped}} stopped · {{.FirstStopped}}{{else}}all apps healthy{{end}}</div>
-  </div>
-  <div class="kpi-cell">
+  </a>
+  <a class="kpi-cell" href="/projects">
     <div class="kpi-label">Containers</div>
     <div class="kpi-num">{{if .ContainersOK}}{{.Containers}}{{else}}—{{end}}</div>
     <div class="muted small">{{.Engine}}</div>
-  </div>
+  </a>
   <div class="kpi-cell">
     <div class="kpi-label">Certificates</div>
     <div class="kpi-num{{if .CertsOK}} ok{{end}}">{{if .CertsOK}}{{.Certificates}}{{else}}—{{end}}</div>
@@ -33,11 +33,11 @@
     <div class="kpi-num">{{if .Backups}}{{.Backups}}{{else}}—{{end}}</div>
     <div class="muted small">{{if .BackupLast}}last run {{.BackupLast}}{{else}}none yet{{end}}</div>
   </div>
-  <div class="kpi-cell">
+  <a class="kpi-cell" href="/database">
     <div class="kpi-label">Databases</div>
     <div class="kpi-num">{{if .TotalDBs}}{{.TotalDBs}}{{else}}—{{end}}</div>
-    <div class="muted small"><a href="/database">{{.SharedDBs}} shared · {{.DedicatedDBs}} dedicated</a></div>
-  </div>
+    <div class="muted small">{{.SharedDBs}} shared · {{.DedicatedDBs}} dedicated</div>
+  </a>
 </section>
 
 {{template "host_resources" .}}
