@@ -142,19 +142,28 @@ func serverFlags() (*flag.FlagSet, *options) {
 	return fs, o
 }
 
+// localCAName is Caddy's id for its internal CA — the authority under which the
+// local .test/.localhost root and intermediate are stored.
+const localCAName = "local"
+
+// pinCaddyDataDir keeps Caddy's data (local CA, certs) inside xdev's data dir
+// instead of the OS default. Both proxy.caddyDataDir() and Caddy itself honor
+// XDG_DATA_HOME, so this pins the local CA to <data>/caddy — the same host path
+// mounted into a Caddy container. The server and doctor must agree on it, or
+// doctor reports on a CA nothing is using. ponytail: env lever, no new flag.
+func pinCaddyDataDir(dataDir string) {
+	if os.Getenv("XDG_DATA_HOME") == "" {
+		os.Setenv("XDG_DATA_HOME", dataDir)
+	}
+}
+
 func runServer(o *options) error {
 	cfg, err := config.Load(o.dataDir, o.projectsDir, o.addr)
 	if err != nil {
 		return err
 	}
 
-	// Keep Caddy's data (local CA, certs) inside the repo data dir instead of
-	// the OS default. Both caddyDataDir() and Caddy itself honor XDG_DATA_HOME,
-	// so this pins the local CA to <data>/caddy — the same host path you mount
-	// into a Caddy container. ponytail: env lever, no new flag needed.
-	if os.Getenv("XDG_DATA_HOME") == "" {
-		os.Setenv("XDG_DATA_HOME", cfg.DataDir)
-	}
+	pinCaddyDataDir(cfg.DataDir)
 
 	// --- core services -------------------------------------------------------
 	st, err := store.Open(cfg.DBPath)
@@ -191,7 +200,7 @@ func runServer(o *options) error {
 		if d, err := time.ParseDuration(o.localCertTTL); err == nil {
 			leafDur = d
 		}
-		if old, regen := proxy.RefreshStaleIntermediate("local", leafDur); regen {
+		if old, regen := proxy.RefreshStaleIntermediate(localCAName, leafDur); regen {
 			log.Printf("refreshed Caddy local CA intermediate (had %.0f days left); local certs will now last %s",
 				old.Hours()/24, o.localCertTTL)
 		}
@@ -201,19 +210,21 @@ func runServer(o *options) error {
 			log.Printf("reverse proxy disabled: %v", err)
 		} else {
 			defer sup.Stop()
-			recon.Enabled = true
-		}
-	} else {
-		recon.Enabled = pm.Reachable()
-	}
-	if recon.Enabled {
-		if err := recon.Sync(); err != nil {
-			recon.Enabled = false
-			log.Printf("reverse proxy disabled: %v", err)
-			log.Printf("  binding :%d/:%d likely needs privileges — for sudo-free local dev try"+
-				" `-https-port 8443 -http-port 8080`, or run xdev with sudo for clean 443/80.", o.httpsPort, o.httpPort)
 		}
 	}
+	// Push routes. Sync probes Caddy and owns the enabled flag, so an unreachable
+	// proxy is not an error here — just routing that isn't live yet.
+	if err := recon.Sync(); err != nil {
+		log.Printf("reverse proxy: %v", err)
+		log.Printf("  binding :%d/:%d likely needs privileges — for sudo-free local dev try"+
+			" `-https-port 8443 -http-port 8080`, or run xdev with sudo for clean 443/80.", o.httpsPort, o.httpPort)
+	}
+	// Caddy may simply not be up yet (its container starts alongside xdev, with
+	// no ordering between them), so keep trying in the background instead of
+	// leaving routing dead until the next mutation or restart.
+	proxyRetryCtx, stopProxyRetry := context.WithCancel(context.Background())
+	defer stopProxyRetry()
+	go recon.RetryUntilLive(proxyRetryCtx, 5*time.Second)
 
 	srv, err := server.New(st, authsvc, engine, cfg, projSvc, appSvc, recon, o.httpsPort)
 	if err != nil {
@@ -237,11 +248,11 @@ func runServer(o *options) error {
 	log.Printf("  projects:    %s", cfg.ProjectsDir)
 	log.Printf("  engine:      %s (podman usable=%v, docker usable=%v) — switch in the UI or with -engine",
 		engine.Current(), engine.Usable(runtime.Podman), engine.Usable(runtime.Docker))
-	if recon.Enabled {
+	if recon.Enabled() {
 		log.Printf("  proxy:       Caddy serving sites on :%d (https) / :%d (http)", o.httpsPort, o.httpPort)
-		log.Printf("  TLS:         local certs use Caddy's internal CA — run `sudo caddy trust` once so browsers trust https://*.test")
+		log.Printf("  TLS:         local certs use Caddy's internal CA — `xdev doctor` prints the trust command for this OS")
 	} else {
-		log.Printf("  proxy:       disabled — sites reachable directly on their host ports")
+		log.Printf("  proxy:       not live yet — retrying in the background; sites reachable directly on their host ports")
 	}
 	if need, _ := authsvc.NeedsSetup(); need {
 		log.Printf("  first run:   create your admin at http://%s/setup (or run: xdev create-admin you@example.com)", cfg.Addr)

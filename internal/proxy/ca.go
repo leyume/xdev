@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"time"
 )
 
@@ -20,6 +21,52 @@ func caddyDataDir() string {
 		return filepath.Join(home, "Library", "Application Support", "Caddy")
 	}
 	return filepath.Join(home, ".local", "share", "caddy")
+}
+
+// LocalCARoot returns the path to the local CA's root certificate and whether it
+// exists yet. Caddy mints the CA lazily — on the first internal-CA issuance — so
+// a fresh install has no root until the first .test/.localhost site is served.
+// That's why trusting the root can't happen at install time.
+func LocalCARoot(caName string) (string, bool) {
+	path := filepath.Join(caddyDataDir(), "pki", "authorities", caName, "root.crt")
+	_, err := os.Stat(path)
+	return path, err == nil
+}
+
+// LocalCATrusted reports whether the root at path is already accepted by the
+// system trust store, by verifying it against the platform root pool (nil Roots
+// means "use the system pool"). Browsers with their own store — Firefox
+// everywhere, Chrome on Linux — are not covered by this and need a separate
+// import.
+func LocalCATrusted(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return false
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false
+	}
+	// A CA root carries no serving EKU, so accept any.
+	_, err = cert.Verify(x509.VerifyOptions{KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}})
+	return err == nil
+}
+
+// TrustCommand returns the command that installs root into this OS's system
+// trust store. The engine and whether Caddy is a container or a binary make no
+// difference here — the root always lands at the same host path — but the trust
+// store itself is OS-specific.
+func TrustCommand(root string) string {
+	if runtime.GOOS == "darwin" {
+		return "sudo security add-trusted-cert -d -r trustRoot " +
+			"-k /Library/Keychains/System.keychain " + strconv.Quote(root)
+	}
+	return "sudo cp " + strconv.Quote(root) + " /usr/local/share/ca-certificates/xdev-local-ca.crt" +
+		" && sudo update-ca-certificates"
 }
 
 // IntermediateRemaining reports how long the local CA's intermediate is still

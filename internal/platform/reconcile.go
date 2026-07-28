@@ -5,9 +5,13 @@
 package platform
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"xdev/internal/domains"
 	"xdev/internal/proxy"
@@ -20,25 +24,44 @@ type Reconciler struct {
 	proxy     *proxy.Manager
 	hostsPath string
 
-	// Enabled gates all work; set false when no usable Caddy is available, so
-	// the rest of xdev keeps working with direct host-port access.
-	Enabled bool
+	// syncMu serializes Sync so a background retry and a handler mutation can't
+	// interleave two pushes (and two enabled writes) for the same state.
+	syncMu sync.Mutex
+	// enabled reports whether routing is live: true exactly while the last push
+	// to Caddy succeeded. When false the rest of xdev keeps working with direct
+	// host-port access. Read from handler goroutines, so atomic.
+	enabled atomic.Bool
+
 	// ManageHosts toggles writing the hosts file (best-effort; failures are
 	// logged, not fatal, since it usually needs elevated privileges).
 	ManageHosts bool
 }
 
-// NewReconciler builds a Reconciler. Enable it via the Enabled field.
+// NewReconciler builds a Reconciler. Routing starts disabled; the first
+// successful Sync enables it.
 func NewReconciler(st *store.Store, pm *proxy.Manager, hostsPath string, manageHosts bool) *Reconciler {
 	return &Reconciler{store: st, proxy: pm, hostsPath: hostsPath, ManageHosts: manageHosts}
 }
 
-// Sync rebuilds the Caddy config and hosts block from the database. Proxy
-// failures are returned (the caller may disable the proxy); hosts failures are
-// logged but non-fatal.
+// Enabled reports whether Caddy routing is live (the last push succeeded).
+func (r *Reconciler) Enabled() bool { return r.enabled.Load() }
+
+// Sync rebuilds the Caddy config and hosts block from the database, and is the
+// single writer of the enabled flag: routing is live exactly while the most
+// recent push succeeded.
+//
+// When routing is down, Sync first re-probes the admin API rather than giving
+// up permanently. Caddy commonly isn't up yet when xdev starts — its container
+// boots alongside xdev with no ordering between the two — and a one-shot check
+// at startup would leave routing dead until xdev was restarted by hand.
+//
+// Proxy failures are returned; hosts failures are logged but non-fatal.
 func (r *Reconciler) Sync() error {
-	if !r.Enabled {
-		return nil
+	r.syncMu.Lock()
+	defer r.syncMu.Unlock()
+
+	if !r.enabled.Load() && !r.proxy.Reachable() {
+		return nil // Caddy still absent — stay disabled, and don't call it an error
 	}
 	infos, err := r.store.ProxyRoutes()
 	if err != nil {
@@ -66,7 +89,11 @@ func (r *Reconciler) Sync() error {
 	}
 
 	if err := r.proxy.Sync(routes); err != nil {
+		r.enabled.Store(false) // the push didn't land: routing is not live
 		return err
+	}
+	if r.enabled.CompareAndSwap(false, true) {
+		log.Printf("proxy: Caddy reachable — routing enabled (%d routes)", len(routes))
 	}
 	if r.ManageHosts {
 		if err := domains.SyncHosts(r.hostsPath, hostnames); err != nil {
@@ -74,6 +101,33 @@ func (r *Reconciler) Sync() error {
 		}
 	}
 	return nil
+}
+
+// RetryUntilLive re-attempts Sync every interval until routing goes live, then
+// returns. It covers the boot race: on a server xdev and the Caddy container are
+// started independently, so a Sync at startup can legitimately find nothing
+// listening. Without this, routing would stay dead until someone triggered a UI
+// mutation — after a reboot that means every site is down with nothing on screen
+// saying why.
+//
+// ponytail: fixed interval, no backoff — a loopback dial every few seconds costs
+// nothing. Add backoff if this ever probes something off-host.
+func (r *Reconciler) RetryUntilLive(ctx context.Context, interval time.Duration) {
+	logged := false
+	for !r.Enabled() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
+		}
+		// Sync re-probes and flips enabled itself; only report a push that
+		// reached Caddy and failed anyway, and only once — this loop is silent
+		// while it waits.
+		if err := r.Sync(); err != nil && !logged {
+			log.Printf("proxy: sync failed, retrying every %s: %v", interval, err)
+			logged = true
+		}
+	}
 }
 
 // localHosts returns the local (.test/.local, non-.localhost) hostnames that

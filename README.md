@@ -21,10 +21,12 @@ curl -fsSL https://raw.githubusercontent.com/leyume/xdev/main/deploy/install.sh 
 curl -fsSL https://raw.githubusercontent.com/leyume/xdev/main/deploy/install.sh | bash
 ```
 
-The installer detects your OS + CPU arch, installs a container engine, Caddy,
-and Node (for static apps) if they're missing, downloads the matching prebuilt
-binary (verifying its checksum), writes config, installs a service, and creates
-your admin account.
+The installer detects your OS + CPU arch, installs a container engine and Node
+(for static apps) if they're missing, downloads the matching prebuilt binary
+(verifying its checksum), writes config, installs a service, and creates your
+admin account. Caddy defaults to running as a container the installer generates
+and starts — choose `native` at the prompt to install and supervise a Caddy
+binary instead, or `self` to wire xdev to a proxy you already run.
 Full details — non-interactive/automated install, manual steps, uninstall — are
 in [`deploy/README.md`](deploy/README.md).
 
@@ -36,8 +38,10 @@ in [`deploy/README.md`](deploy/README.md).
   folder or run a build/dev command), WordPress, Laravel (auto-installs a fresh
   Laravel + Octane/Swoole with MariaDB + Redis + Adminer); add your own by
   dropping in a Compose template.
-- **Automatic HTTPS** — Caddy obtains/renews certs; local domains use a trusted
-  internal CA (`sudo caddy trust` once for green locks).
+- **Automatic HTTPS** — Caddy obtains/renews certs; local domains use an
+  internal CA. Trust its root once for green locks — Caddy mints it when the
+  first `.test`/`.localhost` site is served, and `xdev doctor` then prints the
+  root's path and the trust command for your OS.
 - **One web UI** — create/start/stop/delete apps, edit `.env`, stream logs, set
   CPU/RAM limits, take backups, and watch per-app + host metrics.
 - **Single binary, single DB** — no external services; upgrades swap the binary

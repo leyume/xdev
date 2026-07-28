@@ -206,13 +206,17 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, page string, dat
 // proxyEnabled reports whether Caddy routing is active (controls whether the UI
 // shows https site URLs).
 func (s *Server) proxyEnabled() bool {
-	return s.reconciler != nil && s.reconciler.Enabled
+	return s.reconciler != nil && s.reconciler.Enabled()
 }
 
 // reconcile re-syncs Caddy + the hosts file with the database after a mutation.
 // Best-effort: failures are logged, not surfaced to the user.
+//
+// Deliberately not gated on proxyEnabled: Sync re-probes a proxy that is down,
+// so a mutation is one of the things that can bring routing back. Skipping the
+// call while disabled is what made that state permanent.
 func (s *Server) reconcile() {
-	if !s.proxyEnabled() {
+	if s.reconciler == nil {
 		return
 	}
 	if err := s.reconciler.Sync(); err != nil {

@@ -124,3 +124,27 @@ func TestUntarGzRejectsEscape(t *testing.T) {
 		t.Fatal("traversal entry was written outside the destination")
 	}
 }
+
+// TestHasMount checks the wp-host bind verification: an exact source:destination
+// pair matches, while a different source at the same destination (a substring of
+// the wanted pair) does not — that mismatch is the whole point of the check.
+func TestHasMount(t *testing.T) {
+	const dir = "/data/wp"
+	cases := []struct {
+		name    string
+		inspect string
+		want    bool
+	}{
+		{"exact", "/data/wp:/data/wp\n", true},
+		{"among others", "/var/x:/var/x\n/data/wp:/data/wp\n", true},
+		{"wrong source, right dest", "/other/data/wp:/data/wp\n", false},
+		{"wrong dest", "/data/wp:/srv/wp\n", false},
+		{"longer sibling dir", "/data/wp2:/data/wp2\n", false},
+		{"no mounts", "", false},
+	}
+	for _, c := range cases {
+		if got := hasMount(c.inspect, dir); got != c.want {
+			t.Errorf("%s: hasMount(%q, %q) = %v, want %v", c.name, c.inspect, dir, got, c.want)
+		}
+	}
+}
