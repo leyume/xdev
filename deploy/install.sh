@@ -272,6 +272,39 @@ install_node() {
   have node && have npm && ok "node ready ($(node --version 2>/dev/null))" || die "node still not on PATH after install"
 }
 
+# Go apps build and run on the host toolchain (like static apps use host Node),
+# so `go` has to be on PATH. Skipped when XDEV_GO=false.
+install_go() {
+  if [ "$MANAGE_GO" != "true" ]; then
+    info "skipping Go install (Go apps need it; XDEV_GO=false)"; return 0
+  fi
+  if have go; then ok "go present ($(go version 2>/dev/null | awk '{print $3}'))"; return 0; fi
+  info "installing go…"
+  if [ "$OS" = linux ]; then
+    # Distro golang lags well behind; take the official tarball, matching the
+    # arch already detected for the xdev binary.
+    local goarch=amd64; [ "$ARCH" = arm64 ] && goarch=arm64
+    local ver; ver="$(curl -fsSL https://go.dev/VERSION?m=text 2>/dev/null | head -n1)"
+    if [ -z "$ver" ]; then
+      warn "could not reach go.dev; falling back to distro golang-go (may be older)"
+      as_root apt-get update -qq && as_root apt-get install -y -qq golang-go || die "could not install go"
+    else
+      local tgz="/tmp/${ver}.linux-${goarch}.tar.gz"
+      curl -fsSL "https://go.dev/dl/${ver}.linux-${goarch}.tar.gz" -o "$tgz" || die "could not download $ver"
+      as_root rm -rf /usr/local/go && as_root tar -C /usr/local -xzf "$tgz" || die "could not unpack go"
+      rm -f "$tgz"
+      # /usr/local/go/bin is not on a default PATH; link the binaries somewhere
+      # that is, so xdev (and its systemd unit) find them.
+      as_root ln -sf /usr/local/go/bin/go /usr/local/bin/go
+      as_root ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+    fi
+  else
+    have brew || die "Homebrew required to install go on macOS"
+    brew install go || die "brew install go failed"
+  fi
+  have go && ok "go ready ($(go version 2>/dev/null | awk '{print $3}'))" || die "go still not on PATH after install"
+}
+
 # --- 4. interactive configuration -------------------------------------------
 configure() {
   # Re-run / non-fresh box: detect an existing install so we upgrade in place
@@ -298,6 +331,7 @@ configure() {
   esac
   MANAGE_CADDY="$XDEV_CADDY"   # install_caddy installs the native binary only when true
   yesno XDEV_NODE "Install Node for static apps (host Node, no container)?" "Y"; MANAGE_NODE="$XDEV_NODE"
+  yesno XDEV_GO "Install Go for Go apps (host toolchain, no container)?" "Y"; MANAGE_GO="$XDEV_GO"
 
   # How Caddy reaches xdev's app/fpm ports + its own admin endpoint. For a
   # container we derive these from the engine (the compose we generate matches);
@@ -334,6 +368,19 @@ configure() {
   # 8444/8081 to run beside an existing proxy (Traefik/nginx) during migration.
   ask XDEV_HTTPS_PORT "HTTPS port for served sites" "443"
   ask XDEV_HTTP_PORT "HTTP port (auto-redirects to HTTPS)" "80"
+
+  # On alt ports no public cert can be issued (Let's Encrypt validates over
+  # 80/443), so HTTPS can't work yet and the redirect just hides the sites.
+  # Offer plain-HTTP preview when the ports say "migration", not on a normal deploy.
+  if [ "$XDEV_HTTP_PORT" != 80 ] || [ "$XDEV_HTTPS_PORT" != 443 ]; then
+    info "non-standard ports: Let's Encrypt can't issue certs here (it validates over 80/443)"
+    yesno XDEV_DISABLE_HTTPS_REDIRECT \
+      "Serve sites over plain HTTP on ${XDEV_HTTP_PORT} so you can verify them before cutover?" "Y"
+    [ "$XDEV_DISABLE_HTTPS_REDIRECT" = true ] && \
+      warn "remember to set XDEV_DISABLE_HTTPS_REDIRECT=false when you move to 80/443 — it disables the HTTPS redirect"
+  else
+    : "${XDEV_DISABLE_HTTPS_REDIRECT:=false}"
+  fi
 
   ask XDEV_ADDR "Admin UI address" "127.0.0.1:7331"
   # Admin account: only prompt on a fresh install. On a re-run the existing admin
@@ -427,6 +474,9 @@ XDEV_UPSTREAM_HOST=${XDEV_UPSTREAM_HOST:-127.0.0.1}
 XDEV_CADDY_ADMIN_LISTEN=${XDEV_CADDY_ADMIN_LISTEN:-}
 XDEV_HTTPS_PORT=${XDEV_HTTPS_PORT}
 XDEV_HTTP_PORT=${XDEV_HTTP_PORT}
+# Migration only: serve sites over plain HTTP with no HTTPS redirect. Set back to
+# false once the ports are 80/443, or sites stay plaintext.
+XDEV_DISABLE_HTTPS_REDIRECT=${XDEV_DISABLE_HTTPS_REDIRECT:-false}
 XDEV_ACME_EMAIL=${XDEV_ACME_EMAIL:-}
 XDEV_LOCAL_CERT_LIFETIME=${XDEV_LOCAL_CERT_LIFETIME:-2160h}
 # --- hosts ---
@@ -587,6 +637,7 @@ main() {
   install_engine
   install_caddy
   install_node
+  install_go
   download_binary
   write_config
   setup_caddy_container   # generate + start the Caddy container (container mode only)
