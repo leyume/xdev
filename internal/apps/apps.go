@@ -338,8 +338,14 @@ func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.P
 	// operator to notice the compose file names something they didn't ask for.
 	var appImage string
 	if opts.Type == "laravel" {
+		engine := runtime.Engine(app.Runtime)
+		if engine == "" {
+			engine = s.sel.Current()
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
 		var reason string
-		appImage, reason = templates.ResolveLaravelImage(proj.Environment)
+		appImage, reason = laravelImage(ctx, engine, proj.Environment)
+		cancel()
 		if reason != "" {
 			log.Printf("app %s/%s: %s", proj.Slug, app.Slug, reason)
 		}

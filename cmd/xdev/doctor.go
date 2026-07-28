@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -151,9 +152,20 @@ func runDoctor(args []string) error {
 	// mismatch here doesn't fail at pull time — the container starts and dies
 	// with "exec format error" — so report what this machine will actually get
 	// while there's still nothing to debug.
+	// Ask the registry the same way app creation does, so what doctor reports and
+	// what a new app actually gets can't disagree.
+	archLookup := func(img string) ([]string, bool) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		arches, err := runtime.ImagePlatforms(ctx, sel.Current(), img)
+		if err != nil {
+			return nil, false
+		}
+		return arches, true
+	}
 	for _, env := range []string{"local", "prod"} {
-		image, reason := templates.LaravelImage(env, goruntime.GOARCH,
-			os.Getenv("XDEV_LARAVEL_IMAGE"))
+		image, reason := templates.LaravelImageDetected(env, goruntime.GOARCH,
+			os.Getenv("XDEV_LARAVEL_IMAGE"), archLookup)
 		label := "laravel " + env // fits the aligned label column
 		switch {
 		case reason == "":

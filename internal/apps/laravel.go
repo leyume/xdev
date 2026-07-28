@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	goruntime "runtime" // stdlib; xdev/internal/runtime owns the plain name here
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +29,31 @@ const laravelBootstrapImage = "docker.io/library/composer:2"
 // bootstrapTimeout covers a cold `composer create-project` plus an octane
 // install, on a slow network, with the image still to pull.
 const bootstrapTimeout = 15 * time.Minute
+
+// manifestTimeout bounds a registry manifest lookup. It is short on purpose:
+// the answer only refines a choice that already has a usable offline default,
+// so a slow or unreachable registry must not hold up creating an app.
+const manifestTimeout = 15 * time.Second
+
+// laravelImage resolves the image a laravel app in this environment should run,
+// asking the registry which architectures each candidate is actually published
+// for. Detection is what lets a newly published multi-arch tag take effect
+// without a code change; when it can't answer — offline, private registry, an
+// engine that reports manifests differently — the choice falls back to what the
+// package recorded, so app creation never depends on reaching a registry.
+func laravelImage(ctx context.Context, engine runtime.Engine, env string) (image, reason string) {
+	lookup := func(img string) ([]string, bool) {
+		lctx, cancel := context.WithTimeout(ctx, manifestTimeout)
+		defer cancel()
+		arches, err := runtime.ImagePlatforms(lctx, engine, img)
+		if err != nil {
+			return nil, false
+		}
+		return arches, true
+	}
+	return templates.LaravelImageDetected(env, goruntime.GOARCH,
+		os.Getenv("XDEV_LARAVEL_IMAGE"), lookup)
+}
 
 // ensureLaravelBootstrap scaffolds a Laravel install into an app's empty app/
 // before its stack starts.
@@ -69,7 +95,7 @@ func (s *Service) ensureLaravelBootstrap(ctx context.Context, app store.App, pro
 	// unwritable by the app that has to serve — and migrate — from it. Resolve
 	// the same way the compose file did, so we chown for the image that will
 	// actually run rather than a hardcoded guess.
-	serveImage, _ := templates.ResolveLaravelImage(proj.Environment)
+	serveImage, _ := laravelImage(ctx, engine, proj.Environment)
 	uid, gid, err := imageUser(ctx, engine, serveImage)
 	if err != nil {
 		return fmt.Errorf("laravel bootstrap: %w", err)

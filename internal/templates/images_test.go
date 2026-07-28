@@ -137,3 +137,66 @@ func TestNoSingleArchCustomImages(t *testing.T) {
 		}
 	}
 }
+
+// TestLaravelImageDetected: live platform data overrides the offline table, and
+// the point of the whole exercise is the "multi-arch published" row — the day
+// both tags go multi-arch, every environment gets the variant it asked for with
+// no code change.
+func TestLaravelImageDetected(t *testing.T) {
+	lookupFrom := func(m map[string][]string) ArchLookup {
+		return func(img string) ([]string, bool) {
+			arches, ok := m[img]
+			return arches, ok
+		}
+	}
+	multiArch := lookupFrom(map[string][]string{
+		LaravelImageDev:  {"amd64", "arm64"},
+		LaravelImageProd: {"amd64", "arm64"},
+	})
+	// Detection disagreeing with the stale table: dev has since been rebuilt
+	// for amd64, and only the live answer knows.
+	devRepublished := lookupFrom(map[string][]string{
+		LaravelImageDev: {"amd64"},
+	})
+
+	cases := []struct {
+		name     string
+		env      string
+		goarch   string
+		lookup   ArchLookup
+		want     string
+		fallback bool
+	}{
+		{"multi-arch: local gets dev on amd64", "local", "amd64", multiArch, LaravelImageDev, false},
+		{"multi-arch: local gets dev on arm64", "local", "arm64", multiArch, LaravelImageDev, false},
+		{"multi-arch: prod gets prod on arm64", "prod", "arm64", multiArch, LaravelImageProd, false},
+		{"detection beats the stale table", "local", "amd64", devRepublished, LaravelImageDev, false},
+		// Lookup that can't answer (offline, private registry) must degrade to
+		// the recorded table rather than to "runs nowhere".
+		{"no lookup falls back to table", "local", "amd64", nil, LaravelImageProd, true},
+		{"unknown to lookup falls back to table", "prod", "arm64",
+			lookupFrom(map[string][]string{}), LaravelImageDev, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, reason := LaravelImageDetected(tc.env, tc.goarch, "", tc.lookup)
+			if got != tc.want {
+				t.Errorf("image = %q, want %q", got, tc.want)
+			}
+			if tc.fallback != (reason != "") {
+				t.Errorf("fallback = %v, reason = %q", tc.fallback, reason)
+			}
+		})
+	}
+
+	// An override short-circuits detection entirely — no lookup should happen.
+	called := false
+	got, reason := LaravelImageDetected("local", "amd64", "ghcr.io/me/x:1",
+		func(string) ([]string, bool) { called = true; return nil, true })
+	if got != "ghcr.io/me/x:1" || reason != "" {
+		t.Errorf("override: got %q / %q", got, reason)
+	}
+	if called {
+		t.Error("override must not consult the registry")
+	}
+}
