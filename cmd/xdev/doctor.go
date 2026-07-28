@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime" // stdlib; xdev/internal/runtime owns the plain name here
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"xdev/internal/proxy"
 	"xdev/internal/runtime"
 	"xdev/internal/store"
+	"xdev/internal/templates"
 )
 
 // runDoctor resolves config the same way the server does, then prints a
@@ -141,6 +144,36 @@ func runDoctor(args []string) error {
 			d.fail("admin account", "none yet  → run: xdev create-admin you@example.com", false)
 		} else {
 			d.ok("admin account", "configured")
+		}
+	}
+
+	// --- app images ----------------------------------------------------------
+	// Laravel's image is chosen per environment and per host architecture. A
+	// mismatch here doesn't fail at pull time — the container starts and dies
+	// with "exec format error" — so report what this machine will actually get
+	// while there's still nothing to debug.
+	// Ask the registry the same way app creation does, so what doctor reports and
+	// what a new app actually gets can't disagree.
+	archLookup := func(img string) ([]string, bool) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		arches, err := runtime.ImagePlatforms(ctx, sel.Current(), img)
+		if err != nil {
+			return nil, false
+		}
+		return arches, true
+	}
+	for _, env := range []string{"local", "prod"} {
+		image, reason := templates.LaravelImageDetected(env, goruntime.GOARCH,
+			os.Getenv("XDEV_LARAVEL_IMAGE"), archLookup)
+		label := "laravel " + env // fits the aligned label column
+		switch {
+		case reason == "":
+			d.ok(label, image)
+		case strings.HasPrefix(reason, "no laravel image"):
+			d.fail(label, reason, false)
+		default:
+			d.warn(label, reason)
 		}
 	}
 

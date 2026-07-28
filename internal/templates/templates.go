@@ -28,6 +28,7 @@ type Data struct {
 	AppSlug     string
 	AppType     string
 	Env         string // local | prod (selects compose.prod.yml.tmpl when prod)
+	AppImage    string // image the app service runs; "" lets RenderCompose resolve it
 	HostPort    int
 	AdminerPort int     // published host port for the secondary HTTP UI (laravel Adminer, mail admin); 0 = none
 	CPULimit    float64 // cores; 0 = unlimited
@@ -84,6 +85,12 @@ func IsValidType(t string) bool {
 // RenderCompose renders the compose template for an app type. When d.Env is
 // "prod" and a compose.prod.yml.tmpl exists, it is preferred over the dev one.
 func RenderCompose(appType string, d Data) (string, error) {
+	// Resolve the app image unless the caller pinned one. Doing it here keeps
+	// every caller — the apps service, tests, anything later — on the same
+	// architecture-aware choice instead of hardcoding a tag in the template.
+	if d.AppImage == "" && appType == "laravel" {
+		d.AppImage, _ = ResolveLaravelImage(d.Env)
+	}
 	candidates := make([]string, 0, 2)
 	if d.Env == "prod" {
 		candidates = append(candidates, "files/"+appType+"/compose.prod.yml.tmpl")
