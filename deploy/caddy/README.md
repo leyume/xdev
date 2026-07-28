@@ -8,9 +8,11 @@ its admin API, exactly as it does the supervised local binary.
 > `install.sh` (the default) generates the engine-appropriate stack next to
 > `xdev.env` (`…/xdev/caddy/docker-compose.yml`), sets `XDEV_UPSTREAM_HOST` /
 > `XDEV_CADDY_ADMIN_LISTEN`, and starts it for you. This doc explains what that
-> stack is and how to run/edit it manually (self-managed installs, or tweaking).
-> The committed `docker-compose.yml` / `docker-compose.linux.yml` are the same
-> templates the installer emits.
+> stack is and how to run/edit it after the fact.
+>
+> `setup_caddy_container` in [`../install.sh`](../install.sh) is the only place
+> the stack is defined — there is no committed copy to drift out of sync with it.
+> The two shapes it emits are described below.
 
 ## How it fits together
 
@@ -29,10 +31,13 @@ Caddy config. Set it to the engine's host alias.
 
 ## Run it manually (installer already does this in container mode)
 
+The generated stack lives next to `xdev.env` — `/etc/xdev/caddy/` on Linux,
+`~/Library/Application Support/xdev/caddy/` for a non-root macOS install. Paths
+are baked in at generation time, so no `XDEV_DATA` export is needed:
+
 ```bash
-export XDEV_DATA=/var/lib/xdev            # same as xdev.env; on macOS your data dir
-podman compose -f deploy/caddy/docker-compose.yml up -d    # macOS
-# docker compose -f deploy/caddy/docker-compose.linux.yml up -d  # Linux server (host networking)
+podman compose -f <config dir>/caddy/docker-compose.yml up -d   # macOS / rootless
+sudo docker compose -f /etc/xdev/caddy/docker-compose.yml up -d # Linux server
 ```
 
 And the matching `xdev.env` (the installer writes these for you):
@@ -49,25 +54,44 @@ every config reload, so a pushed config that omitted the admin block would drop
 the endpoint off its published `0.0.0.0:2019` binding and xdev could never push
 again. Setting it makes xdev re-assert the same admin binding in every sync.
 
-xdev degrades gracefully if the container isn't up yet (`pm.Reachable()`), and
-syncs routes on the next mutation once it is.
+xdev degrades gracefully if the container isn't up yet: routing starts disabled,
+a background loop retries every 5s, and the first successful push enables it
+(logged as `proxy: Caddy reachable — routing enabled`). Any mutation retries too.
+This matters on a server, where systemd starts xdev and the engine starts Caddy
+with no ordering between them — whichever wins, routing converges without a
+restart.
 
 ## TLS trust (local `.test`)
 
-The container's local CA lives in the repo data dir at
-`${XDEV_DATA}/caddy/pki/authorities/local/root.crt`. Trust it once so browsers
-accept `https://*.test`:
+The container's local CA lives in the data dir at
+`${XDEV_DATA}/caddy/pki/authorities/local/root.crt`. **Caddy only mints it on the
+first internal-CA issuance**, so on a fresh install the file does not exist yet —
+serve one `.test`/`.localhost` site first, then trust it once:
 
 ```bash
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \
-  "${XDEV_DATA}/caddy/pki/authorities/local/root.crt"     # macOS
+xdev doctor    # prints the root's path + the trust command for this OS
 ```
+
+`sudo caddy trust` is not available here — there is no Caddy binary on the host.
+The commands doctor prints are:
+
+```bash
+# macOS
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \
+  "${XDEV_DATA}/caddy/pki/authorities/local/root.crt"
+# Linux (Debian/Ubuntu)
+sudo cp "${XDEV_DATA}/caddy/pki/authorities/local/root.crt" \
+  /usr/local/share/ca-certificates/xdev-local-ca.crt && sudo update-ca-certificates
+```
+
+Firefox (all platforms) and Chrome on Linux use their own NSS trust store rather
+than the system one, so they need the root imported separately.
 
 ## On a Linux server (Docker) — host networking
 
-On a Docker server the installer emits `docker-compose.linux.yml` (host
-networking) — this section is why. The macOS compose **port-maps** the container
-and dials `host.containers.internal`, which does not translate to Linux Docker:
+On docker the installer emits a `network_mode: host` stack — this section is why.
+The podman shape **port-maps** the container and dials
+`host.containers.internal`, which does not translate to Linux Docker:
 most xdev upstreams (Go apps, static/Node dev servers, shared-WP fpm, shared
 MariaDB, adminer) bind `127.0.0.1`, and a bridged container **cannot** reach the
 host's loopback on Linux (podman/gvproxy only papers over this on macOS).
@@ -75,8 +99,7 @@ host's loopback on Linux (podman/gvproxy only papers over this on macOS).
 binary. To run/inspect it by hand:
 
 ```bash
-export XDEV_DATA=/var/lib/xdev
-docker compose -f deploy/caddy/docker-compose.linux.yml up -d
+sudo docker compose -f /etc/xdev/caddy/docker-compose.yml up -d
 ```
 
 `xdev.env` for the server:

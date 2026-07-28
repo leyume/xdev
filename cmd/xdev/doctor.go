@@ -7,8 +7,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"xdev/internal/config"
+	"xdev/internal/proxy"
 	"xdev/internal/runtime"
 	"xdev/internal/store"
 )
@@ -30,6 +32,8 @@ func runDoctor(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Resolve the local CA out of the same dir the server uses, not the OS default.
+	pinCaddyDataDir(cfg.DataDir)
 
 	d := &doctorReport{}
 	fmt.Println("xdev doctor")
@@ -58,21 +62,67 @@ func runDoctor(args []string) error {
 
 	// --- caddy ---------------------------------------------------------------
 	if o.caddyManage {
+		// Native mode: xdev supervises the binary, so nothing is listening on the
+		// admin port while doctor runs standalone — check the binary instead.
 		if path, err := exec.LookPath("caddy"); err == nil {
 			d.ok("caddy", caddyVersion(path))
 		} else {
 			d.fail("caddy", "not found on PATH (install caddy, or run with -caddy=false)", true)
 		}
 	} else {
-		d.skip("caddy", "supervision disabled (-caddy=false)")
+		// Caddy runs outside xdev (containerized or self-managed). The only thing
+		// that matters then is whether xdev can reach the admin API it pushes
+		// routes to — one check covering every combination, because both engines
+		// are dialed at the same XDEV_CADDY_ADMIN: podman publishes
+		// 127.0.0.1:2019:2019, docker uses host networking and loopback 2019.
+		// Unreachable is a required failure regardless of who owns that Caddy: no
+		// admin API means xdev cannot route a single request.
+		pm := proxy.NewManager(o.caddyAdmin, o.httpsPort, o.httpPort, o.acmeEmail, o.localCertTTL)
+		if pm.Reachable() {
+			d.ok("caddy admin", o.caddyAdmin+" reachable")
+		} else {
+			d.fail("caddy admin", o.caddyAdmin+" unreachable — xdev cannot push routes", true)
+			d.note(fmt.Sprintf("containerized Caddy: %s compose -f <config dir>/caddy/docker-compose.yml up -d", sel.Current()))
+		}
+	}
+
+	// --- local CA trust ------------------------------------------------------
+	// Only meaningful for local dev: prod domains get ACME certs, never the
+	// internal CA. manage-hosts is the existing local/prod signal (the installer
+	// sets it true for local, false for prod).
+	if o.manageHosts {
+		switch root, exists := proxy.LocalCARoot(localCAName); {
+		case !exists:
+			d.skip("local CA", "not issued yet — Caddy mints it when the first .test/.localhost site is served")
+		case proxy.LocalCATrusted(root):
+			d.ok("local CA", "trusted by the system store")
+		default:
+			d.warn("local CA", "not trusted — browsers will warn on https://*.test")
+			d.note(proxy.TrustCommand(root))
+		}
+	} else {
+		d.skip("local CA", "prod mode serves ACME certificates")
 	}
 
 	// --- ports ---------------------------------------------------------------
+	// Who binds the site ports depends on the mode, so the useful check inverts:
+	// supervised Caddy is xdev's own child, so xdev must be able to bind them —
+	// but a containerized or self-managed Caddy *owns* them, and asking whether
+	// xdev could bind reports a healthy install as broken.
 	label := fmt.Sprintf("ports %d / %d", o.httpsPort, o.httpPort)
-	if blocked := unbindablePorts(o.httpsPort, o.httpPort); len(blocked) == 0 {
-		d.ok(label, "bindable")
+	if o.caddyManage {
+		if blocked := unbindablePorts(o.httpsPort, o.httpPort); len(blocked) == 0 {
+			d.ok(label, "bindable")
+		} else {
+			d.fail(label, fmt.Sprintf("cannot bind %s (in use or needs privileges)", strings.Join(blocked, ", ")), true)
+		}
+	} else if quiet := unservedPorts(o.httpsPort, o.httpPort); len(quiet) == 0 {
+		d.ok(label, "served by Caddy")
 	} else {
-		d.fail(label, fmt.Sprintf("cannot bind %s (in use or needs privileges)", strings.Join(blocked, ", ")), true)
+		// Not a failure: Caddy publishes the site ports only once xdev has pushed
+		// a config, so silence is expected until the first app exists.
+		d.warn(label, fmt.Sprintf("nothing serving %s — expected before the first app; otherwise check Caddy",
+			strings.Join(quiet, ", ")))
 	}
 
 	// --- data dir + admin ----------------------------------------------------
@@ -118,6 +168,10 @@ type doctorReport struct{ failed bool }
 func (d *doctorReport) ok(label, detail string)   { d.print("✓", label, detail) }
 func (d *doctorReport) warn(label, detail string) { d.print("!", label, detail) }
 func (d *doctorReport) skip(label, detail string) { d.print("–", label, detail) }
+
+// note prints an indented continuation line under the previous check — for a
+// fix-it command too long to sit in the detail column.
+func (d *doctorReport) note(text string) { fmt.Printf("  %-16s   %s\n", "", text) }
 
 func (d *doctorReport) fail(label, detail string, required bool) {
 	d.print("✗", label, detail)
@@ -179,6 +233,23 @@ func unbindablePorts(ports ...int) []string {
 		ln.Close()
 	}
 	return blocked
+}
+
+// unservedPorts returns the ports (as strings) that nothing is listening on.
+// A successful dial is unambiguous where a failed bind is not: "cannot bind"
+// conflates "someone is serving this" with "this needs privileges", and only the
+// former means the proxy is doing its job.
+func unservedPorts(ports ...int) []string {
+	var quiet []string
+	for _, p := range ports {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", p), 2*time.Second)
+		if err != nil {
+			quiet = append(quiet, fmt.Sprintf("%d", p))
+			continue
+		}
+		conn.Close()
+	}
+	return quiet
 }
 
 // writableDir reports whether dir exists and accepts a new file.

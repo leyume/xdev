@@ -205,7 +205,9 @@ setup_caddy_container() {
   as_root mkdir -p "$dir" "$DATA_DIR/caddy" "$DATA_DIR/wp"
   info "generating Caddy container stack in ${dir}…"
   if [ "$XDEV_ENGINE" = podman ]; then
-    printf '%s\n' '{ "admin": { "listen": "0.0.0.0:2019", "origins": ["127.0.0.1:2019","localhost:2019"] } }' \
+    # Origins must match proxy.adminOrigins(), which xdev re-asserts on every
+    # push — otherwise the accepted origin set changes after the first sync.
+    printf '%s\n' '{ "admin": { "listen": "0.0.0.0:2019", "origins": ["127.0.0.1:2019","localhost:2019","[::1]:2019"] } }' \
       | as_root tee "$dir/caddy-init.json" >/dev/null
     as_root tee "$dir/docker-compose.yml" >/dev/null <<EOF
 services:
@@ -513,10 +515,19 @@ create_admin() {
   fi
 }
 
+# Trust the local CA so browsers accept https://*.test / *.localhost. Only
+# native mode can do this at install time: `caddy trust` uses the local binary to
+# mint the CA on demand. With a containerized (or self-managed) Caddy there is no
+# binary here, and Caddy only mints the CA on its first .test/.localhost
+# issuance — which hasn't happened yet on a fresh install, so there is nothing to
+# trust. `xdev doctor` reports the root and the OS-specific trust command once it
+# exists; print_next_steps runs doctor, so that lands right below this.
 maybe_trust_ca() {
-  [ "$OS" = darwin ] || return 0
-  [ "$XDEV_MODE" = local ] || return 0
-  [ "$MANAGE_CADDY" = true ] || return 0
+  [ "$XDEV_MODE" = local ] || return 0   # prod serves ACME certs, not the internal CA
+  if [ "$MANAGE_CADDY" != true ]; then
+    info "local CA: Caddy mints it on the first .test site — 'xdev doctor' then prints the trust command"
+    return 0
+  fi
   yesno XDEV_TRUST_CA "Trust xdev's local CA so https://*.localhost is green? (sudo caddy trust)" "Y"
   if [ "$XDEV_TRUST_CA" = true ] && have caddy; then
     sudo caddy trust 2>/dev/null && ok "local CA trusted" || warn "caddy trust failed (run it later: sudo caddy trust)"
