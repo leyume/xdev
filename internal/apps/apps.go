@@ -333,12 +333,25 @@ func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.P
 		}
 	}
 
+	// Laravel picks its image per environment and per host architecture; log any
+	// substitution here, where it happens once per app, rather than leaving the
+	// operator to notice the compose file names something they didn't ask for.
+	var appImage string
+	if opts.Type == "laravel" {
+		var reason string
+		appImage, reason = templates.ResolveLaravelImage(proj.Environment)
+		if reason != "" {
+			log.Printf("app %s/%s: %s", proj.Slug, app.Slug, reason)
+		}
+	}
+
 	composeStr, err := templates.RenderCompose(opts.Type, templates.Data{
 		ProjectSlug: proj.Slug,
 		NetworkName: proj.NetworkName,
 		AppSlug:     app.Slug,
 		AppType:     opts.Type,
 		Env:         proj.Environment,
+		AppImage:    appImage,
 		HostPort:    port,
 		AdminerPort: adminerPort,
 		CPULimit:    opts.CPULimit,
@@ -532,6 +545,18 @@ func (s *Service) Start(id int64) error {
 	}
 	_, engine, workdir, pname, file, err := s.composeCtx(id)
 	if err != nil {
+		return err
+	}
+	// A Laravel stack can't scaffold itself (the image it serves from has no
+	// composer), so seed app/ first if it's still empty. No-op for other apps.
+	proj, err := s.store.ProjectByID(app.ProjectID)
+	if err != nil {
+		return err
+	}
+	bctx, bcancel := context.WithTimeout(context.Background(), bootstrapTimeout)
+	defer bcancel()
+	if err := s.ensureLaravelBootstrap(bctx, app, proj); err != nil {
+		s.store.SetAppStatus(app.ID, store.AppError)
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)

@@ -50,8 +50,18 @@ func TestProdComposeSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render laravel prod: %v", err)
 	}
-	if !strings.Contains(out, "2.0.0-prod") {
-		t.Errorf("prod laravel should use the prod image:\n%s", out)
+	// Both variants now serve from the same image (the -dev tag is arm64-only),
+	// so anchor on something the prod stack alone has.
+	if !strings.Contains(out, "APP_ENV: production") {
+		t.Errorf("prod laravel should select the prod compose variant:\n%s", out)
+	}
+	local := Data{ProjectSlug: "p", NetworkName: "xdev_p", AppSlug: "api", AppType: "laravel", HostPort: 8000}
+	lout, err := RenderCompose("laravel", local)
+	if err != nil {
+		t.Fatalf("render laravel local: %v", err)
+	}
+	if strings.Contains(lout, "APP_ENV: production") {
+		t.Errorf("local laravel should select the dev compose variant:\n%s", lout)
 	}
 
 	// A type without a prod variant falls back to the dev template.
@@ -233,4 +243,107 @@ func TestRenderWithLimits(t *testing.T) {
 			t.Errorf("limits: missing %q\n%s", want, out)
 		}
 	}
+}
+
+// TestLaravelInitNoComposerAfterBootstrap guards the prod path: the hardened
+// image ships no composer, so once app/ is bootstrapped init.sh must reach
+// octane:start without invoking composer at all. Every composer call therefore
+// has to sit behind a filesystem guard that a bootstrapped tree already
+// satisfies — a `composer show` probe would exit 127 ("not found"), read as
+// "not installed", and send the container into a `composer require` it cannot
+// run.
+func TestLaravelInitNoComposerAfterBootstrap(t *testing.T) {
+	files, err := InfraFiles("laravel")
+	if err != nil {
+		t.Fatalf("InfraFiles: %v", err)
+	}
+	init, ok := files["init.sh"]
+	if !ok {
+		t.Fatal("laravel infra has no init.sh")
+	}
+	script := uncomment(string(init))
+
+	if strings.Contains(script, "composer show") {
+		t.Error("init.sh gates octane on `composer show`; the prod image has no composer")
+	}
+	for _, want := range []string{
+		"[ ! -f artisan ]",             // create-project guard
+		"[ ! -f vendor/autoload.php ]", // install guard
+		"[ ! -d vendor/laravel/octane ]",
+		"XDEV_BOOTSTRAP_ONLY",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("init.sh missing %q", want)
+		}
+	}
+}
+
+// TestLaravelInitBootstrapOnlyStopsBeforeDatabase: the bootstrap container runs
+// unattached to the stack's network, so it must exit before the database wait
+// and hand ownership to the (unprivileged) prod image's user.
+func TestLaravelInitBootstrapOnlyStopsBeforeDatabase(t *testing.T) {
+	files, _ := InfraFiles("laravel")
+	script := uncomment(string(files["init.sh"]))
+
+	guard := strings.LastIndex(script, `if [ "$XDEV_BOOTSTRAP_ONLY" = "1" ]`)
+	if guard < 0 {
+		t.Fatal("init.sh has no bootstrap-only guard")
+	}
+	// The bootstrap container has composer but not the app's PHP/extensions, and
+	// isn't on the stack's network. Nothing that boots Laravel or talks to the
+	// database may run before it exits.
+	for _, after := range []string{
+		"php artisan octane:install", "key:generate",
+		"waiting for database", "php artisan migrate", "octane:start",
+	} {
+		if at := strings.Index(script, after); at >= 0 && at < guard {
+			t.Errorf("%q runs before the bootstrap-only exit; the bootstrap container can't do it", after)
+		}
+	}
+	// ...and every composer call must run before it, since the runtime image
+	// may not have composer at all.
+	for _, before := range []string{"composer create-project", "composer install", "composer require"} {
+		at := strings.Index(script, before)
+		if at < 0 {
+			t.Errorf("init.sh no longer runs %q", before)
+			continue
+		}
+		if at > guard {
+			t.Errorf("%q runs after the bootstrap-only exit; the runtime image may have no composer", before)
+		}
+	}
+	if !strings.Contains(script[guard:], "chown -R") {
+		t.Error("bootstrap-only must chown the tree to the runtime image's user")
+	}
+
+	// Composer's own scripts are artisan in disguise — Laravel's
+	// post-create-project-cmd runs `artisan migrate`, which has no database to
+	// reach from the bootstrap container. Turning scripts off is what keeps the
+	// split from leaking.
+	if !strings.Contains(script[:guard], "--no-scripts") {
+		t.Error("bootstrap mode must pass --no-scripts; composer scripts boot artisan")
+	}
+	// ...which means nothing creates .env, so the runtime half must, before
+	// key:generate writes into it.
+	env := strings.Index(script, "cp .env.example .env")
+	keygen := strings.Index(script, "key:generate")
+	if env < 0 {
+		t.Error("init.sh must seed .env; --no-scripts skips the script that would")
+	} else if keygen >= 0 && env > keygen {
+		t.Error(".env must be seeded before key:generate, which writes into it")
+	}
+}
+
+// uncomment strips shell comment lines so a test asserting on what init.sh
+// *does* isn't tripped by prose explaining what it deliberately avoids.
+func uncomment(script string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(script, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return b.String()
 }

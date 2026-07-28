@@ -18,7 +18,7 @@
 {{- end}}
 services:
   app:
-    image: docker.io/leyume/swoole:2.0.0-prod
+    image: {{.AppImage}}
     container_name: {{.ProjectSlug}}_{{.AppSlug}}_app
     restart: unless-stopped
     command: ["sh", "/init.sh"]
@@ -83,7 +83,11 @@ services:
 {{- if not .SharedDB}}
 
   db:
-    image: docker.io/leyume/mariadb
+    # Official multi-arch image — the same one the platform database service and
+    # the mail stack use. The custom image this replaced was amd64-only and
+    # carried no tag, so a dedicated-database Laravel app could not start on an
+    # arm64 machine at all, and "latest" meant a different build every pull.
+    image: docker.io/library/mariadb:11
     container_name: {{.ProjectSlug}}_{{.AppSlug}}_db
     restart: unless-stopped
     environment:
