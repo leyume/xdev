@@ -204,10 +204,15 @@ func (s *Server) handleAppsMetricsJSON(w http.ResponseWriter, r *http.Request) {
 		HasMetrics bool    `json:"has"`
 		CPUPct     float64 `json:"cpu"`
 		MemMiB     int64   `json:"mem"`
+		// Why this app will never report a sample; empty when it can. Carried
+		// here so a realtime poll doesn't overwrite the server-rendered "n/a"
+		// with a bare dash the moment the toggle is switched on.
+		Unmonitored string `json:"unmonitored,omitempty"`
 	}
 	out := make([]appMetric, 0, len(rows))
 	for _, a := range rows {
-		out = append(out, appMetric{ID: a.ID, HasMetrics: a.HasMetrics, CPUPct: a.CPUPct, MemMiB: a.MemMiB})
+		out = append(out, appMetric{ID: a.ID, HasMetrics: a.HasMetrics,
+			CPUPct: a.CPUPct, MemMiB: a.MemMiB, Unmonitored: a.UnmonitoredReason()})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(out)

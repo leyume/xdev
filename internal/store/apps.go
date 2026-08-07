@@ -72,6 +72,31 @@ func (a App) IsProxy() bool { return a.Type == TypeProxy }
 // lifecycle, like proxy apps).
 func (a App) IsSharedWP() bool { return a.Type == "wordpress" && a.WPMode == WPShared }
 
+// Monitorable reports whether the metrics collector has anything to sample for
+// this app — a container of its own, or a supervised host process.
+func (a App) Monitorable() bool { return a.UnmonitoredReason() == "" }
+
+// UnmonitoredReason explains why an app can never report CPU or memory, and
+// returns "" when it can. Some app shapes own neither a container nor a
+// process, so no sample will ever be recorded for them; without a reason the UI
+// shows the same empty cell it shows for a stopped app or a collector that
+// isn't running, and a permanent state reads as a fault.
+//
+// This must agree with what is actually collected: the WHERE clause in
+// AppPrefixes (containers) and the PIDs the hostproc supervisor reports
+// (processes). TestMonitorableMatchesAppPrefixes holds the two together.
+func (a App) UnmonitoredReason() string {
+	switch {
+	case a.IsProxy():
+		return "Route only — this app forwards to another server, so there is no container or process here to measure."
+	case a.IsSharedWP():
+		return "Served by the shared WordPress host, which runs every shared site from one container — its usage can't be split per site."
+	case a.IsHostProc() && a.ServeMode != ServeCommand:
+		return "Files are served directly by Caddy, so this app has no process of its own."
+	}
+	return ""
+}
+
 // CreateApp inserts an app and returns it with its assigned id.
 func (s *Store) CreateApp(a App) (App, error) {
 	res, err := s.db.Exec(

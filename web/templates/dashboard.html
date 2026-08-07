@@ -79,8 +79,9 @@
       <tr data-app-id="{{.ID}}" data-status="{{.Status}}">
         <td><a href="/projects/{{.ProjectSlug}}" style="color:var(--text);text-decoration:none;font-weight:600">{{.ProjectName}}<span class="muted">/</span>{{.Name}}</a></td>
         <td class="muted">{{.Type}}</td>
-        <td><span id="cpu-{{.ID}}">{{if .HasMetrics}}{{f1 .CPUPct}}%{{else}}—{{end}}</span></td>
-        <td class="muted"><span id="mem-{{.ID}}">{{if .HasMetrics}}{{.MemMiB}} MiB{{else}}—{{end}}</span></td>
+        {{$why := .UnmonitoredReason}}
+        <td><span id="cpu-{{.ID}}"{{if $why}} class="muted" title="{{$why}}"{{end}}>{{if .HasMetrics}}{{f1 .CPUPct}}%{{else if $why}}n/a{{else}}—{{end}}</span></td>
+        <td class="muted"><span id="mem-{{.ID}}"{{if $why}} title="{{$why}}"{{end}}>{{if .HasMetrics}}{{.MemMiB}} MiB{{else if $why}}n/a{{else}}—{{end}}</span></td>
         <td>
           <span class="status-label {{.Status}}"><span class="status"></span>{{.Status}}</span>
           <form class="inline act-start" method="post" action="/apps/{{.ID}}/start">
@@ -166,8 +167,11 @@ function appsRealtime() {
         const r = await fetch('/apps/metrics.json', { credentials: 'same-origin' });
         for (const m of await r.json()) {
           const c = document.getElementById('cpu-' + m.id), me = document.getElementById('mem-' + m.id);
-          if (c) c.textContent = m.has ? m.cpu.toFixed(1) + '%' : '—';
-          if (me) me.textContent = m.has ? m.mem + ' MiB' : '—';
+          // An app with no container and no process never reports a sample, so
+          // say "n/a" rather than the dash that also means "nothing yet".
+          const blank = m.unmonitored ? 'n/a' : '—';
+          if (c) { c.textContent = m.has ? m.cpu.toFixed(1) + '%' : blank; if (m.unmonitored) c.title = m.unmonitored; }
+          if (me) { me.textContent = m.has ? m.mem + ' MiB' : blank; if (m.unmonitored) me.title = m.unmonitored; }
         }
       } catch (e) { /* transient; next tick retries */ }
     },
