@@ -11,6 +11,12 @@ import (
 	"xdev/internal/templates"
 )
 
+// maxComposeDomains is how many domains (and so allocated host ports) a compose
+// app may ask for, handed to the add-app form so the input's max and the
+// server's check are the same number. Aliased here because the project handler
+// keeps its app list in a variable named `apps`, shadowing the package.
+const maxComposeDomains = apps.MaxComposeSlots
+
 // handleProjectNewForm shows the create-project form, pre-filling the base
 // domain from the optional default_base_domain setting (set by the installer).
 func (s *Server) handleProjectNewForm(w http.ResponseWriter, r *http.Request) {
@@ -113,6 +119,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		"AdminerDomains": adminerDomains,
 		"ServiceDomains": serviceDomains,
 		"Catalog":        templates.Catalog(),
+		"MaxDomains":     maxComposeDomains,
 		"Error":          r.URL.Query().Get("error"),
 		"ProxyEnabled":   s.proxyEnabled(),
 		"HTTPSPort":      s.httpsPort,
@@ -165,8 +172,6 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	primaryPort, _ := strconv.Atoi(r.FormValue("primary_port"))
-
 	cpu, _ := strconv.ParseFloat(r.FormValue("cpu_cores"), 64)
 	memMB, _ := strconv.ParseInt(r.FormValue("memory_mb"), 10, 64)
 	var memBytes int64
@@ -186,8 +191,7 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		StartCmd:      r.FormValue("start_cmd"),
 		Upstream:      r.FormValue("upstream"),
 		ComposeFile:   composeFile,
-		PrimaryPort:   primaryPort,
-		PortDomains:   portDomains(r),
+		ExtraDomains:  extraDomains(r),
 		AdminerDomain: r.FormValue("adminer_domain"),
 		DBMode:        r.FormValue("db_mode"),
 		WPMode:        r.FormValue("wp_mode"),
@@ -202,23 +206,15 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/projects/"+proj.Slug, http.StatusSeeOther)
 }
 
-// portDomains collects the per-port hostnames a compose app was created with.
-// The add-app form emits one `port_domain_<host-port>` field per published port
-// it found in the compose file; blank ones mean "publish it, don't route it".
-func portDomains(r *http.Request) map[int]string {
-	const prefix = "port_domain_"
-	out := map[int]string{}
-	for key, vals := range r.Form {
-		if !strings.HasPrefix(key, prefix) || len(vals) == 0 {
-			continue
-		}
-		port, err := strconv.Atoi(strings.TrimPrefix(key, prefix))
-		if err != nil || port <= 0 {
-			continue
-		}
-		if host := strings.TrimSpace(vals[0]); host != "" {
-			out[port] = host
-		}
+// extraDomains collects the hostnames for a compose app's domains 2..N. The
+// add-app form emits one `extra_domain` field per row after the first, in the
+// order shown, and that order is the ${PORT_n} numbering — so they are passed
+// through as-is, blanks included, for the apps service to reject by slot.
+func extraDomains(r *http.Request) []string {
+	vals := r.Form["extra_domain"]
+	out := make([]string, 0, len(vals))
+	for _, v := range vals {
+		out = append(out, strings.TrimSpace(v))
 	}
 	return out
 }

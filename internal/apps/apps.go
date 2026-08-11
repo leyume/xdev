@@ -97,12 +97,12 @@ type CreateOpts struct {
 	// (pasted or uploaded). Blank means "scaffold the starter compose file".
 	ComposeFile string
 
-	// Compose-only: which published host port the app's own domain routes to
-	// (0 = the first one in the file), and a hostname for any of the other
-	// published ports the user wants routed — port -> domain. Ports left out
-	// stay published but unrouted.
-	PrimaryPort int
-	PortDomains map[int]string
+	// Compose-only: hostnames for domains 2..N, in slot order — domain 1 is
+	// Domain above. xdev allocates one host port per domain and writes them as
+	// ${PORT}/${PORT_1}…${PORT_N} for the file to publish, so ExtraDomains[0]
+	// is the domain routed to ${PORT_2}. Blanks are rejected rather than
+	// skipped: dropping one would renumber the slots after it.
+	ExtraDomains []string
 
 	// Laravel-only: hostname for the Adminer DB UI (blank = adminer.<app-domain>).
 	AdminerDomain string
@@ -215,8 +215,8 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 		}
 	case opts.Type == store.TypeCompose:
 		// Bring-your-own compose: the user's file is the stack. xdev writes the
-		// same _/ + app/ layout around it, routes the app's domain to the primary
-		// published port, and gives any other named port its own hostname.
+		// same _/ + app/ layout around it and allocates one host port per domain
+		// asked for, which the file publishes as ${PORT}/${PORT_n}.
 		composeExtras, err = s.layoutCompose(&app, &opts, proj, appDir)
 		if err != nil {
 			return store.App{}, err

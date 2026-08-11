@@ -5,12 +5,13 @@
 # file. Everything below is a normal compose stack; xdev only cares about two
 # things:
 #
-#   1. One service must publish a host port — xdev points this app's domain at
-#      it. Use "${PORT}:<container-port>" to take the port xdev allocated (it is
-#      set in the .env next to this file), or hard-code one like "8080:80" and
-#      xdev will route to that instead. Edit it and restart the app to apply.
-#      Publish more ports and each can carry its own domain — pick them on the
-#      add-app form when you paste a file, one hostname per published port.
+#   1. The service behind this app's domain publishes "${PORT}:<container-port>".
+#      PORT is a host port xdev allocated for you — it is set in the .env next to
+#      this file, and xdev routes the domain to it. Never hard-code a number:
+#      xdev owns them, so a variable is what keeps two stacks from colliding.
+#      Need more domains? Say how many on the add-app form (up to five) and each
+#      gets its own port — ${PORT_2}, ${PORT_3}, … — with the hostname you gave
+#      it. (An app created with one domain has only ${PORT}; recreate to add.)
 #   2. Relative paths resolve from this directory (_/), so ../app is the app's
 #      content folder — the one the Backups tab archives.
 services:

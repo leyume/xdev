@@ -2,16 +2,18 @@ package apps
 
 // Bring-your-own-compose apps (store.TypeCompose). Unlike the templated types,
 // the compose file is written by the user: they paste or upload a
-// docker-compose.yml / compose.yml and xdev runs it as-is. xdev's only stake in
-// the file is the host ports it routes domains to, so the pieces here are
-// (a) finding every published port in the file (with the service that owns it,
-// so the UI can offer a hostname per port), and (b) keeping the _/.env next to
-// it stocked with the variables the file may reference.
+// docker-compose.yml / compose.yml and xdev runs it as-is.
 //
-// One port is the app's primary — it gets the app's own domain, and may be
-// published as ${PORT} to take the number xdev allocates. Any other published
-// port can be given its own hostname on the add-app form; those become
-// secondary domain rows, routed straight to that port like Adminer's.
+// Ports are xdev's, domains are the user's. The add-app form asks how many
+// domains the stack needs and takes a hostname for each; xdev allocates one free
+// host port per domain and writes them into the _/.env beside the file as
+// PORT/PORT_1, PORT_2, … PORT_N (plus XDEV_ aliases). The file publishes those
+// variables — "${PORT}:80", "${PORT_2}:8000" — so nothing is ever hard-coded and
+// two stacks cannot collide on a number.
+//
+// Slot 1 carries the app's own domain; slots 2..N become secondary domain rows
+// routed straight to their port, the same rows Adminer uses. The mapping is
+// positional and fixed at create time: domain 2 is always ${PORT_2}.
 
 import (
 	"bufio"
@@ -32,13 +34,21 @@ import (
 // anything past this is a paste accident, not a stack.
 const maxComposeBytes = 256 << 10
 
+// MaxComposeSlots caps how many domains (and so how many allocated host ports) a
+// single compose app can ask for. Past any real stack's public surface, and it
+// keeps a typo'd ${PORT_900} from being read as a request for 900 ports. The
+// add-app form reads this too (viewData "MaxDomains"), so the number lives here
+// and nowhere else.
+const MaxComposeSlots = 5
+
 // composeEnvHeader tops the generated _/.env so the file explains itself — it is
 // user-editable (the Env tab points here for compose apps), and the managed keys
 // below it are rewritten on every start.
 const composeEnvHeader = `# Environment for this app's compose stack (read by ` + "`compose`" + ` for ${VAR}
 # substitution and by any service listing this file under env_file).
-# PORT/XDEV_PORT are managed by xdev — the host port your domain routes to —
-# and are rewritten on every start. Add your own variables below.`
+# PORT/PORT_n (and their XDEV_ aliases) are managed by xdev — one host port per
+# domain this app was given, PORT_1 being the app's own domain — and are
+# rewritten on every start. Add your own variables below.`
 
 var (
 	// A compose file must declare services at the top level. This is the cheap
@@ -46,12 +56,15 @@ var (
 	// engine does the real validation on `compose up`.
 	composeServicesRe = regexp.MustCompile(`(?m)^services:[ \t]*(#.*)?$`)
 
-	// A published port whose host side is the variable xdev sets: - "${PORT}:80",
-	// - $PORT:8000, - "${PORT:-8080}:80", - "127.0.0.1:${XDEV_PORT}:80",
-	// published: ${PORT}. Matched only in port position, so a ${PORT} mentioned
-	// in an environment entry or a comment doesn't count as publishing one.
-	composeShortPortVarRe = regexp.MustCompile(`^-[ \t]*["']?(?:[0-9.]+:)?\$\{?(?:XDEV_)?PORT\b`)
-	composeLongPortVarRe  = regexp.MustCompile(`^published:[ \t]*["']?\$\{?(?:XDEV_)?PORT\b`)
+	// A published port whose host side is one of the variables xdev sets:
+	// - "${PORT}:80", - $PORT_2:8000, - "${PORT:-8080}:80",
+	// - "127.0.0.1:${XDEV_PORT_3}:80", published: ${PORT_2}. Matched only in port
+	// position, so a ${PORT} mentioned in an environment entry or a comment does
+	// not count as publishing one. The capture is the slot number; empty means
+	// bare ${PORT}, which is slot 1. `_2` is inside the word, so plain PORT\b
+	// cannot swallow ${PORT_2}, and ${PORTAL} matches neither.
+	composeShortPortVarRe = regexp.MustCompile(`^-[ \t]*["']?(?:[0-9.]+:)?\$\{?(?:XDEV_)?PORT(?:_(\d+))?\b`)
+	composeLongPortVarRe  = regexp.MustCompile(`^published:[ \t]*["']?\$\{?(?:XDEV_)?PORT(?:_(\d+))?\b`)
 
 	// Short-syntax published port: - "8080:80", - 8080:80/tcp,
 	// - 127.0.0.1:8080:80. The container port is required, which keeps this from
@@ -66,53 +79,71 @@ var (
 )
 
 // ComposePort is one host port a compose file publishes, and the service that
-// publishes it. Var marks the port written as ${PORT}/${XDEV_PORT}, whose number
-// xdev allocates (so Port is 0 until it does).
+// publishes it. Slot > 0 marks a port written as ${PORT_n} (bare ${PORT} being
+// slot 1), whose number xdev allocates — Port stays 0 for those. A hard-coded
+// port has Slot 0 and a number: xdev does not route it, it only refuses to hand
+// the same number to another app.
 type ComposePort struct {
 	Port    int
+	Slot    int
 	Service string
-	Var     bool
 }
+
+// Var reports whether this entry publishes one of xdev's managed variables.
+func (p ComposePort) Var() bool { return p.Slot > 0 }
 
 // Label names the port the way the add-app form shows it.
 func (p ComposePort) Label() string {
-	if p.Var {
-		return "${PORT}"
+	if p.Var() {
+		return portVar(p.Slot)
 	}
 	return strconv.Itoa(p.Port)
 }
 
-// composeRoute pairs one of an app's published ports with the hostname that
-// routes to it. The primary port uses the app's own domain and is not in here;
-// these are the extras the user named on the form.
+// portVar is the variable name for a slot: slot 1 is plain ${PORT} (the common
+// single-domain case), the rest are ${PORT_n}. Both spellings are written to
+// .env for slot 1, so a file may use either.
+func portVar(slot int) string {
+	if slot <= 1 {
+		return "${PORT}"
+	}
+	return "${PORT_" + strconv.Itoa(slot) + "}"
+}
+
+// composeRoute pairs an allocated host port with the hostname routed to it.
+// Slot 1 uses the app's own domain and is not in here; these are the extras.
 type composeRoute struct {
 	Host string
 	Port int
 }
 
 // layoutCompose builds a bring-your-own-compose app: it validates the supplied
-// file (or renders the starter one when none was given), decides which host port
-// the app's domain routes to, resolves a hostname for each *other* published
-// port the user named, and writes the _/compose.yml + _/.env + app/ layout.
-// Resource limits are not applied — the file is the user's, so limits belong in
-// its own deploy blocks.
+// file (or renders the starter one when none was given), allocates one host port
+// per domain the user asked for, checks the file actually publishes each one,
+// and writes the _/compose.yml + _/.env + app/ layout. Resource limits are not
+// applied — the file is the user's, so limits belong in its own deploy blocks.
 //
-// The extra routes come back for the caller to attach once the app row exists;
-// their hostnames are validated here so a collision fails before anything is
-// written.
+// The extra routes (domains 2..N, paired with their allocated port) come back
+// for the caller to attach once the app row exists; their hostnames are
+// validated here so a collision fails before anything is written.
 func (s *Service) layoutCompose(app *store.App, opts *CreateOpts, proj store.Project, appDir string) ([]composeRoute, error) {
 	yaml := strings.TrimSpace(opts.ComposeFile)
 	starter := yaml == ""
 
-	// Port: a supplied file decides (either it publishes ${PORT} and takes the
-	// one xdev allocates, or it hard-codes host ports and xdev routes to the
-	// primary); the starter template always gets an allocated one.
-	var port int
-	var extras []composeRoute
-	var err error
+	// One slot per domain: slot 1 is the app's own domain, the rest are the
+	// extra hostnames from the form, in the order they were entered.
+	hosts, err := s.composeExtraHosts(opts.ExtraDomains, app.Domain)
+	if err != nil {
+		return nil, err
+	}
+	slots := len(hosts) + 1
+
+	// avoid: host ports the file hard-codes. xdev doesn't route them, but it must
+	// not allocate the same number for a slot, and no other app may own it.
+	var avoid []int
 	if starter {
-		if port, err = s.allocPort(); err != nil {
-			return nil, err
+		if slots > 1 {
+			return nil, errors.New("the starter compose file publishes a single service — paste or upload your own file to use more than one domain")
 		}
 	} else {
 		if err := validCompose(yaml); err != nil {
@@ -122,20 +153,28 @@ func (s *Service) layoutCompose(app *store.App, opts *CreateOpts, proj store.Pro
 		if err != nil {
 			return nil, err
 		}
-		primary, _ := pickPrimary(ports, opts.PrimaryPort)
-		if primary.Var {
-			if port, err = s.allocPort(); err != nil {
-				return nil, err
-			}
-		} else {
-			if err := s.portTaken(primary.Port); err != nil {
-				return nil, err
-			}
-			port = primary.Port
-		}
-		if extras, err = s.composeExtraRoutes(ports, primary, opts, app.Domain); err != nil {
+		if err := checkComposeSlots(ports, slots); err != nil {
 			return nil, err
 		}
+		for _, p := range ports {
+			if p.Var() {
+				continue
+			}
+			if err := s.portTaken(p.Port); err != nil {
+				return nil, err
+			}
+			avoid = append(avoid, p.Port)
+		}
+	}
+
+	ports, err := s.allocPorts(slots, avoid...)
+	if err != nil {
+		return nil, err
+	}
+	port := ports[0]
+	extras := make([]composeRoute, 0, len(hosts))
+	for i, h := range hosts {
+		extras = append(extras, composeRoute{Host: h, Port: ports[i+1]})
 	}
 
 	underscore := filepath.Join(appDir, "_")
@@ -175,7 +214,7 @@ func (s *Service) layoutCompose(app *store.App, opts *CreateOpts, proj store.Pro
 		os.RemoveAll(appDir)
 		return nil, err
 	}
-	if err := ensureComposeEnv(underscore, port); err != nil {
+	if err := ensureComposeEnv(underscore, ports); err != nil {
 		os.RemoveAll(appDir)
 		return nil, err
 	}
@@ -184,51 +223,73 @@ func (s *Service) layoutCompose(app *store.App, opts *CreateOpts, proj store.Pro
 	return extras, nil
 }
 
-// composeExtraRoutes turns the port -> hostname map the form submitted into
-// validated routes for the published ports that are *not* the primary. A port
-// with no hostname is simply left unrouted (still published, reachable on the
-// host); a named one must resolve to a free hostname and a port no other app
-// owns, or the whole create fails before writing anything.
-func (s *Service) composeExtraRoutes(ports []ComposePort, primary ComposePort, opts *CreateOpts, appDomain string) ([]composeRoute, error) {
-	var out []composeRoute
-	for _, p := range ports {
-		if p.Var || p.Port == primary.Port {
-			continue // the primary carries the app's own domain
-		}
-		host := normalizeHost(opts.PortDomains[p.Port])
+// composeExtraHosts validates the hostnames for domains 2..N, in the order the
+// form submitted them — that order is the slot numbering the user sees, so a
+// blank one is an error rather than something to skip: dropping it silently
+// would renumber every ${PORT_n} after it.
+func (s *Service) composeExtraHosts(domains []string, appDomain string) ([]string, error) {
+	if len(domains)+1 > MaxComposeSlots {
+		return nil, fmt.Errorf("a compose app can have at most %d domains", MaxComposeSlots)
+	}
+	out := make([]string, 0, len(domains))
+	for i, raw := range domains {
+		slot := i + 2 // domain 1 is the app's own
+		host := normalizeHost(raw)
 		if host == "" {
-			continue // published but not routed — the user left it blank
+			return nil, fmt.Errorf("domain %d is blank — give every domain a hostname, or ask for fewer", slot)
 		}
 		if err := validHost(host); err != nil {
-			return nil, fmt.Errorf("port %d: %w", p.Port, err)
+			return nil, fmt.Errorf("domain %d: %w", slot, err)
 		}
 		if host == appDomain {
-			return nil, fmt.Errorf("port %d cannot use %q — that is the app's own domain; mark this port primary instead", p.Port, host)
+			return nil, fmt.Errorf("domain %d cannot be %q — that is this app's own domain (domain 1)", slot, host)
 		}
 		if owner := s.store.DomainOwner(host); owner != 0 {
 			return nil, fmt.Errorf("domain %q is already in use", host)
 		}
-		for _, r := range out {
-			if r.Host == host {
-				return nil, fmt.Errorf("domain %q is used twice — give each port its own hostname", host)
+		for _, h := range out {
+			if h == host {
+				return nil, fmt.Errorf("domain %q is used twice — give each one its own hostname", host)
 			}
 		}
-		if err := s.portTaken(p.Port); err != nil {
-			return nil, err
-		}
-		out = append(out, composeRoute{Host: host, Port: p.Port})
+		out = append(out, host)
 	}
 	return out, nil
 }
 
+// checkComposeSlots makes sure the file publishes exactly the ports the user
+// asked for domains for: every slot 1..n must appear in port position, and a
+// ${PORT_n} past the last domain is a mistake worth catching before the stack
+// starts with a port nothing routes to.
+func checkComposeSlots(ports []ComposePort, n int) error {
+	for slot := 1; slot <= n; slot++ {
+		if publishesSlot(ports, slot) {
+			continue
+		}
+		if slot == 1 {
+			return fmt.Errorf(`compose file never publishes %s — give the service that serves this app's domain ports: - "%s:<container-port>"`,
+				portVar(1), portVar(1))
+		}
+		return fmt.Errorf(`domain %d has nothing to route to — publish its service on ports: - "%s:<container-port>"`, slot, portVar(slot))
+	}
+	for _, p := range ports {
+		if p.Slot > n {
+			return fmt.Errorf("compose file publishes %s but this app was given %d domain(s) — ask for %d",
+				portVar(p.Slot), n, p.Slot)
+		}
+	}
+	return nil
+}
+
 // prepareCompose runs before a compose app starts: it re-reads the file (the
-// user may have edited it since the last start), repoints the app at the host
-// port it now publishes, and refreshes the managed variables in _/.env. The
-// caller reconciles afterwards, so a port change lands in Caddy on the same
-// start. It returns the app with an up-to-date port.
+// user may have edited it since the last start), checks every domain this app
+// owns still has a port to route to, and refreshes the managed variables in
+// _/.env so an edit can't leave a domain pointing at a dead port.
 //
-// Secondary domains (the extra ports named at create time) are left alone: they
-// are explicit user configuration, not something to re-derive from the file.
+// The app's ports are xdev's own and do not move — the file references them by
+// variable, so editing it changes which service is behind a domain, not which
+// number. Domains are left alone too: they are explicit user configuration, not
+// something to re-derive from the file.
 func (s *Service) prepareCompose(app store.App) (store.App, error) {
 	raw, err := os.ReadFile(app.ComposePath)
 	if err != nil {
@@ -242,20 +303,6 @@ func (s *Service) prepareCompose(app store.App) (store.App, error) {
 	if err != nil {
 		return app, err
 	}
-	// Stay where the app already is whenever the file still supports it: a
-	// ${PORT} file keeps the allocated port, and a multi-port file must not
-	// hand the app's domain to a different service just because it is listed
-	// first. Only a primary port that vanished forces a move.
-	if !hasVarPort(ports) && !publishesPort(ports, app.Port) {
-		moved := ports[0].Port
-		if err := s.portTaken(moved); err != nil {
-			return app, err
-		}
-		if err := s.store.SetAppPort(app.ID, moved); err != nil {
-			return app, err
-		}
-		app.Port = moved
-	}
 	if app.Port == 0 { // an older row, or one whose port was cleared
 		if app.Port, err = s.allocPort(); err != nil {
 			return app, err
@@ -264,7 +311,43 @@ func (s *Service) prepareCompose(app store.App) (store.App, error) {
 			return app, err
 		}
 	}
-	return app, ensureComposeEnv(filepath.Dir(app.ComposePath), app.Port)
+
+	// Slot order: the app's own port, then one per secondary domain in creation
+	// order — the order the add-app form asked for them, so slot n is domain n.
+	slots := []int{app.Port}
+	if svc, err := s.store.AppServiceDomains(app.ID); err == nil {
+		for _, d := range svc {
+			slots = append(slots, d.Port)
+		}
+	}
+
+	// A single-domain app whose file hard-codes its port instead of using
+	// ${PORT} keeps the older behaviour: follow the file when the number
+	// changes, so editing the port and restarting repoints Caddy.
+	if len(slots) == 1 && !publishesSlot(ports, 1) && !publishesPort(ports, app.Port) {
+		if moved, ok := firstFixedPort(ports); ok {
+			if err := s.portTaken(moved); err != nil {
+				return app, err
+			}
+			if err := s.store.SetAppPort(app.ID, moved); err != nil {
+				return app, err
+			}
+			app.Port, slots[0] = moved, moved
+		}
+	}
+
+	for i, p := range slots {
+		// Either the file publishes the slot's variable, or it hard-codes that
+		// exact number (an app created before ports were variables).
+		if publishesSlot(ports, i+1) || publishesPort(ports, p) {
+			continue
+		}
+		if i == 0 {
+			return app, fmt.Errorf(`compose file no longer publishes %s — this app's domain has nothing to route to`, portVar(1))
+		}
+		return app, fmt.Errorf(`compose file no longer publishes %s — domain %d has nothing to route to`, portVar(i+1), i+1)
+	}
+	return app, ensureComposeEnv(filepath.Dir(app.ComposePath), slots)
 }
 
 // portTaken reports an error when another app (or service domain) already owns
@@ -311,10 +394,12 @@ func validCompose(yaml string) error {
 }
 
 // ComposePorts lists every host port a compose file publishes, in file order,
-// each tagged with the service that publishes it — the add-app form offers a
-// hostname per port from this. Ports published more than once collapse to their
-// first appearance, and a file that publishes nothing is an error: its domain
-// would have nowhere to go.
+// each tagged with the service that publishes it: the ${PORT_n} slots xdev fills
+// in, and any hard-coded numbers (which xdev leaves alone beyond refusing to
+// reuse them). Hard-coded ports published more than once collapse to their first
+// appearance. A file that publishes nothing comes back empty — whether that is
+// an error depends on how many domains were asked for, which checkComposeSlots
+// decides.
 //
 // The scan is deliberately shallow (there is no YAML parser in the build): it
 // tracks the current service by indentation inside the top-level services:
@@ -352,11 +437,16 @@ func ComposePorts(yaml string) ([]ComposePort, error) {
 				}
 			}
 		}
-		if composeShortPortVarRe.MatchString(line) || composeLongPortVarRe.MatchString(line) {
-			if hasVarPort(out) {
-				return nil, errors.New("compose file uses ${PORT} more than once — xdev allocates a single port, so hard-code the other published ports")
+		if m := matchPortVar(line); m != nil {
+			slot, err := varSlot(m[1])
+			if err != nil {
+				return nil, err
 			}
-			out = append(out, ComposePort{Service: service, Var: true})
+			if publishesSlot(out, slot) {
+				return nil, fmt.Errorf("compose file publishes %s twice — each domain gets one port, so give the other service its own %s",
+					portVar(slot), portVar(slot+1))
+			}
+			out = append(out, ComposePort{Service: service, Slot: slot})
 			continue
 		}
 		for _, re := range []*regexp.Regexp{composeShortPortRe, composeLongPortRe} {
@@ -374,63 +464,76 @@ func ComposePorts(yaml string) ([]ComposePort, error) {
 	if err := sc.Err(); err != nil {
 		return nil, err
 	}
-	if len(out) == 0 {
-		return nil, errors.New(`compose file publishes no host port — give the web service ports: - "${PORT}:80" so xdev can route your domain to it`)
-	}
 	return out, nil
 }
 
-// publishesPort reports whether the file still publishes a given host port.
+// matchPortVar returns the submatches of whichever ${PORT_n} form the line
+// publishes, or nil when it publishes no managed variable.
+func matchPortVar(line string) []string {
+	if m := composeShortPortVarRe.FindStringSubmatch(line); m != nil {
+		return m
+	}
+	return composeLongPortVarRe.FindStringSubmatch(line)
+}
+
+// varSlot turns the captured suffix of a ${PORT_n} into its slot number; the
+// empty capture is bare ${PORT}, which is slot 1.
+func varSlot(suffix string) (int, error) {
+	if suffix == "" {
+		return 1, nil
+	}
+	n, err := strconv.Atoi(suffix)
+	if err != nil || n < 1 || n > MaxComposeSlots {
+		return 0, fmt.Errorf("compose file publishes ${PORT_%s}, which is not a domain number xdev can allocate (1–%d)", suffix, MaxComposeSlots)
+	}
+	return n, nil
+}
+
+// publishesSlot reports whether the file publishes a given slot's variable.
+func publishesSlot(ports []ComposePort, slot int) bool {
+	for _, p := range ports {
+		if p.Slot == slot {
+			return true
+		}
+	}
+	return false
+}
+
+// publishesPort reports whether the file hard-codes a given host port.
 func publishesPort(ports []ComposePort, port int) bool {
 	for _, p := range ports {
-		if !p.Var && p.Port == port {
+		if !p.Var() && p.Port == port {
 			return true
 		}
 	}
 	return false
 }
 
-// hasVarPort reports whether a ${PORT} entry was already found.
-func hasVarPort(ports []ComposePort) bool {
+// firstFixedPort returns the first hard-coded host port in the file.
+func firstFixedPort(ports []ComposePort) (int, bool) {
 	for _, p := range ports {
-		if p.Var {
-			return true
+		if !p.Var() {
+			return p.Port, true
 		}
 	}
-	return false
-}
-
-// pickPrimary returns the published port that carries the app's own domain. A
-// ${PORT} entry always wins: its number is the one xdev allocates and writes
-// into _/.env, so no other port can hold the app's domain without the two
-// fighting over that number. Otherwise the caller's choice is honoured when the
-// file still publishes it, with the first port as the fallback. The bool reports
-// whether an explicit request was honoured.
-func pickPrimary(ports []ComposePort, want int) (ComposePort, bool) {
-	for _, p := range ports {
-		if p.Var {
-			return p, want <= 0
-		}
-	}
-	if want > 0 {
-		for _, p := range ports {
-			if p.Port == want {
-				return p, true
-			}
-		}
-		return ports[0], false
-	}
-	return ports[0], true
+	return 0, false
 }
 
 // ensureComposeEnv writes the variables xdev manages into the stack's _/.env —
 // the file compose reads for ${VAR} substitution — keeping every other line the
-// user put there. Called on create and again on every start, so an edit that
-// drops PORT can't leave the domain pointing at a dead port.
-func ensureComposeEnv(underscore string, port int) error {
-	managed := [][2]string{
-		{"PORT", strconv.Itoa(port)},
-		{"XDEV_PORT", strconv.Itoa(port)},
+// user put there. ports is slot order: ports[0] is the app's own domain, written
+// as PORT and PORT_1 alike so a single-domain file can use the short spelling.
+// Called on create and again on every start, so the numbers behind a stack's
+// domains are always the ones xdev is routing.
+func ensureComposeEnv(underscore string, ports []int) error {
+	var managed [][2]string
+	for i, p := range ports {
+		v := strconv.Itoa(p)
+		if i == 0 {
+			managed = append(managed, [2]string{"PORT", v}, [2]string{"XDEV_PORT", v})
+		}
+		n := strconv.Itoa(i + 1)
+		managed = append(managed, [2]string{"PORT_" + n, v}, [2]string{"XDEV_PORT_" + n, v})
 	}
 	path := filepath.Join(underscore, ".env")
 	var kept []string

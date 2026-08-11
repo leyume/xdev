@@ -382,26 +382,44 @@ is bound to each session and validated on unsafe methods by `RequireAuth`.
 - **Port allocation** scans `[20000, 29999]`, skipping DB-used ports and any port
   not free. `portFree` binds the **wildcard** `:p` (not loopback) to match how
   engines publish ports.
-- **Bring-your-own compose apps** (`compose.go`): `layoutCompose` validates the
-  supplied file (top-level `services:`, no tab indents, size/UTF-8), then
-  `ComposePorts` lists **every** published host port with the service that owns
-  it. `pickPrimary` chooses the one carrying the app's own domain — a
-  `${PORT}`/`${XDEV_PORT}` entry always wins (its number is the allocated one),
-  else the caller's `PrimaryPort`, else the first. The remaining ports each take
-  the hostname the form gave them (`CreateOpts.PortDomains`) and become
-  secondary `domains` rows (`port > 0`), routed straight to that port exactly
-  like Adminer's; a port with no hostname stays published but unrouted. Ports
-  and hostnames are checked against `UsedPorts`/`DomainOwner` before anything is
-  written. `prepareCompose` re-runs the scan on every `Start`, moving the app
-  only if its primary port vanished from the file (`SetAppPort`) and rewriting
-  the managed `PORT`/`XDEV_PORT` lines in `_/.env` — the file compose reads for
-  `${VAR}` substitution, and the one the Env tab edits for these apps. Secondary
-  domains are left alone there: they are user configuration, not derived state.
-  Their `_/` is user content, so imports restore it (`unpacksAll`) instead of
-  skipping it.
-- The add-app form mirrors the port scan in JS (`detectComposePorts` in
-  `project.html`) so ports appear with a domain field as the file is pasted or
-  loaded; the server re-detects on submit and is the source of truth.
+- **Bring-your-own compose apps** (`compose.go`): **ports are xdev's, domains are
+  the user's.** The add-app form asks how many domains the stack needs and takes
+  a hostname for each; `layoutCompose` allocates one free host port per domain
+  (`allocPorts`) and writes them to `_/.env` as `PORT`/`PORT_1`, `PORT_2`, …
+  (plus `XDEV_` aliases). The file publishes those variables — `"${PORT}:80"`,
+  `"${PORT_2}:8000"` — so nothing is hard-coded and two stacks can't collide.
+  The mapping is **positional and fixed at create time**: domain *n* is
+  `${PORT_n}`, domain 1 being the app's own. Slots 2..N become secondary
+  `domains` rows (`port > 0`), routed straight to their port exactly like
+  Adminer's. `apps.MaxComposeSlots` (**5**) caps how many a stack may ask for and
+  is the single source of that number — the add-app form reads it as the
+  `MaxDomains` view value for its `max`, its clamp, and its slot scan.
+  - `ComposePorts` scans the file for both kinds of published port: `${PORT_n}`
+    slots (`ComposePort.Slot`, bare `${PORT}` = slot 1) and hard-coded numbers
+    (`Slot == 0`). `checkComposeSlots` then pairs it against the domain count —
+    every slot 1..N must be published, and a `${PORT_n}` past the last domain is
+    an error rather than a port nothing routes to. Hard-coded ports are left
+    alone beyond two guards: no other app may own one (`UsedPorts`), and the
+    allocator won't hand out the same number (passed as `avoid`).
+  - Hostnames are validated against `DomainOwner` (and each other, and the app's
+    own domain) before anything is written; a **blank** extra domain is an error,
+    not something to skip — dropping it would renumber every `${PORT_n}` after
+    it.
+  - `prepareCompose` re-reads the file on every `Start` and checks each slot the
+    app owns still has somewhere to go, then rewrites the managed `.env` lines —
+    the file compose reads for `${VAR}` substitution, and the one the Env tab
+    edits for these apps. Ports **don't move**: the file names them by variable,
+    so an edit changes which service is behind a domain, not which number. Two
+    accommodations for older apps: a slot is also satisfied by the file
+    hard-coding that exact number, and a single-domain app whose file hard-codes
+    its port still follows a change (`SetAppPort`). Domains are left alone —
+    user configuration, not derived state. Their `_/` is user content, so
+    imports restore it (`unpacksAll`) instead of skipping it.
+- The add-app form mirrors the slot scan in JS (`detectComposePorts` /
+  `detectComposeSlots` in `project.html`) to name the service behind each slot as
+  the file is pasted or loaded, and bumps the domain count when a pasted file
+  publishes more slots than are shown; the server re-checks on submit and is the
+  source of truth.
 - `ops.go`: `Logs` (compose logs tail), `ReadEnv`/`WriteEnv` (`app/.env`, or
   `_/.env` for compose apps; `.env` at the root for host apps),
   `Backup`/`ListBackups`/`BackupPath` (`.tar.gz` of the app dir under

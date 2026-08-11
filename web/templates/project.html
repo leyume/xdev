@@ -186,7 +186,7 @@
     </div>
     <div class="modal-body">
     <form method="post" action="/projects/{{.Project.Slug}}/apps" enctype="multipart/form-data"
-          x-data="addAppForm('{{.Project.BaseDomain}}')">
+          x-data="addAppForm('{{.Project.BaseDomain}}', {{.MaxDomains}})">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <input type="hidden" name="type" :value="type">
 
@@ -207,10 +207,14 @@
       <label>App name
         <input type="text" name="name" x-bind:required="!!type" placeholder="e.g. frontend">
       </label>
-      <label>Domain <span class="muted">(optional — blank serves this app at <code>{{.Project.BaseDomain}}</code>)</span>
-        <input type="text" name="domain" x-model="domain"
-               placeholder="{{.Project.BaseDomain}}  ·  or  api.{{.Project.BaseDomain}}">
-      </label>
+      <!-- Compose apps take their domains in the block below (one per allocated
+           port), so the single-domain field is left out for that type. -->
+      <template x-if="type!=='compose'">
+        <label>Domain <span class="muted">(optional — blank serves this app at <code>{{.Project.BaseDomain}}</code>)</span>
+          <input type="text" name="domain" x-model="domain"
+                 placeholder="{{.Project.BaseDomain}}  ·  or  api.{{.Project.BaseDomain}}">
+        </label>
+      </template>
 
       <!-- Static apps: run on the host's system Node, no container. -->
       <template x-if="type==='static'">
@@ -264,8 +268,10 @@
       </template>
 
       <!-- Compose: the user's own docker-compose.yml / compose.yml, run as-is.
-           Ports are detected as you type/upload so each one can be given its own
-           hostname; the server re-detects them authoritatively on submit. -->
+           You say how many domains the stack needs; xdev allocates a host port
+           per domain and the file publishes them as ${PORT}/${PORT_n}. The file
+           is scanned as you type only to tell you which slots it already
+           publishes — the server checks this authoritatively on submit. -->
       <template x-if="type==='compose'">
         <div>
           <label>Compose file <span class="muted">(load a <code>docker-compose.yml</code> / <code>compose.yml</code> — it drops into the box below)</span>
@@ -278,44 +284,41 @@
               placeholder="services:&#10;  web:&#10;    image: nginx:alpine&#10;    ports:&#10;      - &quot;${PORT}:80&quot;"></textarea>
           </label>
 
-          <template x-if="ports.length">
-            <div>
-              <label style="margin-bottom:2px">Published ports
-                <span class="muted">(one domain each — blank leaves a port published but unrouted)</span>
-              </label>
-              <div class="port-map">
-                <template x-for="p in ports" :key="p.port">
-                  <div class="port-row" :class="{'is-primary': isPrimary(p)}">
-                    <div class="port-tag">
-                      <span class="port-num" x-text="p.label"></span>
-                      <span class="port-svc" x-text="p.service || 'service'"></span>
-                    </div>
-                    <div class="port-dest">
-                      <label class="port-primary" :title="hasVar && !p.isVar
-                          ? 'The ${PORT} service always carries the app\'s own domain'
-                          : 'Serve this port at the app\'s own domain'">
-                        <input type="radio" name="primary_port" :value="p.port"
-                               :checked="isPrimary(p)" :disabled="hasVar && !p.isVar"
-                               @change="primary = p.port">
-                        <span x-text="isPrimary(p) ? 'app domain' : 'make primary'"></span>
-                      </label>
-                      <input type="text" x-show="!isPrimary(p)" spellcheck="false"
-                             :name="'port_domain_' + p.port" x-model="portDomains[p.port]"
-                             :placeholder="'e.g. ' + (p.service || 'svc') + '.{{.Project.BaseDomain}}'">
-                      <span class="muted small" x-show="isPrimary(p)"
-                            x-text="domain || '{{.Project.BaseDomain}}'"></span>
-                    </div>
-                  </div>
-                </template>
+          <!-- A client-side control only (no name): the server counts the
+               extra_domain rows below, so the two can never disagree. -->
+          <label>How many domains does this stack need?
+            <span class="muted">(one host port is allocated per domain — up to {{.MaxDomains}})</span>
+            <input type="number" min="1" max="{{.MaxDomains}}" class="count"
+                   x-model.number="domainCount" @input="syncDomains()">
+          </label>
+
+          <div class="port-map">
+            <template x-for="(d, i) in domains" :key="i">
+              <div class="port-row" :class="{'is-primary': i===0}">
+                <div class="port-tag">
+                  <span class="port-num" x-text="portVar(i)"></span>
+                  <span class="port-svc" x-text="slotService(i)"></span>
+                </div>
+                <div class="port-dest">
+                  <span class="muted small nowrap" x-text="'Domain ' + (i+1) + (i===0 ? ' (this app)' : '')"></span>
+                  <input type="text" spellcheck="false"
+                         :name="i===0 ? 'domain' : 'extra_domain'"
+                         x-model="domains[i]"
+                         :required="i>0"
+                         :placeholder="i===0 ? '{{.Project.BaseDomain}}'
+                                             : 'e.g. api.' + (domains[0].trim() || '{{.Project.BaseDomain}}')">
+                </div>
               </div>
-            </div>
-          </template>
+            </template>
+          </div>
 
           <p class="muted small" style="margin:8px 0 10px">
-            Publish your main service on <code>${PORT}</code> — xdev allocates the host port, writes it to the
-            <code>.env</code> next to your file, and routes this app's domain there. Hard-coded ports like
-            <code>"8080:80"</code> work too, and every published port can get its own subdomain above.
-            Resource limits, volumes and extra services are all yours to declare in the file.
+            Publish each service on the variable for its domain —
+            <code>"${PORT}:80"</code> for the first, <code>"${PORT_2}:8000"</code> for the second, and so on.
+            xdev allocates those host ports, writes them to the <code>.env</code> next to your file, and points
+            each domain at its own. Don't hard-code port numbers: xdev owns them, so a variable is what keeps
+            two stacks from colliding. Resource limits, volumes and extra services are all yours to declare
+            in the file.
           </p>
         </div>
       </template>
@@ -380,14 +383,16 @@
 </div>
 
 <script>
-// Add-app form state. The type picker gates the rest of the form, and compose
-// apps get their published ports read out of the file as it is typed/loaded so
-// each one can be pointed at its own hostname. The server re-detects the ports
-// on submit — this is convenience, not the source of truth.
-function addAppForm(baseDomain) {
+// Add-app form state. The type picker gates the rest of the form. A compose app
+// asks how many domains it needs and takes a hostname for each; the file is
+// scanned as it is typed/loaded only to name the service behind each slot, so
+// you can see that ${PORT_2} really is the one you meant. The server re-checks
+// all of it on submit — this is convenience, not the source of truth.
+function addAppForm(baseDomain, maxDomains) {
   return {
     type: '', serve: 'serve', wp: 'shared', godb: '', domain: '',
-    composeText: '', ports: [], primary: 0, hasVar: false, portDomains: {},
+    composeText: '', domainCount: 1, domains: [''], slots: [],
+    maxDomains: maxDomains,
 
     // Read a chosen compose file into the textarea (and clear the file input, so
     // exactly one copy is submitted) — seeing the file is better than a filename.
@@ -403,39 +408,61 @@ function addAppForm(baseDomain) {
       reader.readAsText(file);
     },
 
+    // Keep the hostname rows in step with the count, preserving what is typed.
+    syncDomains() {
+      const n = Math.max(1, Math.min(this.maxDomains, parseInt(this.domainCount, 10) || 1));
+      while (this.domains.length < n) this.domains.push('');
+      this.domains.length = n;
+      this.domainCount = n;
+    },
+
     scanPorts() {
-      const found = detectComposePorts(this.composeText);
-      this.ports = found;
-      this.hasVar = found.some(p => p.isVar);
-      // ${PORT} always carries the app's domain; otherwise keep the chosen
-      // primary while the file still publishes it, else fall back to the first.
-      const varPort = found.find(p => p.isVar);
-      if (varPort) this.primary = varPort.port;
-      else if (!found.some(p => p.port === this.primary)) this.primary = found.length ? found[0].port : 0;
-      // Suggest <service>.<app domain> for the ports that need a hostname.
-      for (const p of found) {
-        if (p.isVar || p.port === this.primary || this.portDomains[p.port]) continue;
-        const label = p.service || ('p' + p.port);
-        this.portDomains[p.port] = label + '.' + ((this.domain || '').trim() || baseDomain);
+      this.slots = detectComposeSlots(this.composeText, this.maxDomains);
+      // A pasted file that publishes more slots than the form shows is asking
+      // for that many domains — follow it rather than making them count.
+      if (this.slots.length > this.domains.length) {
+        this.domainCount = this.slots.length;
+        this.syncDomains();
       }
     },
 
-    isPrimary(p) { return p.port === this.primary; },
+    portVar(i) { return i === 0 ? '${PORT}' : '${PORT_' + (i + 1) + '}'; },
+
+    // What the pasted file publishes for this slot: the service name, or a nudge
+    // when the variable is missing entirely.
+    slotService(i) {
+      if (!this.composeText.trim()) return 'starter file';
+      const hit = this.slots[i];
+      if (!hit) return 'not in file yet';
+      return hit.service || 'service';
+    },
   };
 }
 
-// detectComposePorts mirrors internal/apps/compose.go: every published host port
-// in file order, tagged with the service publishing it. A ${PORT} entry has no
-// number yet — xdev allocates it — and is reported as port 0.
-function detectComposePorts(text) {
-  const SHORT_VAR = /^-[ \t]*["']?(?:[0-9.]+:)?\$\{?(?:XDEV_)?PORT\b/;
-  const LONG_VAR = /^published:[ \t]*["']?\$\{?(?:XDEV_)?PORT\b/;
+// detectComposeSlots mirrors ComposePorts in internal/apps/compose.go: for each
+// ${PORT_n} the file publishes, the service publishing it, indexed by slot (bare
+// ${PORT} is slot 1). Hard-coded ports are ignored here — xdev neither allocates
+// nor routes them, so they have no row on the form.
+function detectComposeSlots(text, maxSlots) {
+  const found = detectComposePorts(text, maxSlots), out = [];
+  for (const p of found) {
+    if (p.slot > 0) out[p.slot - 1] = p;
+  }
+  return out;
+}
+
+// detectComposePorts: every published host port in file order, tagged with the
+// service publishing it. A ${PORT_n} entry has no number yet — xdev allocates
+// it — and carries its slot instead.
+function detectComposePorts(text, maxSlots) {
+  const SHORT_VAR = /^-[ \t]*["']?(?:[0-9.]+:)?\$\{?(?:XDEV_)?PORT(?:_(\d+))?\b/;
+  const LONG_VAR = /^published:[ \t]*["']?\$\{?(?:XDEV_)?PORT(?:_(\d+))?\b/;
   const SHORT = /^-[ \t]*["']?(?:[0-9.]+:)?(\d{2,5}):\d{1,5}(?:\/(?:tcp|udp))?["']?$/;
   const LONG = /^published:[ \t]*["']?(\d{2,5})["']?$/;
   const SERVICE = /^([A-Za-z0-9._-]+):$/;
 
-  const out = [], seen = {};
-  let service = '', inServices = false, serviceIndent = -1, sawVar = false;
+  const out = [], seen = {}, seenSlot = {};
+  let service = '', inServices = false, serviceIndent = -1;
   for (const raw of String(text || '').split('\n')) {
     let line = raw.trim();
     if (!line || line.startsWith('#')) continue;
@@ -454,10 +481,12 @@ function detectComposePorts(text) {
         if (indent === serviceIndent) { service = m[1]; continue; }
       }
     }
-    if (SHORT_VAR.test(line) || LONG_VAR.test(line)) {
-      if (sawVar) continue; // only one ${PORT} is meaningful; the server rejects more
-      sawVar = true;
-      out.push({ port: 0, service: service, isVar: true, label: '${PORT}' });
+    const v = line.match(SHORT_VAR) || line.match(LONG_VAR);
+    if (v) {
+      const slot = v[1] ? parseInt(v[1], 10) : 1;
+      if (slot < 1 || slot > maxSlots || seenSlot[slot]) continue; // the server reports why
+      seenSlot[slot] = true;
+      out.push({ port: 0, slot: slot, service: service, label: slot === 1 ? '${PORT}' : '${PORT_' + slot + '}' });
       continue;
     }
     const m = line.match(SHORT) || line.match(LONG);
@@ -465,7 +494,7 @@ function detectComposePorts(text) {
       const port = parseInt(m[1], 10);
       if (port > 0 && port <= 65535 && !seen[port]) {
         seen[port] = true;
-        out.push({ port: port, service: service, isVar: false, label: String(port) });
+        out.push({ port: port, slot: 0, service: service, label: String(port) });
       }
     }
   }
