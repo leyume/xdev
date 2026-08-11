@@ -32,15 +32,17 @@ func tgz(t *testing.T, files map[string]string) *bytes.Reader {
 
 // TestExtractAppArchiveOverlays covers the import rules: archive files land in
 // the app dir and replace same-path files, untouched files survive (overlay,
-// not wipe), and a container app keeps its xdev-rendered _/compose.yml instead
-// of the one in the archive.
+// not wipe), and a templated container app keeps its xdev-rendered _/compose.yml
+// instead of the one in the archive — while host and compose apps, which own
+// their _/, take the archive's copy.
 func TestExtractAppArchiveOverlays(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
-		hostProc    bool
+		all         bool // unpacksAll(app): host and compose apps own their _/
 		wantCompose string
 	}{
 		{"host app takes everything", true, "from-archive"},
+		{"compose app restores its own compose", true, "from-archive"},
 		{"container app keeps its compose", false, "xdev-rendered"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -54,7 +56,7 @@ func TestExtractAppArchiveOverlays(t *testing.T) {
 				"_/compose.yml": "from-archive",
 				"app/index.php": "new",
 			})
-			if err := extractAppArchive(archive, dir, tc.hostProc); err != nil {
+			if err := extractAppArchive(archive, dir, tc.all); err != nil {
 				t.Fatalf("extract: %v", err)
 			}
 			if got := read(t, dir, "_/compose.yml"); got != tc.wantCompose {

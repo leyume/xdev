@@ -1,8 +1,15 @@
 package server
 
 import (
+	"bytes"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -57,4 +64,79 @@ func TestHumanizeSince(t *testing.T) {
 			t.Errorf("humanizeSince(%v): got %q, want %q", c.t, got, c.want)
 		}
 	}
+}
+
+// TestSuppliedComposeFile covers how a "Compose" app's file reaches the apps
+// service: an uploaded compose.yml wins, the pasted textarea is the fallback,
+// neither means "" (the app gets the starter file), and a file that isn't YAML
+// or is oversized is rejected at the boundary.
+func TestSuppliedComposeFile(t *testing.T) {
+	const yaml = "services:\n  web:\n    image: nginx\n"
+
+	// Plain (non-multipart) form: the textarea is all there is.
+	r := httptest.NewRequest(http.MethodPost, "/projects/demo/apps",
+		strings.NewReader(url.Values{"compose_yaml": {yaml}}.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if got, err := suppliedComposeFile(r); err != nil || got != yaml {
+		t.Errorf("pasted yaml: got %q, %v; want the textarea contents", got, err)
+	}
+
+	// Multipart with an upload: the file wins over the textarea.
+	r = multipartRequest(t, map[string]string{"compose_yaml": "pasted: ignored\n"}, "compose_file", "compose.yml", yaml)
+	if got, err := suppliedComposeFile(r); err != nil || got != yaml {
+		t.Errorf("uploaded file: got %q, %v; want the uploaded contents", got, err)
+	}
+
+	// Multipart without an upload: fall back to the textarea.
+	r = multipartRequest(t, map[string]string{"compose_yaml": yaml}, "", "", "")
+	if got, err := suppliedComposeFile(r); err != nil || got != yaml {
+		t.Errorf("multipart, no file: got %q, %v; want the textarea contents", got, err)
+	}
+
+	// Nothing supplied at all: the app gets the starter compose file.
+	r = multipartRequest(t, nil, "", "", "")
+	if got, err := suppliedComposeFile(r); err != nil || got != "" {
+		t.Errorf("nothing supplied: got %q, %v; want empty", got, err)
+	}
+
+	// Rejected at the boundary.
+	r = multipartRequest(t, nil, "compose_file", "stack.txt", yaml)
+	if _, err := suppliedComposeFile(r); err == nil {
+		t.Error("a non-YAML filename should be rejected")
+	}
+	r = multipartRequest(t, nil, "compose_file", "compose.yml", strings.Repeat("x", maxComposeUpload+1))
+	if _, err := suppliedComposeFile(r); err == nil {
+		t.Error("an oversized compose file should be rejected")
+	}
+}
+
+// multipartRequest builds a parsed multipart POST with the given text fields and
+// (when field is non-empty) one uploaded file — the shape handleAppCreate sees
+// after uploadedArchive has parsed the form.
+func multipartRequest(t *testing.T, fields map[string]string, field, filename, body string) *http.Request {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for k, v := range fields {
+		if err := mw.WriteField(k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if field != "" {
+		w, err := mw.CreateFormFile(field, filename)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(w, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mw.Close()
+
+	r := httptest.NewRequest(http.MethodPost, "/projects/demo/apps", &buf)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		t.Fatal(err)
+	}
+	return r
 }

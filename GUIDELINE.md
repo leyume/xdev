@@ -364,6 +364,10 @@ is bound to each session and validated on unsafe methods by `RequireAuth`.
 - `Data` is the template context: `ProjectSlug`, `NetworkName`, `AppSlug`,
   `AppType`, `Env`, `HostPort`, `CPULimit`, `MemLimit`. Methods `HasLimits`,
   `CPUStr`, `MemStr` drive the optional `deploy.resources.limits` block.
+- The `compose` type inverts this: the **user** supplies the compose file
+  (uploaded or pasted on the add-app form) and xdev runs it as-is;
+  `files/compose/compose.yml.tmpl` is only the starter written when they supply
+  nothing. See `internal/apps/compose.go`.
 
 ### 9.4 App lifecycle (`internal/apps`)
 - `Create(projectID, name, type, domain, cpu, mem)`:
@@ -378,7 +382,17 @@ is bound to each session and validated on unsafe methods by `RequireAuth`.
 - **Port allocation** scans `[20000, 29999]`, skipping DB-used ports and any port
   not free. `portFree` binds the **wildcard** `:p` (not loopback) to match how
   engines publish ports.
-- `ops.go`: `Logs` (compose logs tail), `ReadEnv`/`WriteEnv` (`app/.env`),
+- **Bring-your-own compose apps** (`compose.go`): `layoutCompose` validates the
+  supplied file (top-level `services:`, no tab indents, size/UTF-8) and decides
+  the routed host port — a `${PORT}`/`${XDEV_PORT}` in port position takes the
+  port xdev allocates, otherwise the first hard-coded published port wins (and
+  must not already be in `UsedPorts`). `prepareCompose` re-runs that on every
+  `Start`, following the file if its port changed (`SetAppPort`) and rewriting
+  the managed `PORT`/`XDEV_PORT` lines in `_/.env` — the file compose reads for
+  `${VAR}` substitution, and the one the Env tab edits for these apps. Their `_/`
+  is user content, so imports restore it (`unpacksAll`) instead of skipping it.
+- `ops.go`: `Logs` (compose logs tail), `ReadEnv`/`WriteEnv` (`app/.env`, or
+  `_/.env` for compose apps; `.env` at the root for host apps),
   `Backup`/`ListBackups`/`BackupPath` (`.tar.gz` of the app dir under
   `data/backups/<project>_<app>/`; named volumes like DBs are **not** included).
 

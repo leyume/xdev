@@ -14,9 +14,10 @@ const (
 
 // Static app types and serve modes.
 const (
-	TypeStatic = "static" // runs on system Node / served by Caddy, no container
-	TypeProxy  = "proxy"  // a Caddy route to another server — no container/process/port
-	TypeGo     = "go"     // built and run on the host with the system Go toolchain, no container
+	TypeStatic  = "static"  // runs on system Node / served by Caddy, no container
+	TypeProxy   = "proxy"   // a Caddy route to another server — no container/process/port
+	TypeGo      = "go"      // built and run on the host with the system Go toolchain, no container
+	TypeCompose = "compose" // a user-supplied docker-compose.yml / compose.yml, run as-is
 
 	ServeStatic  = "serve"   // Caddy file-servers RootDir directly (no process)
 	ServeCommand = "command" // xdev supervises StartCmd as a host process on Port
@@ -66,6 +67,11 @@ func (a App) IsHostProc() bool { return a.Type == TypeStatic || a.Type == TypeGo
 
 // IsProxy reports whether the app is only a route to another server.
 func (a App) IsProxy() bool { return a.Type == TypeProxy }
+
+// IsCompose reports whether the app is a bring-your-own compose stack: xdev runs
+// the file the user supplied instead of one it rendered from a template, so the
+// compose file (and the _/.env beside it) is user content, not generated output.
+func (a App) IsCompose() bool { return a.Type == TypeCompose }
 
 // IsSharedWP reports whether the app is a shared-host WordPress site: a docroot
 // served by the platform wp-host, with no container of its own (route-only
@@ -125,6 +131,15 @@ func (s *Store) ListAppsByProject(projectID int64) ([]App, error) {
 func (s *Store) SetAppStatus(id int64, status string) error {
 	_, err := s.db.Exec(
 		`UPDATE apps SET status = ?, updated_at = datetime('now') WHERE id = ?`, status, id)
+	return err
+}
+
+// SetAppPort repoints an app at a different host port. Used when a compose app's
+// file is edited to publish somewhere else: the proxy route is rebuilt from
+// apps.port, so the stored port has to follow the file.
+func (s *Store) SetAppPort(id int64, port int) error {
+	_, err := s.db.Exec(
+		`UPDATE apps SET port = ?, updated_at = datetime('now') WHERE id = ?`, port, id)
 	return err
 }
 

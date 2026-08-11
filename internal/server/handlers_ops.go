@@ -108,7 +108,8 @@ func (s *Server) handleAppEnvForm(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, "app_env", viewData{
 		"Title": app.Name + " .env · xdev", "App": app, "Project": proj, "Content": content,
-		"Saved": r.URL.Query().Get("saved") != "",
+		"EnvPath": s.apps.EnvLocation(app.ID),
+		"Saved":   r.URL.Query().Get("saved") != "",
 	})
 }
 
@@ -152,6 +153,42 @@ func uploadedArchive(r *http.Request) (io.Reader, func(), error) {
 		return nil, noop, errors.New("import needs a .tar.gz backup archive")
 	}
 	return file, func() { file.Close() }, nil
+}
+
+// maxComposeUpload caps an uploaded compose file. Compose files are a few KB;
+// the apps service applies the same limit to pasted ones.
+const maxComposeUpload = 256 << 10
+
+// suppliedComposeFile returns the compose file a "Compose" app was created with:
+// the uploaded compose_file if one was chosen, else the pasted compose_yaml
+// textarea. "" means none was supplied — the app gets the starter compose file.
+// Callers run after uploadedArchive, which has already parsed a multipart form.
+func suppliedComposeFile(r *http.Request) (string, error) {
+	if r.MultipartForm == nil {
+		return r.FormValue("compose_yaml"), nil
+	}
+	file, hdr, err := r.FormFile("compose_file")
+	if err != nil || hdr.Size == 0 {
+		if file != nil {
+			file.Close()
+		}
+		return r.FormValue("compose_yaml"), nil // no file chosen — use the textarea
+	}
+	defer file.Close()
+	if name := strings.ToLower(hdr.Filename); !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml") {
+		return "", errors.New("compose file must be a .yml / .yaml file (docker-compose.yml or compose.yml)")
+	}
+	if hdr.Size > maxComposeUpload {
+		return "", fmt.Errorf("compose file is too large (max %d KB)", maxComposeUpload>>10)
+	}
+	b, err := io.ReadAll(io.LimitReader(file, maxComposeUpload+1))
+	if err != nil {
+		return "", fmt.Errorf("read compose file: %w", err)
+	}
+	if len(b) > maxComposeUpload {
+		return "", fmt.Errorf("compose file is too large (max %d KB)", maxComposeUpload>>10)
+	}
+	return string(b), nil
 }
 
 // handleAppImport overwrites an existing app's files from an uploaded backup

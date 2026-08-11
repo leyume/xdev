@@ -17,6 +17,8 @@
       <button class="primary" type="submit">Save &amp; restart</button>
     </div>
   </form>
-  <p class="muted small">Written to the app's <code>app/.env</code>; the app restarts to apply changes.</p>
+  <p class="muted small">Written to the app's <code>{{.EnvPath}}</code>; the app restarts to apply changes.
+    {{if eq .App.Type "compose"}}This is the file your compose stack reads for <code>${VAR}</code> substitution —
+    <code>PORT</code> is managed by xdev and rewritten on every start.{{end}}</p>
 </div>
 {{end}}

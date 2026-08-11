@@ -93,6 +93,10 @@ type CreateOpts struct {
 	// Proxy-only: URL the domain forwards to (http(s)://host[:port]).
 	Upstream string
 
+	// Compose-only: the docker-compose.yml / compose.yml the user supplied
+	// (pasted or uploaded). Blank means "scaffold the starter compose file".
+	ComposeFile string
+
 	// Laravel-only: hostname for the Adminer DB UI (blank = adminer.<app-domain>).
 	AdminerDomain string
 
@@ -199,6 +203,12 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 				return store.App{}, err
 			}
 		}
+	case opts.Type == store.TypeCompose:
+		// Bring-your-own compose: the user's file is the stack. xdev writes the
+		// same _/ + app/ layout around it and routes to the port it publishes.
+		if err := s.layoutCompose(&app, &opts, proj, appDir); err != nil {
+			return store.App{}, err
+		}
 	case opts.Type == "wordpress" && opts.WPMode != "separate":
 		// Shared-host WordPress (default): no container or compose of its own —
 		// a docroot under data/wp/sites served by the platform wp-host, with its
@@ -220,7 +230,7 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 		if app.IsSharedWP() {
 			target = s.wpSiteDir(proj.Slug, app.Slug) // docroot, not <project>/<slug>
 		}
-		if err := extractAppArchive(opts.Archive, target, app.IsHostProc()); err != nil {
+		if err := extractAppArchive(opts.Archive, target, unpacksAll(app)); err != nil {
 			os.RemoveAll(appDir)
 			return store.App{}, fmt.Errorf("import archive: %w", err)
 		}
@@ -529,6 +539,15 @@ func (s *Service) Start(id int64) error {
 	}
 	if app.IsHostProc() {
 		return s.startStatic(app)
+	}
+	if app.IsCompose() {
+		// The file is the user's and may have been edited (or restored from a
+		// backup) since the last start: re-read it, follow any port change, and
+		// refresh the managed vars in _/.env before bringing the stack up.
+		if _, err := s.prepareCompose(app); err != nil {
+			s.store.SetAppStatus(app.ID, store.AppError)
+			return err
+		}
 	}
 	_, engine, workdir, pname, file, err := s.composeCtx(id)
 	if err != nil {

@@ -143,6 +143,13 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer closeArchive()
 
+	// Compose apps bring their own file (uploaded or pasted); other types ignore it.
+	composeFile, err := suppliedComposeFile(r)
+	if err != nil {
+		redirectWithError(w, r, "/projects/"+proj.Slug, err)
+		return
+	}
+
 	cpu, _ := strconv.ParseFloat(r.FormValue("cpu_cores"), 64)
 	memMB, _ := strconv.ParseInt(r.FormValue("memory_mb"), 10, 64)
 	var memBytes int64
@@ -161,6 +168,7 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		BuildCmd:      r.FormValue("build_cmd"),
 		StartCmd:      r.FormValue("start_cmd"),
 		Upstream:      r.FormValue("upstream"),
+		ComposeFile:   composeFile,
 		AdminerDomain: r.FormValue("adminer_domain"),
 		DBMode:        r.FormValue("db_mode"),
 		WPMode:        r.FormValue("wp_mode"),

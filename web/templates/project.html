@@ -242,6 +242,25 @@
         </label>
       </template>
 
+      <!-- Compose: the user's own docker-compose.yml / compose.yml, run as-is. -->
+      <template x-if="type==='compose'">
+        <div>
+          <label>Compose file <span class="muted">(upload a <code>docker-compose.yml</code> / <code>compose.yml</code>)</span>
+            <input type="file" name="compose_file" accept=".yml,.yaml,text/yaml,application/x-yaml">
+          </label>
+          <label>…or paste it <span class="muted">(leave both blank for a starter compose file you can edit later)</span>
+            <textarea name="compose_yaml" class="code" rows="10" spellcheck="false"
+              placeholder="services:&#10;  web:&#10;    image: nginx:alpine&#10;    ports:&#10;      - &quot;${PORT}:80&quot;"></textarea>
+          </label>
+          <p class="muted small" style="margin:-2px 0 10px">
+            Publish your web service on <code>${PORT}</code> — xdev allocates the host port, writes it to the
+            <code>.env</code> next to your file, and routes this app's domain there. A hard-coded port like
+            <code>"8080:80"</code> works too: xdev routes to that one instead. Resource limits, volumes and extra
+            services are all yours to declare in the file.
+          </p>
+        </div>
+      </template>
+
       <!-- WordPress: served by the shared platform PHP host (saves RAM) or its own container. -->
       <template x-if="type==='wordpress'">
         <label>WordPress
@@ -284,8 +303,9 @@
         </label>
       </template>
 
-      <!-- Container apps: resource limits apply (not host processes, routes, or shared-host sites). -->
-      <div class="row2" x-show="type!=='static' && type!=='go' && type!=='proxy' && !(type==='wordpress' && wp==='shared')">
+      <!-- Container apps: resource limits apply (not host processes, routes, shared-host sites,
+           or compose apps — those declare their own limits in the file you supply). -->
+      <div class="row2" x-show="type!=='static' && type!=='go' && type!=='proxy' && type!=='compose' && !(type==='wordpress' && wp==='shared')">
         <label>CPU limit <span class="muted">(cores, optional)</span>
           <input type="number" name="cpu_cores" step="0.25" min="0" placeholder="e.g. 1.0">
         </label>
