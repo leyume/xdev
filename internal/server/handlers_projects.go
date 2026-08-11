@@ -55,9 +55,20 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not load apps", http.StatusInternalServerError)
 		return
 	}
-	// Secondary-service hostnames (e.g. Adminer) per app, for the app-row link.
+	// Secondary-service hostnames per app: one labelled link for the types that
+	// ship a single extra UI (Adminer, the mail console), and the full list for
+	// compose apps, which can route a hostname per published port.
 	adminerDomains := map[int64]string{}
+	serviceDomains := map[int64][]store.ServiceDomain{}
 	for _, a := range apps {
+		if a.IsCompose() {
+			// Compose apps get the full list instead: their extra routes are the
+			// user's own ports, not a bundled Adminer/admin console.
+			if list, err := s.store.AppServiceDomains(a.ID); err == nil && len(list) > 0 {
+				serviceDomains[a.ID] = list
+			}
+			continue
+		}
 		if h := s.store.AppServiceDomain(a.ID); h != "" {
 			adminerDomains[a.ID] = h
 		}
@@ -75,6 +86,9 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		for _, a := range apps {
 			addCandidate(a.Domain)
 			addCandidate(adminerDomains[a.ID])
+			for _, d := range serviceDomains[a.ID] {
+				addCandidate(d.Host)
+			}
 		}
 	}
 	// Only nag about hostnames actually missing from the hosts file, so the
@@ -97,6 +111,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		"AppsRunning":    running,
 		"Activity":       activity,
 		"AdminerDomains": adminerDomains,
+		"ServiceDomains": serviceDomains,
 		"Catalog":        templates.Catalog(),
 		"Error":          r.URL.Query().Get("error"),
 		"ProxyEnabled":   s.proxyEnabled(),
@@ -150,6 +165,8 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	primaryPort, _ := strconv.Atoi(r.FormValue("primary_port"))
+
 	cpu, _ := strconv.ParseFloat(r.FormValue("cpu_cores"), 64)
 	memMB, _ := strconv.ParseInt(r.FormValue("memory_mb"), 10, 64)
 	var memBytes int64
@@ -169,6 +186,8 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		StartCmd:      r.FormValue("start_cmd"),
 		Upstream:      r.FormValue("upstream"),
 		ComposeFile:   composeFile,
+		PrimaryPort:   primaryPort,
+		PortDomains:   portDomains(r),
 		AdminerDomain: r.FormValue("adminer_domain"),
 		DBMode:        r.FormValue("db_mode"),
 		WPMode:        r.FormValue("wp_mode"),
@@ -181,6 +200,27 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 	s.store.AddEvent(proj.ID, app.ID, "info", "Created "+app.Type+" app "+app.Name)
 	s.reconcile()
 	http.Redirect(w, r, "/projects/"+proj.Slug, http.StatusSeeOther)
+}
+
+// portDomains collects the per-port hostnames a compose app was created with.
+// The add-app form emits one `port_domain_<host-port>` field per published port
+// it found in the compose file; blank ones mean "publish it, don't route it".
+func portDomains(r *http.Request) map[int]string {
+	const prefix = "port_domain_"
+	out := map[int]string{}
+	for key, vals := range r.Form {
+		if !strings.HasPrefix(key, prefix) || len(vals) == 0 {
+			continue
+		}
+		port, err := strconv.Atoi(strings.TrimPrefix(key, prefix))
+		if err != nil || port <= 0 {
+			continue
+		}
+		if host := strings.TrimSpace(vals[0]); host != "" {
+			out[port] = host
+		}
+	}
+	return out
 }
 
 // handleAppStart / Stop / Refresh act on one app and return to its project page.

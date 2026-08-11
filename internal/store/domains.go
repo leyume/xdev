@@ -38,6 +38,34 @@ func (s *Store) AppServiceDomain(appID int64) string {
 	return host
 }
 
+// ServiceDomain is a hostname routed straight to one of an app's published
+// ports, rather than to the app's own upstream (compose apps' extra ports,
+// Adminer, the mail admin console).
+type ServiceDomain struct {
+	Host string
+	Port int
+}
+
+// AppServiceDomains returns every secondary-service route an app has, in
+// creation order — a compose app can have one per published port.
+func (s *Store) AppServiceDomains(appID int64) ([]ServiceDomain, error) {
+	rows, err := s.db.Query(
+		`SELECT hostname, port FROM domains WHERE app_id = ? AND port > 0 ORDER BY id`, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ServiceDomain
+	for rows.Next() {
+		var d ServiceDomain
+		if err := rows.Scan(&d.Host, &d.Port); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // DomainOwner returns the app id that owns a hostname, or 0 if it's free.
 func (s *Store) DomainOwner(hostname string) int64 {
 	var id int64

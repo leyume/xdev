@@ -1,5 +1,6 @@
 {{define "content"}}
-<div x-data="{ addOpen: false }" @keydown.escape.window="addOpen = false">
+<div x-data="{ addOpen: false }" @keydown.escape.window="addOpen = false"
+     x-effect="document.body.classList.toggle('modal-open', addOpen)">
 <div class="crumbs"><a href="/projects">Projects</a> / <strong>{{.Project.Name}}</strong></div>
 <section class="page-head">
   <div>
@@ -85,6 +86,14 @@
             {{else}}<a href="https://{{$adm}}:{{$.HTTPSPort}}" target="_blank">{{$admLabel}}</a>{{end}}
           {{else}}<span class="muted">{{$admLabel}}: {{$adm}}</span>{{end}}
         {{end}}
+        {{/* Compose apps route one hostname per published port; list them all. */}}
+        {{range index $.ServiceDomains .ID}}
+          <span class="muted">·</span>
+          {{if $.ProxyEnabled}}
+            {{if eq $.HTTPSPort 443}}<a href="https://{{.Host}}" target="_blank" title="port {{.Port}}">{{.Host}}</a>
+            {{else}}<a href="https://{{.Host}}:{{$.HTTPSPort}}" target="_blank" title="port {{.Port}}">{{.Host}}</a>{{end}}
+          {{else}}<span class="muted">{{.Host}} → :{{.Port}}</span>{{end}}
+        {{end}}
         {{if or (eq .DBMode "shared") (eq .WPMode "shared")}}<span class="muted">·</span><a href="/database" title="Manage the shared database & Adminer">Shared DB ↗</a>{{end}}
         {{if or .CPULimit .MemLimit}}<span class="muted">· {{if .CPULimit}}{{f1 .CPULimit}} CPU{{end}}{{if .MemLimit}} {{mib .MemLimit}}MB{{end}}</span>{{end}}
       </div>
@@ -166,29 +175,41 @@
   </div>
 </div>
 
-<!-- Add-app modal (triggered by the header button; Alpine scope wraps the page). -->
+<!-- Add-app modal (triggered by the header button; Alpine scope wraps the page).
+     The type picker comes first: nothing else is shown until a type is chosen,
+     and the dialog scrolls inside itself rather than moving the page. -->
 <div class="modal-overlay" x-show="addOpen" x-cloak @click.self="addOpen = false">
-  <div class="modal card form-card" role="dialog" aria-modal="true" aria-label="Add app">
+  <div class="modal card form-card modal-wide" role="dialog" aria-modal="true" aria-label="Add app">
     <div class="modal-head">
       <h3 style="margin:0">Add app</h3>
       <button type="button" class="link iconbtn" title="Close" aria-label="Close" @click="addOpen = false">✕</button>
     </div>
+    <div class="modal-body">
     <form method="post" action="/projects/{{.Project.Slug}}/apps" enctype="multipart/form-data"
-          x-data="{type:'static', serve:'serve', wp:'shared', godb:''}">
+          x-data="addAppForm('{{.Project.BaseDomain}}')">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input type="hidden" name="type" :value="type">
+
+      <div class="type-grid">
+        {{range .Catalog}}
+        <button type="button" class="type-card" data-type="{{.Type}}" title="{{.Description}}"
+                :class="{active: type==='{{.Type}}'}" @click="type='{{.Type}}'"
+                {{if not .Available}}disabled{{end}}>
+          <span class="type-ico">{{template "type_icon" .Type}}</span>
+          <span class="type-name">{{.Name}}{{if not .Available}} — soon{{end}}</span>
+          <span class="type-tag">{{.Tagline}}</span>
+        </button>
+        {{end}}
+      </div>
+      <p class="muted small" x-show="!type" style="margin:12px 0 2px">Choose what you're deploying to continue.</p>
+
+      <div x-show="type" x-cloak>
       <label>App name
-        <input type="text" name="name" required placeholder="e.g. frontend">
-      </label>
-      <label>Type
-        <select name="type" x-model="type">
-          {{range .Catalog}}
-          <option value="{{.Type}}" {{if not .Available}}disabled{{end}}>{{.Name}}{{if not .Available}} — soon{{end}}
-          </option>
-          {{end}}
-        </select>
+        <input type="text" name="name" x-bind:required="!!type" placeholder="e.g. frontend">
       </label>
       <label>Domain <span class="muted">(optional — blank serves this app at <code>{{.Project.BaseDomain}}</code>)</span>
-        <input type="text" name="domain" placeholder="{{.Project.BaseDomain}}  ·  or  api.{{.Project.BaseDomain}}">
+        <input type="text" name="domain" x-model="domain"
+               placeholder="{{.Project.BaseDomain}}  ·  or  api.{{.Project.BaseDomain}}">
       </label>
 
       <!-- Static apps: run on the host's system Node, no container. -->
@@ -242,21 +263,59 @@
         </label>
       </template>
 
-      <!-- Compose: the user's own docker-compose.yml / compose.yml, run as-is. -->
+      <!-- Compose: the user's own docker-compose.yml / compose.yml, run as-is.
+           Ports are detected as you type/upload so each one can be given its own
+           hostname; the server re-detects them authoritatively on submit. -->
       <template x-if="type==='compose'">
         <div>
-          <label>Compose file <span class="muted">(upload a <code>docker-compose.yml</code> / <code>compose.yml</code>)</span>
-            <input type="file" name="compose_file" accept=".yml,.yaml,text/yaml,application/x-yaml">
+          <label>Compose file <span class="muted">(load a <code>docker-compose.yml</code> / <code>compose.yml</code> — it drops into the box below)</span>
+            <input type="file" name="compose_file" accept=".yml,.yaml,text/yaml,application/x-yaml"
+                   @change="loadComposeFile($event)">
           </label>
-          <label>…or paste it <span class="muted">(leave both blank for a starter compose file you can edit later)</span>
+          <label>…or paste it <span class="muted">(leave blank for a starter compose file you can edit later)</span>
             <textarea name="compose_yaml" class="code" rows="10" spellcheck="false"
+              x-model="composeText" @input.debounce.250ms="scanPorts()"
               placeholder="services:&#10;  web:&#10;    image: nginx:alpine&#10;    ports:&#10;      - &quot;${PORT}:80&quot;"></textarea>
           </label>
-          <p class="muted small" style="margin:-2px 0 10px">
-            Publish your web service on <code>${PORT}</code> — xdev allocates the host port, writes it to the
-            <code>.env</code> next to your file, and routes this app's domain there. A hard-coded port like
-            <code>"8080:80"</code> works too: xdev routes to that one instead. Resource limits, volumes and extra
-            services are all yours to declare in the file.
+
+          <template x-if="ports.length">
+            <div>
+              <label style="margin-bottom:2px">Published ports
+                <span class="muted">(one domain each — blank leaves a port published but unrouted)</span>
+              </label>
+              <div class="port-map">
+                <template x-for="p in ports" :key="p.port">
+                  <div class="port-row" :class="{'is-primary': isPrimary(p)}">
+                    <div class="port-tag">
+                      <span class="port-num" x-text="p.label"></span>
+                      <span class="port-svc" x-text="p.service || 'service'"></span>
+                    </div>
+                    <div class="port-dest">
+                      <label class="port-primary" :title="hasVar && !p.isVar
+                          ? 'The ${PORT} service always carries the app\'s own domain'
+                          : 'Serve this port at the app\'s own domain'">
+                        <input type="radio" name="primary_port" :value="p.port"
+                               :checked="isPrimary(p)" :disabled="hasVar && !p.isVar"
+                               @change="primary = p.port">
+                        <span x-text="isPrimary(p) ? 'app domain' : 'make primary'"></span>
+                      </label>
+                      <input type="text" x-show="!isPrimary(p)" spellcheck="false"
+                             :name="'port_domain_' + p.port" x-model="portDomains[p.port]"
+                             :placeholder="'e.g. ' + (p.service || 'svc') + '.{{.Project.BaseDomain}}'">
+                      <span class="muted small" x-show="isPrimary(p)"
+                            x-text="domain || '{{.Project.BaseDomain}}'"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <p class="muted small" style="margin:8px 0 10px">
+            Publish your main service on <code>${PORT}</code> — xdev allocates the host port, writes it to the
+            <code>.env</code> next to your file, and routes this app's domain there. Hard-coded ports like
+            <code>"8080:80"</code> work too, and every published port can get its own subdomain above.
+            Resource limits, volumes and extra services are all yours to declare in the file.
           </p>
         </div>
       </template>
@@ -305,7 +364,7 @@
 
       <!-- Container apps: resource limits apply (not host processes, routes, shared-host sites,
            or compose apps — those declare their own limits in the file you supply). -->
-      <div class="row2" x-show="type!=='static' && type!=='go' && type!=='proxy' && type!=='compose' && !(type==='wordpress' && wp==='shared')">
+      <div class="row2" x-show="type && type!=='static' && type!=='go' && type!=='proxy' && type!=='compose' && !(type==='wordpress' && wp==='shared')">
         <label>CPU limit <span class="muted">(cores, optional)</span>
           <input type="number" name="cpu_cores" step="0.25" min="0" placeholder="e.g. 1.0">
         </label>
@@ -314,9 +373,105 @@
         </label>
       </div>
       <button class="primary" type="submit">Create &amp; start app</button>
+      </div><!-- /revealed once a type is picked -->
     </form>
+    </div>
   </div>
 </div>
+
+<script>
+// Add-app form state. The type picker gates the rest of the form, and compose
+// apps get their published ports read out of the file as it is typed/loaded so
+// each one can be pointed at its own hostname. The server re-detects the ports
+// on submit — this is convenience, not the source of truth.
+function addAppForm(baseDomain) {
+  return {
+    type: '', serve: 'serve', wp: 'shared', godb: '', domain: '',
+    composeText: '', ports: [], primary: 0, hasVar: false, portDomains: {},
+
+    // Read a chosen compose file into the textarea (and clear the file input, so
+    // exactly one copy is submitted) — seeing the file is better than a filename.
+    loadComposeFile(e) {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        this.composeText = String(reader.result || '');
+        this.scanPorts();
+        e.target.value = '';
+      };
+      reader.readAsText(file);
+    },
+
+    scanPorts() {
+      const found = detectComposePorts(this.composeText);
+      this.ports = found;
+      this.hasVar = found.some(p => p.isVar);
+      // ${PORT} always carries the app's domain; otherwise keep the chosen
+      // primary while the file still publishes it, else fall back to the first.
+      const varPort = found.find(p => p.isVar);
+      if (varPort) this.primary = varPort.port;
+      else if (!found.some(p => p.port === this.primary)) this.primary = found.length ? found[0].port : 0;
+      // Suggest <service>.<app domain> for the ports that need a hostname.
+      for (const p of found) {
+        if (p.isVar || p.port === this.primary || this.portDomains[p.port]) continue;
+        const label = p.service || ('p' + p.port);
+        this.portDomains[p.port] = label + '.' + ((this.domain || '').trim() || baseDomain);
+      }
+    },
+
+    isPrimary(p) { return p.port === this.primary; },
+  };
+}
+
+// detectComposePorts mirrors internal/apps/compose.go: every published host port
+// in file order, tagged with the service publishing it. A ${PORT} entry has no
+// number yet — xdev allocates it — and is reported as port 0.
+function detectComposePorts(text) {
+  const SHORT_VAR = /^-[ \t]*["']?(?:[0-9.]+:)?\$\{?(?:XDEV_)?PORT\b/;
+  const LONG_VAR = /^published:[ \t]*["']?\$\{?(?:XDEV_)?PORT\b/;
+  const SHORT = /^-[ \t]*["']?(?:[0-9.]+:)?(\d{2,5}):\d{1,5}(?:\/(?:tcp|udp))?["']?$/;
+  const LONG = /^published:[ \t]*["']?(\d{2,5})["']?$/;
+  const SERVICE = /^([A-Za-z0-9._-]+):$/;
+
+  const out = [], seen = {};
+  let service = '', inServices = false, serviceIndent = -1, sawVar = false;
+  for (const raw of String(text || '').split('\n')) {
+    let line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const hash = line.indexOf(' #');
+    if (hash >= 0) line = line.slice(0, hash).trim();
+    const indent = raw.length - raw.replace(/^ +/, '').length;
+    if (indent === 0) {
+      inServices = line === 'services:';
+      service = ''; serviceIndent = -1;
+      continue;
+    }
+    if (inServices) {
+      const m = line.match(SERVICE);
+      if (m) {
+        if (serviceIndent < 0) serviceIndent = indent;
+        if (indent === serviceIndent) { service = m[1]; continue; }
+      }
+    }
+    if (SHORT_VAR.test(line) || LONG_VAR.test(line)) {
+      if (sawVar) continue; // only one ${PORT} is meaningful; the server rejects more
+      sawVar = true;
+      out.push({ port: 0, service: service, isVar: true, label: '${PORT}' });
+      continue;
+    }
+    const m = line.match(SHORT) || line.match(LONG);
+    if (m) {
+      const port = parseInt(m[1], 10);
+      if (port > 0 && port <= 65535 && !seen[port]) {
+        seen[port] = true;
+        out.push({ port: port, service: service, isVar: false, label: String(port) });
+      }
+    }
+  }
+  return out;
+}
+</script>
 
 <link rel="stylesheet" href="/static/uPlot.min.css">
 <script src="/static/uPlot.iife.min.js"></script>

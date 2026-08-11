@@ -10,36 +10,61 @@ import (
 	"xdev/internal/templates"
 )
 
-// TestComposeHostPort covers how xdev decides where to route a bring-your-own
-// compose app: a ${PORT} reference means "use the port xdev allocates", any
-// hard-coded published port wins otherwise, and a file publishing nothing is an
-// error (its domain would have nowhere to go).
-func TestComposeHostPort(t *testing.T) {
+// TestComposePorts covers the published-port scan the add-app form and the
+// router both rely on: every port syntax, the service each port belongs to, and
+// the ${PORT} placeholder whose number xdev allocates.
+func TestComposePorts(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		yaml     string
-		wantPort int
-		wantVar  bool
+		name string
+		yaml string
+		want []ComposePort
 	}{
-		{"port var, quoted", "services:\n  web:\n    ports:\n      - \"${PORT}:80\"\n", 0, true},
-		{"port var, bare", "services:\n  web:\n    ports:\n      - $PORT:8000\n", 0, true},
-		{"port var with default", "services:\n  web:\n    ports:\n      - \"${PORT:-8080}:80\"\n", 0, true},
-		{"xdev port var", "services:\n  web:\n    ports:\n      - \"${XDEV_PORT}:80\"\n", 0, true},
-		{"fixed short syntax", "services:\n  web:\n    ports:\n      - \"8080:80\"\n", 8080, false},
-		{"fixed unquoted", "services:\n  web:\n    ports:\n      - 8080:80\n", 8080, false},
-		{"fixed with bind address", "services:\n  web:\n    ports:\n      - \"127.0.0.1:9000:80/tcp\"\n", 9000, false},
-		{"fixed long syntax", "services:\n  web:\n    ports:\n      - target: 80\n        published: \"8081\"\n", 8081, false},
-		{"trailing comment", "services:\n  web:\n    ports:\n      - \"8082:80\" # web\n", 8082, false},
-		{"first published port wins", "services:\n  db:\n    ports:\n      - \"3307:3306\"\n  web:\n    ports:\n      - \"8083:80\"\n", 3307, false},
-		{"port var beats a fixed one elsewhere", "services:\n  db:\n    ports:\n      - \"3307:3306\"\n  web:\n    ports:\n      - \"${PORT}:80\"\n", 0, true},
+		{"port var, quoted", "services:\n  web:\n    ports:\n      - \"${PORT}:80\"\n",
+			[]ComposePort{{Service: "web", Var: true}}},
+		{"port var, bare", "services:\n  web:\n    ports:\n      - $PORT:8000\n",
+			[]ComposePort{{Service: "web", Var: true}}},
+		{"port var with default", "services:\n  web:\n    ports:\n      - \"${PORT:-8080}:80\"\n",
+			[]ComposePort{{Service: "web", Var: true}}},
+		{"xdev port var", "services:\n  web:\n    ports:\n      - \"${XDEV_PORT}:80\"\n",
+			[]ComposePort{{Service: "web", Var: true}}},
+		{"fixed short syntax", "services:\n  web:\n    ports:\n      - \"8080:80\"\n",
+			[]ComposePort{{Port: 8080, Service: "web"}}},
+		{"fixed unquoted", "services:\n  web:\n    ports:\n      - 8080:80\n",
+			[]ComposePort{{Port: 8080, Service: "web"}}},
+		{"fixed with bind address", "services:\n  web:\n    ports:\n      - \"127.0.0.1:9000:80/tcp\"\n",
+			[]ComposePort{{Port: 9000, Service: "web"}}},
+		{"fixed long syntax", "services:\n  web:\n    ports:\n      - target: 80\n        published: \"8081\"\n",
+			[]ComposePort{{Port: 8081, Service: "web"}}},
+		{"trailing comment", "services:\n  web:\n    ports:\n      - \"8082:80\" # web\n",
+			[]ComposePort{{Port: 8082, Service: "web"}}},
+		{"one port per service, in file order",
+			"services:\n  db:\n    ports:\n      - \"3307:3306\"\n  web:\n    ports:\n      - \"8083:80\"\n",
+			[]ComposePort{{Port: 3307, Service: "db"}, {Port: 8083, Service: "web"}}},
+		{"several ports on one service",
+			"services:\n  app:\n    ports:\n      - \"8000:80\"\n      - \"8443:443\"\n      - \"9000:9000\"\n",
+			[]ComposePort{{Port: 8000, Service: "app"}, {Port: 8443, Service: "app"}, {Port: 9000, Service: "app"}}},
+		{"var alongside fixed ports",
+			"services:\n  web:\n    ports:\n      - \"${PORT}:80\"\n  api:\n    ports:\n      - \"9090:9090\"\n",
+			[]ComposePort{{Service: "web", Var: true}, {Port: 9090, Service: "api"}}},
+		{"a repeated port is listed once",
+			"services:\n  a:\n    ports:\n      - \"8080:80\"\n  b:\n    ports:\n      - \"8080:80\"\n",
+			[]ComposePort{{Port: 8080, Service: "a"}}},
+		{"top-level keys after services don't leak service names",
+			"services:\n  web:\n    ports:\n      - \"8080:80\"\nnetworks:\n  internal:\n",
+			[]ComposePort{{Port: 8080, Service: "web"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			port, usesVar, err := composeHostPort(tc.yaml)
+			got, err := ComposePorts(tc.yaml)
 			if err != nil {
-				t.Fatalf("composeHostPort: %v", err)
+				t.Fatalf("ComposePorts: %v", err)
 			}
-			if usesVar != tc.wantVar || port != tc.wantPort {
-				t.Errorf("got port=%d usesVar=%v, want port=%d usesVar=%v", port, usesVar, tc.wantPort, tc.wantVar)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %+v, want %+v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("port %d: got %+v, want %+v", i, got[i], tc.want[i])
+				}
 			}
 		})
 	}
@@ -52,10 +77,34 @@ func TestComposeHostPort(t *testing.T) {
 		// ${PORT} outside port position is not a published port.
 		"services:\n  web:\n    environment:\n      - BASE_URL=http://localhost:${PORT}\n",
 		"# ports:\n#   - \"${PORT}:80\"\nservices:\n  web:\n    image: nginx\n",
+		// Two ${PORT}s would both expand to the same number and collide.
+		"services:\n  a:\n    ports:\n      - \"${PORT}:80\"\n  b:\n    ports:\n      - \"${PORT}:90\"\n",
 	} {
-		if _, _, err := composeHostPort(yaml); err == nil {
-			t.Errorf("compose file with no published host port should be rejected:\n%s", yaml)
+		if _, err := ComposePorts(yaml); err == nil {
+			t.Errorf("compose file should have been rejected:\n%s", yaml)
 		}
+	}
+}
+
+// TestPickPrimary checks which published port carries the app's own domain: the
+// requested one when the file still publishes it, else the first.
+func TestPickPrimary(t *testing.T) {
+	ports := []ComposePort{{Port: 8080, Service: "web"}, {Port: 9000, Service: "api"}}
+	if got, ok := pickPrimary(ports, 9000); !ok || got.Port != 9000 {
+		t.Errorf("requested port: got %+v ok=%v, want 9000", got, ok)
+	}
+	if got, ok := pickPrimary(ports, 0); !ok || got.Port != 8080 {
+		t.Errorf("no request: got %+v ok=%v, want the first port", got, ok)
+	}
+	if got, ok := pickPrimary(ports, 7777); ok || got.Port != 8080 {
+		t.Errorf("stale request: got %+v ok=%v, want a fallback to the first port", got, ok)
+	}
+
+	// A ${PORT} entry is always the primary: its number is the allocated one, so
+	// letting a fixed port take the app's domain would put two services on it.
+	withVar := []ComposePort{{Port: 8080, Service: "web"}, {Service: "api", Var: true}}
+	if got, _ := pickPrimary(withVar, 8080); !got.Var {
+		t.Errorf("got %+v, want the ${PORT} entry to stay primary", got)
 	}
 }
 
@@ -129,12 +178,12 @@ func TestComposeStarterIsAcceptedByItsOwnRules(t *testing.T) {
 	if err := validCompose(out); err != nil {
 		t.Fatalf("starter compose fails validation: %v\n%s", err, out)
 	}
-	port, usesVar, err := composeHostPort(out)
+	ports, err := ComposePorts(out)
 	if err != nil {
 		t.Fatalf("starter compose port: %v\n%s", err, out)
 	}
-	if usesVar || port != 20005 {
-		t.Errorf("starter publishes port=%d usesVar=%v, want the allocated 20005", port, usesVar)
+	if len(ports) != 1 || ports[0].Var || ports[0].Port != 20005 {
+		t.Errorf("starter publishes %+v, want just the allocated 20005", ports)
 	}
 }
 
@@ -162,7 +211,7 @@ func TestLayoutCompose(t *testing.T) {
 		yaml := "services:\n  web:\n    image: caddy:2\n    ports:\n      - \"8099:80\"\n"
 		app := store.App{ProjectID: proj.ID, Slug: "byo", Type: store.TypeCompose}
 		appDir := filepath.Join(proj.Dir, app.Slug)
-		if err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose, ComposeFile: yaml}, proj, appDir); err != nil {
+		if _, err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose, ComposeFile: yaml}, proj, appDir); err != nil {
 			t.Fatalf("layoutCompose: %v", err)
 		}
 		if got := readFile(t, filepath.Join(appDir, "_", "compose.yml")); got != yaml {
@@ -185,7 +234,7 @@ func TestLayoutCompose(t *testing.T) {
 	t.Run("no file gets the starter", func(t *testing.T) {
 		app := store.App{ProjectID: proj.ID, Slug: "starter", Type: store.TypeCompose}
 		appDir := filepath.Join(proj.Dir, app.Slug)
-		if err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose}, proj, appDir); err != nil {
+		if _, err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose}, proj, appDir); err != nil {
 			t.Fatalf("layoutCompose: %v", err)
 		}
 		if app.Port < portMin || app.Port > portMax {
@@ -201,10 +250,96 @@ func TestLayoutCompose(t *testing.T) {
 		}
 	})
 
+	t.Run("multi-port file routes a hostname per port", func(t *testing.T) {
+		yaml := "services:\n  web:\n    ports:\n      - \"8100:80\"\n  api:\n    ports:\n" +
+			"      - \"8101:3000\"\n  admin:\n    ports:\n      - \"8102:9000\"\n"
+		app := store.App{ProjectID: proj.ID, Slug: "multi", Type: store.TypeCompose}
+		appDir := filepath.Join(proj.Dir, app.Slug)
+		extras, err := svc.layoutCompose(&app, &CreateOpts{
+			Type:        store.TypeCompose,
+			ComposeFile: yaml,
+			PrimaryPort: 8101, // the app's own domain follows the api service
+			PortDomains: map[int]string{
+				8100: "web.demo.test",
+				8102: "admin.demo.test",
+				8101: "ignored.demo.test", // the primary uses the app's domain
+			},
+		}, proj, appDir)
+		if err != nil {
+			t.Fatalf("layoutCompose: %v", err)
+		}
+		if app.Port != 8101 {
+			t.Errorf("app port = %d, want the requested primary 8101", app.Port)
+		}
+		want := map[string]int{"web.demo.test": 8100, "admin.demo.test": 8102}
+		if len(extras) != len(want) {
+			t.Fatalf("extra routes = %+v, want one per non-primary port", extras)
+		}
+		for _, r := range extras {
+			if want[r.Host] != r.Port {
+				t.Errorf("route %+v does not match %v", r, want)
+			}
+		}
+		// The env still carries the primary port for ${PORT} substitution.
+		if env := readFile(t, filepath.Join(appDir, "_", ".env")); !strings.Contains(env, "PORT=8101\n") {
+			t.Errorf(".env should carry the primary port:\n%s", env)
+		}
+	})
+
+	t.Run("a port with no hostname is published but not routed", func(t *testing.T) {
+		yaml := "services:\n  web:\n    ports:\n      - \"8200:80\"\n  metrics:\n    ports:\n      - \"8201:9090\"\n"
+		app := store.App{ProjectID: proj.ID, Slug: "partial", Type: store.TypeCompose}
+		extras, err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose, ComposeFile: yaml},
+			proj, filepath.Join(proj.Dir, app.Slug))
+		if err != nil {
+			t.Fatalf("layoutCompose: %v", err)
+		}
+		if len(extras) != 0 {
+			t.Errorf("extra routes = %+v, want none (no hostnames given)", extras)
+		}
+		if app.Port != 8200 {
+			t.Errorf("app port = %d, want the first published port", app.Port)
+		}
+	})
+
+	t.Run("a taken hostname fails the create", func(t *testing.T) {
+		yaml := "services:\n  web:\n    ports:\n      - \"8300:80\"\n  api:\n    ports:\n      - \"8301:3000\"\n"
+		app := store.App{ProjectID: proj.ID, Slug: "dupe", Type: store.TypeCompose}
+		appDir := filepath.Join(proj.Dir, app.Slug)
+		// Park the hostname on another app first.
+		other, err := st.CreateApp(store.App{ProjectID: proj.ID, Name: "Other", Slug: "other", Type: store.TypeCompose})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.CreateDomain(other.ID, "taken.demo.test", true, "internal", 8999); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.layoutCompose(&app, &CreateOpts{
+			Type: store.TypeCompose, ComposeFile: yaml,
+			PortDomains: map[int]string{8301: "taken.demo.test"},
+		}, proj, appDir); err == nil {
+			t.Fatal("a hostname another app owns should be rejected")
+		}
+		if _, err := os.Stat(appDir); !os.IsNotExist(err) {
+			t.Errorf("rejected app left %s behind", appDir)
+		}
+	})
+
+	t.Run("an extra port cannot claim the app's own domain", func(t *testing.T) {
+		yaml := "services:\n  web:\n    ports:\n      - \"8400:80\"\n  api:\n    ports:\n      - \"8401:3000\"\n"
+		app := store.App{ProjectID: proj.ID, Slug: "self", Type: store.TypeCompose, Domain: "self.demo.test"}
+		if _, err := svc.layoutCompose(&app, &CreateOpts{
+			Type: store.TypeCompose, ComposeFile: yaml,
+			PortDomains: map[int]string{8401: "self.demo.test"},
+		}, proj, filepath.Join(proj.Dir, app.Slug)); err == nil {
+			t.Fatal("an extra port pointing at the app's own domain should be rejected")
+		}
+	})
+
 	t.Run("bad file is rejected before anything is written", func(t *testing.T) {
 		app := store.App{ProjectID: proj.ID, Slug: "bad", Type: store.TypeCompose}
 		appDir := filepath.Join(proj.Dir, app.Slug)
-		if err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose, ComposeFile: "web:\n  image: nginx\n"}, proj, appDir); err == nil {
+		if _, err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose, ComposeFile: "web:\n  image: nginx\n"}, proj, appDir); err == nil {
 			t.Fatal("a file without a services block should be rejected")
 		}
 		if _, err := os.Stat(appDir); !os.IsNotExist(err) {

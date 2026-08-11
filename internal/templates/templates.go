@@ -49,10 +49,13 @@ func (d Data) CPUStr() string { return strconv.FormatFloat(d.CPULimit, 'f', -1, 
 // MemStr formats the memory limit in compose-friendly units (e.g. "512m", "1g").
 func (d Data) MemStr() string { return humanBytes(d.MemLimit) }
 
-// TypeInfo describes an app type for the UI catalog.
+// TypeInfo describes an app type for the UI catalog. Tagline is the one-line
+// version shown on the type cards in the add-app form; Description is the full
+// text behind them (tooltip / docs).
 type TypeInfo struct {
 	Type        string
 	Name        string
+	Tagline     string
 	Description string
 	Available   bool // false types are shown but not yet selectable
 }
@@ -62,13 +65,13 @@ type TypeInfo struct {
 // rest are container/compose stacks.
 func Catalog() []TypeInfo {
 	return []TypeInfo{
-		{"static", "Static", "Static site/app served by xdev with your system Node — no container. Code lives directly in the app folder.", true},
-		{"go", "Go", "Go app built and run on the host with your system Go toolchain — no container. Code lives directly in the app folder.", true},
-		{"proxy", "Proxy", "Forward this domain to another server — just a Caddy route to an upstream URL. No container, process, or files.", true},
-		{"compose", "Compose", "Bring your own docker-compose.yml / compose.yml — paste or upload it and xdev runs the stack as-is, routing your domain to the port it publishes.", true},
-		{"wordpress", "WordPress", "WordPress + MariaDB, code in app/.", true},
-		{"laravel", "Laravel", "Laravel on Octane/Swoole + MariaDB + Redis (drop your app in app/).", true},
-		{"mail", "Mail", "Full mail server — Stalwart (SMTP/IMAP, admin UI for domains, mailboxes, DKIM) + SnappyMail webmail. Prod needs port 25 open and MX/SPF/DKIM DNS records.", true},
+		{"static", "Static", "Files or a Node dev server", "Static site/app served by xdev with your system Node — no container. Code lives directly in the app folder.", true},
+		{"go", "Go", "Built + run with system Go", "Go app built and run on the host with your system Go toolchain — no container. Code lives directly in the app folder.", true},
+		{"proxy", "Proxy", "Forward to another server", "Forward this domain to another server — just a Caddy route to an upstream URL. No container, process, or files.", true},
+		{"compose", "Compose", "Bring your own compose.yml", "Bring your own docker-compose.yml / compose.yml — paste or upload it and xdev runs the stack as-is, routing a domain to each port it publishes.", true},
+		{"wordpress", "WordPress", "Shared PHP host or its own stack", "WordPress + MariaDB, code in app/.", true},
+		{"laravel", "Laravel", "Octane + MariaDB + Redis", "Laravel on Octane/Swoole + MariaDB + Redis (drop your app in app/).", true},
+		{"mail", "Mail", "Stalwart SMTP/IMAP + webmail", "Full mail server — Stalwart (SMTP/IMAP, admin UI for domains, mailboxes, DKIM) + SnappyMail webmail. Prod needs port 25 open and MX/SPF/DKIM DNS records.", true},
 	}
 }
 

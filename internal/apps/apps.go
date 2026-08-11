@@ -97,6 +97,13 @@ type CreateOpts struct {
 	// (pasted or uploaded). Blank means "scaffold the starter compose file".
 	ComposeFile string
 
+	// Compose-only: which published host port the app's own domain routes to
+	// (0 = the first one in the file), and a hostname for any of the other
+	// published ports the user wants routed — port -> domain. Ports left out
+	// stay published but unrouted.
+	PrimaryPort int
+	PortDomains map[int]string
+
 	// Laravel-only: hostname for the Adminer DB UI (blank = adminer.<app-domain>).
 	AdminerDomain string
 
@@ -180,8 +187,11 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 		Runtime:   appEngine,
 	}
 
-	// adminerPort is allocated by layoutContainer for types that ship Adminer.
+	// adminerPort is allocated by layoutContainer for types that ship Adminer;
+	// composeExtras are the secondary port -> hostname routes a compose app asked
+	// for. Both are attached as domain rows once the app row exists.
 	var adminerPort int
+	var composeExtras []composeRoute
 	switch {
 	case opts.Type == store.TypeProxy:
 		// Proxy apps are only a Caddy route to another server: no container,
@@ -205,8 +215,10 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 		}
 	case opts.Type == store.TypeCompose:
 		// Bring-your-own compose: the user's file is the stack. xdev writes the
-		// same _/ + app/ layout around it and routes to the port it publishes.
-		if err := s.layoutCompose(&app, &opts, proj, appDir); err != nil {
+		// same _/ + app/ layout around it, routes the app's domain to the primary
+		// published port, and gives any other named port its own hostname.
+		composeExtras, err = s.layoutCompose(&app, &opts, proj, appDir)
+		if err != nil {
 			return store.App{}, err
 		}
 	case opts.Type == "wordpress" && opts.WPMode != "separate":
@@ -281,6 +293,12 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 	if adminerDomain != "" {
 		if err := s.store.CreateDomain(saved.ID, adminerDomain, isLocal, sslMode, adminerPort); err != nil {
 			log.Printf("attach adminer domain %s to app %d: %v", adminerDomain, saved.ID, err)
+		}
+	}
+	// A compose app's other published ports, each on the hostname it was given.
+	for _, r := range composeExtras {
+		if err := s.store.CreateDomain(saved.ID, r.Host, isLocal, sslMode, r.Port); err != nil {
+			log.Printf("attach domain %s (port %d) to app %d: %v", r.Host, r.Port, saved.ID, err)
 		}
 	}
 

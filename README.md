@@ -39,10 +39,12 @@ in [`deploy/README.md`](deploy/README.md).
   Laravel + Octane/Swoole with MariaDB + Redis + Adminer); add your own by
   dropping in a Compose template.
 - **Bring your own Compose** — pick the **Compose** type and upload or paste a
-  `docker-compose.yml` / `compose.yml`: xdev runs your stack as-is and points the
-  app's domain at the port it publishes. Use `"${PORT}:80"` to take the host port
-  xdev allocates, or hard-code one and xdev routes to that. Leave it blank for a
-  starter file to edit.
+  `docker-compose.yml` / `compose.yml`: xdev runs your stack as-is. Every port
+  the file publishes is detected as you paste it, and each one can get its own
+  domain — the app's own domain for the main service, a subdomain for the rest
+  (`api.example.com` → `:8101`, `admin.example.com` → `:8102`). Use
+  `"${PORT}:80"` to take the host port xdev allocates, or hard-code ports and
+  xdev routes to those. Leave it blank for a starter file to edit.
 - **Automatic HTTPS** — Caddy obtains/renews certs; local domains use an
   internal CA. Trust its root once for green locks — Caddy mints it when the
   first `.test`/`.localhost` site is served, and `xdev doctor` then prints the

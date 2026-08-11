@@ -383,14 +383,25 @@ is bound to each session and validated on unsafe methods by `RequireAuth`.
   not free. `portFree` binds the **wildcard** `:p` (not loopback) to match how
   engines publish ports.
 - **Bring-your-own compose apps** (`compose.go`): `layoutCompose` validates the
-  supplied file (top-level `services:`, no tab indents, size/UTF-8) and decides
-  the routed host port — a `${PORT}`/`${XDEV_PORT}` in port position takes the
-  port xdev allocates, otherwise the first hard-coded published port wins (and
-  must not already be in `UsedPorts`). `prepareCompose` re-runs that on every
-  `Start`, following the file if its port changed (`SetAppPort`) and rewriting
+  supplied file (top-level `services:`, no tab indents, size/UTF-8), then
+  `ComposePorts` lists **every** published host port with the service that owns
+  it. `pickPrimary` chooses the one carrying the app's own domain — a
+  `${PORT}`/`${XDEV_PORT}` entry always wins (its number is the allocated one),
+  else the caller's `PrimaryPort`, else the first. The remaining ports each take
+  the hostname the form gave them (`CreateOpts.PortDomains`) and become
+  secondary `domains` rows (`port > 0`), routed straight to that port exactly
+  like Adminer's; a port with no hostname stays published but unrouted. Ports
+  and hostnames are checked against `UsedPorts`/`DomainOwner` before anything is
+  written. `prepareCompose` re-runs the scan on every `Start`, moving the app
+  only if its primary port vanished from the file (`SetAppPort`) and rewriting
   the managed `PORT`/`XDEV_PORT` lines in `_/.env` — the file compose reads for
-  `${VAR}` substitution, and the one the Env tab edits for these apps. Their `_/`
-  is user content, so imports restore it (`unpacksAll`) instead of skipping it.
+  `${VAR}` substitution, and the one the Env tab edits for these apps. Secondary
+  domains are left alone there: they are user configuration, not derived state.
+  Their `_/` is user content, so imports restore it (`unpacksAll`) instead of
+  skipping it.
+- The add-app form mirrors the port scan in JS (`detectComposePorts` in
+  `project.html`) so ports appear with a domain field as the file is pasted or
+  loaded; the server re-detects on submit and is the source of truth.
 - `ops.go`: `Logs` (compose logs tail), `ReadEnv`/`WriteEnv` (`app/.env`, or
   `_/.env` for compose apps; `.env` at the root for host apps),
   `Backup`/`ListBackups`/`BackupPath` (`.tar.gz` of the app dir under
