@@ -42,6 +42,34 @@ func TestProxyAppRoutes(t *testing.T) {
 	}
 }
 
+// TestProxyUpstreamPathPrefix checks that an upstream carrying a path proxies
+// every request under that prefix: the request URI is rewritten to
+// <prefix>{uri} before reverse_proxy, while the dial stays host:port. A bare
+// upstream must gain no rewrite at all.
+func TestProxyUpstreamPathPrefix(t *testing.T) {
+	cfg := configJSON(t, []Route{
+		{Host: "webmail.example.com", Upstream: "https://mail.example.com/snappymail"},
+	})
+	for _, want := range []string{
+		`"handler":"rewrite","uri":"/snappymail{http.request.uri}"`,
+		`"dial":"mail.example.com:443"`,           // path never reaches the dial
+		`"tls":{"server_name":"mail.example.com"`, // TLS/SNI unaffected by the path
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("prefixed upstream missing %q\n%s", want, cfg)
+		}
+	}
+	// The rewrite has to run before the proxy, or it rewrites nothing.
+	if i, j := strings.Index(cfg, `"rewrite"`), strings.Index(cfg, `"reverse_proxy"`); i < 0 || i > j {
+		t.Errorf("rewrite must precede reverse_proxy\n%s", cfg)
+	}
+
+	bare := configJSON(t, []Route{{Host: "app.example.com", Upstream: "https://coolify.example"}})
+	if strings.Contains(bare, "rewrite") {
+		t.Errorf("upstream with no path must not gain a rewrite\n%s", bare)
+	}
+}
+
 // TestLocalPortRouteUnchanged checks the pre-existing local-app form
 // (host:port, no scheme) still dials as-is with no transport.
 func TestLocalPortRouteUnchanged(t *testing.T) {
@@ -146,10 +174,60 @@ func TestWPSharedSiteRoute(t *testing.T) {
 		}
 	}
 
-	// Root without FCGIPort must stay a plain file_server (no PHP handler).
+	// Root without FCGIPort is a static site: file-served, never handed to PHP.
 	cfg = configJSON(t, []Route{{Host: "site.demo.test", Root: "/srv/site/dist", Internal: true}})
-	if strings.Contains(cfg, "fastcgi") || strings.Contains(cfg, "subroute") {
+	if strings.Contains(cfg, "fastcgi") || strings.Contains(cfg, `"*.php"`) {
 		t.Errorf("plain Root route must not gain a PHP handler\n%s", cfg)
+	}
+}
+
+// TestStaticSiteFallsBackToIndex covers the serve-mode static route: real files
+// win, and any URI with nothing behind it is rewritten to /index.html. Without
+// that, the first load of a single-page app's deep link (/dashboard/settings —
+// a client-side route with no file on disk) is a 404.
+func TestStaticSiteFallsBackToIndex(t *testing.T) {
+	cfg := configJSON(t, []Route{{Host: "site.demo.test", Root: "/srv/site/dist", Internal: true}})
+	for _, want := range []string{
+		`"handler":"vars","root":"/srv/site/dist"`,
+		// {path} first so an existing file always wins; {path}/ keeps directory
+		// index files working; /index.html is the SPA fallback.
+		`"try_files":["{http.request.uri.path}","{http.request.uri.path}/","/index.html"]`,
+		`"handler":"rewrite","uri":"{http.matchers.file.relative}"`,
+		`"handler":"file_server"`,
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("static route missing %q\n%s", want, cfg)
+		}
+	}
+}
+
+// TestRootPrefixRemapsStaticRoots: a containerized Caddy only sees what is
+// mounted into it, so file_server roots are rewritten under the prefix the host
+// filesystem is mounted at. A shared-WP docroot is deliberately left alone — the
+// fpm container opens that same path and would not find a prefixed one.
+func TestRootPrefixRemapsStaticRoots(t *testing.T) {
+	m := NewManager("127.0.0.1:2019", 443, 80, "", "")
+	m.rootPrefix = "/hostfs"
+	cfg, err := json.Marshal(m.buildConfig([]Route{
+		{Host: "site.demo.test", Root: "/home/li/ui/xyz", Internal: true},
+		{Host: "blog.demo.test", Root: "/var/lib/xdev/wp/sites/a_blog", FCGIPort: 20099, Internal: true},
+	}))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	got := string(cfg)
+	if !strings.Contains(got, `"root":"/hostfs/home/li/ui/xyz"`) {
+		t.Errorf("static root not remapped into the container\n%s", got)
+	}
+	if !strings.Contains(got, `"root":"/var/lib/xdev/wp/sites/a_blog"`) {
+		t.Errorf("shared-WP docroot must stay the real host path (fpm opens it)\n%s", got)
+	}
+
+	// No prefix (Caddy on the host) leaves paths exactly as they are.
+	m.rootPrefix = ""
+	cfg, _ = json.Marshal(m.buildConfig([]Route{{Host: "site.demo.test", Root: "/home/li/ui/xyz"}}))
+	if !strings.Contains(string(cfg), `"root":"/home/li/ui/xyz"`) {
+		t.Errorf("root rewritten with no prefix set\n%s", cfg)
 	}
 }
 

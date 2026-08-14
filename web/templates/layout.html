@@ -20,14 +20,14 @@
         },
       };
     }
-    // App start/stop/refresh/delete without a page reload: POST via fetch and
+    // App start/stop/delete without a page reload: POST via fetch and
     // patch the app's status in place. Capture phase so it runs before the
     // spinner handler below. Falls back to a native submit on any error (lands
     // on the server-rendered error banner) or when fetch is unavailable.
     document.addEventListener('submit', function (e) {
       var f = e.target;
       var act = f.getAttribute && f.getAttribute('action');
-      if (!act || !/^\/apps\/\d+\/(start|stop|refresh|delete)$/.test(act)) return;
+      if (!act || !/^\/apps\/\d+\/(start|stop|delete)$/.test(act)) return;
       if (f.dataset.confirm && !confirm(f.dataset.confirm)) { e.preventDefault(); return; }
       e.preventDefault();
       var host = f.closest('[data-app-id]');

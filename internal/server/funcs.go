@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"strconv"
@@ -33,6 +34,16 @@ func tmplFuncs() template.FuncMap {
 				m[k] = kv[i+1]
 			}
 			return m, nil
+		},
+		// json renders a value as JSON for a JavaScript context — Alpine's x-data
+		// on the settings page seeds its rows from Go this way. HTML-escaping of
+		// the attribute is transparent to the browser's JS parser.
+		"json": func(v any) (string, error) {
+			b, err := json.Marshal(v)
+			if err != nil {
+				return "", err
+			}
+			return string(b), nil
 		},
 		// initials renders a two-letter avatar badge from an email address.
 		"initials": func(email string) string {

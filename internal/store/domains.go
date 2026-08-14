@@ -19,6 +19,10 @@ const (
 // port to reverse-proxy to), Root (a directory for Caddy to file-server), or
 // Upstream (a proxy app's remote URL) is set. Shared-WP sites set Root plus
 // FCGIPort (*.php handed to the wp-host fpm pool).
+//
+// One per *hostname*, not per app: an app given several domains (test.com,
+// www.test.com, test.com.ng) produces one of these each, identical but for
+// Host, so each becomes its own route and its own certificate.
 type RouteInfo struct {
 	Host     string
 	Port     int
@@ -38,6 +42,34 @@ func (s *Store) AppServiceDomain(appID int64) string {
 	return host
 }
 
+// ServiceDomain is a hostname routed straight to one of an app's published
+// ports, rather than to the app's own upstream (compose apps' extra ports,
+// Adminer, the mail admin console).
+type ServiceDomain struct {
+	Host string
+	Port int
+}
+
+// AppServiceDomains returns every secondary-service route an app has, in
+// creation order — a compose app can have one per published port.
+func (s *Store) AppServiceDomains(appID int64) ([]ServiceDomain, error) {
+	rows, err := s.db.Query(
+		`SELECT hostname, port FROM domains WHERE app_id = ? AND port > 0 ORDER BY id`, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ServiceDomain
+	for rows.Next() {
+		var d ServiceDomain
+		if err := rows.Scan(&d.Host, &d.Port); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // DomainOwner returns the app id that owns a hostname, or 0 if it's free.
 func (s *Store) DomainOwner(hostname string) int64 {
 	var id int64
@@ -52,28 +84,67 @@ func (s *Store) SetAppDomain(appID int64, hostname string) error {
 	return err
 }
 
-// ReplaceAppDomain makes hostname the app's primary domain (delete then insert),
-// so changing an app's domain doesn't leave the old one routing. It only touches
-// the primary domain (port 0) — secondary service domains like Adminer (which
-// carry their own non-zero port) are left in place.
-func (s *Store) ReplaceAppDomain(appID int64, hostname string, isLocal bool, sslMode string) error {
+// AppHostnames returns every hostname served from the app's own upstream — the
+// app's domain and any additional ones given alongside it — in the order they
+// were entered. Service domains (port > 0) are excluded: those route to a
+// specific published port, not to the app itself.
+//
+// Insertion order is the entry order because ReplaceAppDomains rewrites the
+// whole set in one pass, so ids run in the order the form listed them.
+func (s *Store) AppHostnames(appID int64) ([]string, error) {
+	rows, err := s.db.Query(
+		`SELECT hostname FROM domains WHERE app_id = ? AND port = 0 ORDER BY id`, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// ReplaceAppDomains rewrites every hostname an app answers on in one
+// transaction: the app's own hostnames (port 0) in the order given, then the
+// service domains (port > 0) — for a compose app that second order is the
+// ${PORT_n} slot numbering, which AppServiceDomains reads back by id.
+//
+// Both kinds go in one statement pair on purpose. Editing an app can swap a
+// hostname from one role to the other (a stack's second domain becoming its
+// first), and doing that as two separate replaces would trip the unique
+// hostname index halfway through. Replacing rather than merging is also what
+// makes a removed hostname stop routing.
+func (s *Store) ReplaceAppDomains(appID int64, hostnames []string, svc []ServiceDomain, isLocal bool, sslMode string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM domains WHERE app_id = ? AND port = 0`, appID); err != nil {
-		tx.Rollback()
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM domains WHERE app_id = ?`, appID); err != nil {
 		return err
 	}
 	il := 0
 	if isLocal {
 		il = 1
 	}
-	if _, err := tx.Exec(
-		`INSERT INTO domains (app_id, hostname, is_local, ssl_mode, port) VALUES (?, ?, ?, ?, 0)`,
-		appID, hostname, il, sslMode); err != nil {
-		tx.Rollback()
-		return err
+	ins := `INSERT INTO domains (app_id, hostname, is_local, ssl_mode, port) VALUES (?, ?, ?, ?, ?)`
+	for _, h := range hostnames {
+		if h == "" {
+			continue
+		}
+		if _, err := tx.Exec(ins, appID, h, il, sslMode, 0); err != nil {
+			return err
+		}
+	}
+	for _, d := range svc {
+		if _, err := tx.Exec(ins, appID, d.Host, il, sslMode, d.Port); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -111,7 +182,7 @@ func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 	wpPort, _ := strconv.Atoi(wpPortStr)
 
 	rows, err := s.db.Query(`
-		SELECT d.hostname, d.port, a.port, d.is_local, a.type, a.serve_mode, a.root_dir, a.upstream, a.wp_mode, a.slug, p.slug, p.dir
+		SELECT d.hostname, d.port, a.port, d.is_local, a.type, a.serve_mode, a.root_dir, a.upstream, a.wp_mode, a.slug, a.source_dir, p.slug, p.dir
 		FROM domains d
 		JOIN apps a ON a.id = d.app_id
 		JOIN projects p ON p.id = a.project_id
@@ -128,8 +199,8 @@ func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 	for rows.Next() {
 		var r RouteInfo
 		var isLocal, domainPort, appPort int
-		var appType, serveMode, rootDir, upstream, wpMode, slug, projSlug, projDir string
-		if err := rows.Scan(&r.Host, &domainPort, &appPort, &isLocal, &appType, &serveMode, &rootDir, &upstream, &wpMode, &slug, &projSlug, &projDir); err != nil {
+		var appType, serveMode, rootDir, upstream, wpMode, slug, sourceDir, projSlug, projDir string
+		if err := rows.Scan(&r.Host, &domainPort, &appPort, &isLocal, &appType, &serveMode, &rootDir, &upstream, &wpMode, &slug, &sourceDir, &projSlug, &projDir); err != nil {
 			return nil, err
 		}
 		r.Local = isLocal == 1
@@ -155,8 +226,13 @@ func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 			r.FCGIPort = wpPort
 		case appType == TypeStatic && serveMode == ServeStatic:
 			// Serve-mode static apps have no upstream port; Caddy serves their
-			// files from <project.dir>/<slug>/<root_dir> directly.
-			r.Root = filepath.Join(projDir, slug, rootDir)
+			// files from <app dir>/<root_dir> directly — the app dir being the one
+			// the user pointed it at, or <project.dir>/<slug> by default.
+			base := sourceDir
+			if base == "" {
+				base = filepath.Join(projDir, slug)
+			}
+			r.Root = filepath.Join(base, rootDir)
 		default:
 			r.Port = appPort
 		}

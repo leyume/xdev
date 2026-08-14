@@ -20,8 +20,12 @@ import (
 // appDir returns an app's on-disk root: <project.Dir>/<app-slug>. For container
 // apps this is the parent of _/ and app/; for static apps it holds the code
 // directly; shared-WP sites live under data/wp/sites instead. Derived from the
-// compose path when present, else from the project.
+// compose path when present, else from the project — unless the app was pointed
+// at a directory of the user's own, which wins over both.
 func (s *Service) appDir(app store.App) string {
+	if app.SourceDir != "" {
+		return app.SourceDir
+	}
 	if app.ComposePath != "" {
 		return filepath.Dir(filepath.Dir(app.ComposePath))
 	}
@@ -66,7 +70,9 @@ func (s *Service) Logs(id int64, tail int) (string, error) {
 }
 
 // envPath is the app's editable .env file. Container apps keep it in the
-// bind-mounted app/ dir; static apps keep it at the app root (no app/ subdir).
+// bind-mounted app/ dir; static apps keep it at the app root (no app/ subdir);
+// compose apps keep it next to their compose file, which is the copy the engine
+// actually reads (${VAR} substitution and env_file).
 func (s *Service) envPath(id int64) (string, error) {
 	app, err := s.store.AppByID(id)
 	if err != nil {
@@ -75,7 +81,26 @@ func (s *Service) envPath(id int64) (string, error) {
 	if app.IsHostProc() {
 		return filepath.Join(s.appDir(app), ".env"), nil
 	}
+	if app.IsCompose() {
+		return filepath.Join(s.appDir(app), "_", ".env"), nil
+	}
 	return filepath.Join(s.appDir(app), "app", ".env"), nil
+}
+
+// EnvLocation returns the app-relative path of the editable .env, so the UI can
+// tell the user which file they are editing.
+func (s *Service) EnvLocation(id int64) string {
+	app, err := s.store.AppByID(id)
+	if err != nil {
+		return ".env"
+	}
+	switch {
+	case app.IsHostProc():
+		return ".env"
+	case app.IsCompose():
+		return "_/.env"
+	}
+	return "app/.env"
 }
 
 // ReadEnv returns the app's .env contents ("" if it doesn't exist yet).
@@ -134,18 +159,26 @@ func (s *Service) Import(id int64, archive io.Reader) error {
 	if err := s.Stop(id); err != nil {
 		return err
 	}
-	if err := extractAppArchive(archive, dir, app.IsHostProc()); err != nil {
+	if err := extractAppArchive(archive, dir, unpacksAll(app)); err != nil {
 		return err
 	}
 	return s.Start(id)
 }
 
-// extractAppArchive unpacks a backup .tar.gz into an app directory. For
-// container apps the archive's _/ is skipped so the compose file xdev just
-// rendered for *this* app (its ports, container names and network) survives —
-// importing someone else's compose would point the app at the wrong stack.
-func extractAppArchive(archive io.Reader, dir string, hostProc bool) error {
-	if hostProc {
+// unpacksAll reports whether an import should restore the whole archive,
+// including its _/ directory. True for host apps (which have no _/) and for
+// compose apps, whose compose file is user content worth restoring — Start
+// re-reads it and follows its port. False for templated container apps, where
+// _/ holds xdev-rendered files for *this* app.
+func unpacksAll(app store.App) bool { return app.IsHostProc() || app.IsCompose() }
+
+// extractAppArchive unpacks a backup .tar.gz into an app directory. Unless the
+// app owns its _/ (see unpacksAll) the archive's _/ is skipped, so the compose
+// file xdev rendered for *this* app (its ports, container names and network)
+// survives — importing someone else's compose would point the app at the wrong
+// stack.
+func extractAppArchive(archive io.Reader, dir string, all bool) error {
+	if all {
 		return untarGz(archive, dir)
 	}
 	return untarGzFilter(archive, dir, func(name string) bool {
@@ -174,7 +207,7 @@ func (s *Service) Backup(id int64, backupsRoot string) (string, error) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
 		defer cancel()
-		if _, err := s.dumpSharedDB(ctx, engine, app, sharedDBName(proj.Slug, app.Slug), backupsRoot); err != nil {
+		if _, err := s.dumpSharedDB(ctx, engine, app, SharedDBName(proj.Slug, app.Slug), backupsRoot); err != nil {
 			return "", err
 		}
 	}

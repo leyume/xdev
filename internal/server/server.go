@@ -52,8 +52,8 @@ func (s *Server) Handler() http.Handler { return s.mux }
 // shared layout so {{block "content"}} resolves per page.
 func (s *Server) parseTemplates() error {
 	pages := []string{"setup", "login", "dashboard", "projects", "project_new", "project", "app_metrics",
-		"app_logs", "app_env", "app_backups", "events", "admins", "database", "database_detail", "wordpress",
-		"settings_env"}
+		"app_logs", "app_env", "app_backups", "app_settings", "events", "admins", "database", "database_detail",
+		"wordpress", "settings_env"}
 	s.tmpl = make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		t, err := template.New(p).Funcs(tmplFuncs()).ParseFS(web.TemplatesFS,
@@ -101,7 +101,6 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /apps/{id}/start", s.auth.RequireAuth(s.handleAppStart))
 	mux.HandleFunc("POST /apps/{id}/stop", s.auth.RequireAuth(s.handleAppStop))
 	mux.HandleFunc("POST /apps/{id}/delete", s.auth.RequireAuth(s.handleAppDelete))
-	mux.HandleFunc("POST /apps/{id}/refresh", s.auth.RequireAuth(s.handleAppRefresh))
 
 	// App metrics.
 	mux.HandleFunc("GET /apps/metrics.json", s.auth.RequireAuth(s.handleAppsMetricsJSON))
@@ -113,7 +112,8 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /apps/{id}/logs", s.auth.RequireAuth(s.handleAppLogs))
 	mux.HandleFunc("GET /apps/{id}/env", s.auth.RequireAuth(s.handleAppEnvForm))
 	mux.HandleFunc("POST /apps/{id}/env", s.auth.RequireAuth(s.handleAppEnvSave))
-	mux.HandleFunc("POST /apps/{id}/domain", s.auth.RequireAuth(s.handleAppDomain))
+	mux.HandleFunc("GET /apps/{id}/settings", s.auth.RequireAuth(s.handleAppSettingsForm))
+	mux.HandleFunc("POST /apps/{id}/settings", s.auth.RequireAuth(s.handleAppSettingsSave))
 	mux.HandleFunc("POST /apps/{id}/backup", s.auth.RequireAuth(s.handleAppBackupCreate))
 	mux.HandleFunc("POST /apps/{id}/import", s.auth.RequireAuth(s.handleAppImport))
 	mux.HandleFunc("GET /apps/{id}/backups", s.auth.RequireAuth(s.handleAppBackups))

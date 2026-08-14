@@ -38,12 +38,31 @@ in [`deploy/README.md`](deploy/README.md).
   folder or run a build/dev command), WordPress, Laravel (auto-installs a fresh
   Laravel + Octane/Swoole with MariaDB + Redis + Adminer); add your own by
   dropping in a Compose template.
+- **Bring your own Compose** — pick the **Compose** type and upload or paste a
+  `docker-compose.yml` / `compose.yml`: xdev runs your stack as-is. Say how many
+  domains the stack needs and name them; xdev allocates a host port per domain
+  and your file publishes them as `"${PORT}:80"`, `"${PORT_2}:8000"`,
+  `"${PORT_3}:9000"` — domain 2 is always `${PORT_2}`, up to five per stack. No
+  port numbers to pick or keep out of each other's way. Leave the file blank for
+  a starter to edit.
+- **Several domains per app** — the Domain field takes a comma-separated list:
+  `test.com, www.test.com, test.com.ng`. Every name serves the same app and gets
+  its own certificate; the first is the app's address. Add or remove one any time
+  from the app's settings.
 - **Automatic HTTPS** — Caddy obtains/renews certs; local domains use an
   internal CA. Trust its root once for green locks — Caddy mints it when the
   first `.test`/`.localhost` site is served, and `xdev doctor` then prints the
   root's path and the trust command for your OS.
 - **One web UI** — create/start/stop/delete apps, edit `.env`, stream logs, set
   CPU/RAM limits, take backups, and watch per-app + host metrics.
+- **Editable after create** — every app has a settings page: rename it, move its
+  domain, add or drop a compose stack's extra domains, change a static app's
+  build/start commands or a proxy's upstream, and edit the `compose.yml` itself.
+  Changes are checked before they're written and applied on restart.
+- **Bring your own folder** — static and Go apps can run from code you already
+  have (`/home/li/ui/xyz`) instead of a folder xdev creates, set when you add
+  the app or changed later. xdev never scaffolds into that folder, and deleting
+  the app unhooks it rather than deleting your code.
 - **Single binary, single DB** — no external services; upgrades swap the binary
   and keep your data.
 

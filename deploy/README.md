@@ -161,6 +161,28 @@ and Caddy are left as-is. Just re-run (optionally pin a version):
 curl -fsSL .../deploy/install.sh | sudo XDEV_VERSION=v0.2.0 bash
 ```
 
+### Deploying a build of your own
+
+`update.sh` moves the binary and nothing else — no prompts, no config rewrite —
+which is what you want when you're deploying a checkout rather than a release:
+
+```bash
+sudo ./deploy/update.sh                 # build this checkout, install, restart
+sudo ./deploy/update.sh --binary ./xdev # install a binary you built elsewhere
+sudo ./deploy/update.sh --no-build      # ditto, using ./xdev in the repo root
+sudo ./deploy/update.sh --dry-run       # say what would happen, change nothing
+```
+
+It backs the current binary up to `/usr/local/bin/xdev.<timestamp>.bak` (keeping
+the newest three), swaps by rename so the running process is never truncated,
+and if the service doesn't come back it restores the backup, restarts, and
+prints the log.
+
+"Nothing to do" means the installed binary is **byte-identical** to the new one,
+not that the two report the same version: builds from a dirty working tree all
+carry the same `git describe` string, so comparing versions would skip every
+rebuild between commits.
+
 ## Uninstall
 
 ```bash

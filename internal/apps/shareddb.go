@@ -75,10 +75,10 @@ func sharedDBRunArgs(rootPass string, hostPort int) []string {
 	return append(args, sharedDBImage)
 }
 
-// sharedDBName is the database AND user name for an app on the shared server:
+// SharedDBName is the database AND user name for an app on the shared server:
 // <project>_<app>, with slug dashes flattened to underscores (MySQL-identifier
 // safe without quoting games).
-func sharedDBName(projectSlug, appSlug string) string {
+func SharedDBName(projectSlug, appSlug string) string {
 	return strings.ReplaceAll(projectSlug+"_"+appSlug, "-", "_")
 }
 
@@ -233,7 +233,7 @@ func (s *Service) dumpSharedDB(ctx context.Context, engine runtime.Engine, app s
 // full) can't silently lose the data. Failures are logged, not fatal: it runs
 // on the app-delete path, which proceeds regardless.
 func (s *Service) archiveSharedDB(ctx context.Context, engine runtime.Engine, app store.App, projSlug, backupsRoot string) {
-	db := sharedDBName(projSlug, app.Slug)
+	db := SharedDBName(projSlug, app.Slug)
 	if _, err := s.dumpSharedDB(ctx, engine, app, db, backupsRoot); err != nil {
 		log.Printf("dump shared db %s: %v (leaving database in place)", db, err)
 	} else if err := s.dropSharedDB(ctx, engine, db); err != nil {
@@ -411,7 +411,7 @@ func (s *Service) SharedDatabaseDetail(ctx context.Context, name string) (Shared
 }
 
 // sharedDBOwners maps each shared database name back to a "project / app" label
-// by recomputing sharedDBName() for every shared-mode app (the reverse mapping
+// by recomputing SharedDBName() for every shared-mode app (the reverse mapping
 // is ambiguous once dashes are flattened, so we go forward instead).
 func (s *Service) sharedDBOwners() map[string]string {
 	owners := map[string]string{}
@@ -426,7 +426,7 @@ func (s *Service) sharedDBOwners() map[string]string {
 		}
 		for _, a := range apps {
 			if a.DBMode == store.DBShared || a.IsSharedWP() {
-				owners[sharedDBName(p.Slug, a.Slug)] = p.Name + " / " + a.Name
+				owners[SharedDBName(p.Slug, a.Slug)] = p.Name + " / " + a.Name
 			}
 		}
 	}
@@ -460,7 +460,7 @@ func (s *Service) DedicatedDatabases() []DedicatedDB {
 			continue
 		}
 		for _, a := range apps {
-			if !usesDB(a.Type) || a.DBMode == store.DBShared || a.IsSharedWP() {
+			if !UsesDB(a.Type) || a.DBMode == store.DBShared || a.IsSharedWP() {
 				continue
 			}
 			dbName := "laravel"

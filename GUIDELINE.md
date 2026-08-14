@@ -168,7 +168,9 @@ xdev/
       render_test.go
     projects/    projects.go  # project lifecycle: dir + network + engine pin
     apps/                     # app lifecycle
-      apps.go                 #   Create/Start/Stop/Delete/RefreshStatus, SetDomain, port alloc
+      apps.go                 #   Create/Start/Stop/Delete, port alloc
+      edit.go                 #   Update(): the settings page — everything editable after create
+      compose.go              #   bring-your-own compose: slots, ports, _/.env
       ops.go                  #   Logs, ReadEnv/WriteEnv, Backup/ListBackups, targz
     proxy/                    # Caddy integration
       proxy.go                #   Manager: build config + POST /load, ACME/internal, LocalCARoot
@@ -185,7 +187,8 @@ xdev/
       handlers.go             #   setup/login/logout/dashboard, currentUser
       handlers_projects.go    #   project + app CRUD/actions, appAction
       handlers_metrics.go     #   metrics page + JSON
-      handlers_ops.go         #   logs, env, backups, domain edit, engine switch, hosts sync, events
+      handlers_ops.go         #   logs, env, backups, engine switch, hosts sync, events
+      handlers_app_settings.go #  per-app settings page (edit every field after create)
   web/
     web.go                    # embed templates/ and static/
     templates/*.html          # layout + pages
@@ -250,7 +253,7 @@ engine. Each app records its `runtime` (engine) and `compose_path`.
 | `runtime` | Engine detection + selection + compose driver | `Detect`, `Info`, `EngineStatus`, `Selector`, `Compose/Up/Down/Start/Stop/Logs`, `Network*` |
 | `templates` | App-type catalog + compose rendering + scaffold | `Catalog`, `IsValidType`, `RenderCompose`, `ScaffoldFiles`, `Data` |
 | `projects` | Project create/delete (dir, network, engine pin) | `Service.Create`, `Service.Delete` |
-| `apps` | App create/start/stop/delete, domain, port, logs, env, backups | `Service` (+ `ops.go`) |
+| `apps` | App create/start/stop/delete/edit, domain, port, logs, env, backups | `Service` (+ `ops.go`, `edit.go`) |
 | `proxy` | Caddy config builder, admin client, supervisor, local CA | `Manager`, `Supervisor`, `RefreshStaleIntermediate` |
 | `domains` | hosts-file managed block + elevated write | `SyncHosts`, `MissingFromHosts`, `SyncHostsElevated` |
 | `platform` | Reconcile DB → Caddy + hosts | `Reconciler.Sync`, `MissingHosts`, `WriteHostsElevated` |
@@ -270,6 +273,8 @@ migration — add a new one.**
 - `0002_app_domain_backfill.sql` — backfill `apps.subdomain` (now the full
   domain) from the `domains` table for pre-existing rows.
 - `0003_project_engine.sql` — add `projects.engine`.
+- `0010_app_source_dir.sql` — add `apps.source_dir` (host apps pointed at a
+  directory the user already has).
 
 **Tables** (see `0001_init.sql` for exact columns):
 
@@ -281,11 +286,17 @@ migration — add a new one.**
 - **apps** — `project_id`, `slug`, `type`, `runtime` (engine), `status`,
   **`subdomain`** *(historical column name; now holds the app's FULL domain — Go
   field is `App.Domain`)*, `cpu_limit` (cores), `mem_limit` (bytes), `port`
-  (host port), `compose_path`.
+  (host port), `compose_path`, `source_dir` (host apps only: an existing
+  directory the app was pointed at; `''` = the managed `<project.dir>/<slug>`).
 - **app_env** — reserved (per-app key/value); the `.env` editor currently writes
   the app's `app/.env` file directly.
 - **domains** — `app_id`, `hostname` (UNIQUE), `is_local`, `ssl_mode`
-  (internal|letsencrypt). One row per app (replaced on domain change).
+  (internal|letsencrypt), `port`. **One or more** `port = 0` rows per app — the
+  hostnames it answers on, in entry order (`AppHostnames`) — plus one `port > 0`
+  row per secondary service (Adminer, a compose stack's extra `${PORT_n}`
+  domains), rewritten together by `ReplaceAppDomains`. `apps.subdomain` holds
+  only the **first** `port = 0` hostname: the app's address in the UI. The rest
+  live only here, so anything that needs the full set reads `AppHostnames`.
 - **metrics** — time series: `app_id`, `ts`, `cpu_pct`, `mem_bytes`,
   `mem_limit`. Raw, pruned to 24h.
 - **events** — audit log: `project_id?`, `app_id?`, `ts`, `level`, `message`.
@@ -311,12 +322,12 @@ GET  /projects/new                POST /projects        create project
 GET  /projects/{slug}             project detail (apps, add-app form, hosts banner)
 POST /projects/{slug}/delete
 POST /projects/{slug}/apps        create app
-POST /apps/{id}/start | stop | delete | refresh
+POST /apps/{id}/start | stop | delete
 GET  /apps/{id}/metrics           per-app chart page
 GET  /apps/{id}/metrics.json      chart data (arrays t/cpu/mem)
 GET  /apps/{id}/logs              tail of compose logs
 GET  /apps/{id}/env               POST /apps/{id}/env   edit .env + restart
-POST /apps/{id}/domain            change the app's hostname
+GET  /apps/{id}/settings          POST /apps/{id}/settings  edit the app (see 9.5)
 POST /apps/{id}/backup            GET /apps/{id}/backups        GET /apps/{id}/backups/{name}
 GET  /events                      audit log
 POST /settings/engine             switch default container engine
@@ -364,6 +375,10 @@ is bound to each session and validated on unsafe methods by `RequireAuth`.
 - `Data` is the template context: `ProjectSlug`, `NetworkName`, `AppSlug`,
   `AppType`, `Env`, `HostPort`, `CPULimit`, `MemLimit`. Methods `HasLimits`,
   `CPUStr`, `MemStr` drive the optional `deploy.resources.limits` block.
+- The `compose` type inverts this: the **user** supplies the compose file
+  (uploaded or pasted on the add-app form) and xdev runs it as-is;
+  `files/compose/compose.yml.tmpl` is only the starter written when they supply
+  nothing. See `internal/apps/compose.go`.
 
 ### 9.4 App lifecycle (`internal/apps`)
 - `Create(projectID, name, type, domain, cpu, mem)`:
@@ -372,17 +387,135 @@ is bound to each session and validated on unsafe methods by `RequireAuth`.
   allocate a host port, build `projects/<project>/<app>/{_/compose.yml, app/}`,
   scaffold, persist, attach domain (`ReplaceAppDomain`), then `Start`.
 - `Start` = `compose up -d` (idempotent), sets status. `Stop` = `compose stop`.
+  `RefreshStatus` reconciles a stored status with reality but has **no caller**
+  since the project page's ↻ button was dropped — status is only recomputed by
+  a start/stop.
   `Delete` = `compose down` + remove row + `RemoveAll(appDir)`.
-- `SetDomain` changes the hostname (validates + uniqueness, updates app row +
-  domains row). Caller reconciles.
+- `Update(id, EditOpts)` (`edit.go`) is the settings page's one entry point —
+  see §9.5.
 - **Port allocation** scans `[20000, 29999]`, skipping DB-used ports and any port
   not free. `portFree` binds the **wildcard** `:p` (not loopback) to match how
   engines publish ports.
-- `ops.go`: `Logs` (compose logs tail), `ReadEnv`/`WriteEnv` (`app/.env`),
+- **Host apps can live outside the project** (`apps.source_dir`, `App.SourceDir`,
+  `validSourceDir`). The add-app form and the settings page take an optional
+  absolute **App folder** — `/home/li/ui/xyz`, `~` expanded — and when it is set
+  the app runs from there instead of `<project.dir>/<slug>`. The directory
+  **must already exist**: xdev writes inside it but never creates it, so a typo
+  fails validation rather than materializing a folder.
+  - `s.appDir(app)` is the single resolver (`SourceDir` wins over the compose
+    path and the project), so logs, backups, imports, the `.env` editor, the
+    build's working directory and the Caddy `Root` all follow one answer.
+  - **xdev is a tenant in an external folder, not its owner** — the invariant the
+    whole feature rests on. `layoutStatic` writes no scaffold and no placeholder
+    `index.html` into one; `Delete` removes the app row but **not** the
+    directory; a failed `Create` unwinds only what it made (`discard`); a shared
+    DB's credentials are **appended** to an existing `.env` (`writeDBEnv`)
+    instead of replacing it.
+  - It is editable on the settings page — the one directory-naming field that is,
+    because a host app's files aren't generated, so re-pointing changes only
+    where the build runs and which folder is served. Neither the old nor the new
+    directory is touched; moving back to blank re-creates the managed folder.
+- **Bring-your-own compose apps** (`compose.go`): **ports are xdev's, domains are
+  the user's.** The add-app form asks how many domains the stack needs and takes
+  a hostname for each; `layoutCompose` allocates one free host port per domain
+  (`allocPorts`) and writes them to `_/.env` as `PORT`/`PORT_1`, `PORT_2`, …
+  (plus `XDEV_` aliases). The file publishes those variables — `"${PORT}:80"`,
+  `"${PORT_2}:8000"` — so nothing is hard-coded and two stacks can't collide.
+  The mapping is **positional and fixed at create time**: domain *n* is
+  `${PORT_n}`, domain 1 being the app's own. Slots 2..N become secondary
+  `domains` rows (`port > 0`), routed straight to their port exactly like
+  Adminer's. `apps.MaxComposeSlots` (**5**) caps how many a stack may ask for and
+  is the single source of that number — the add-app form reads it as the
+  `MaxDomains` view value for its `max`, its clamp, and its slot scan.
+  - `ComposePorts` scans the file for both kinds of published port: `${PORT_n}`
+    slots (`ComposePort.Slot`, bare `${PORT}` = slot 1) and hard-coded numbers
+    (`Slot == 0`). `checkComposeSlots` then pairs it against the domain count —
+    every slot 1..N must be published, and a `${PORT_n}` past the last domain is
+    an error rather than a port nothing routes to. Hard-coded ports are left
+    alone beyond two guards: no other app may own one (`UsedPorts`), and the
+    allocator won't hand out the same number (passed as `avoid`).
+  - Hostnames are validated against `DomainOwner` (and each other, and the app's
+    own domain) before anything is written; a **blank** extra domain is an error,
+    not something to skip — dropping it would renumber every `${PORT_n}` after
+    it.
+  - `prepareCompose` re-reads the file on every `Start` and checks each slot the
+    app owns still has somewhere to go, then rewrites the managed `.env` lines —
+    the file compose reads for `${VAR}` substitution, and the one the Env tab
+    edits for these apps. Ports **don't move**: the file names them by variable,
+    so an edit changes which service is behind a domain, not which number. Two
+    accommodations for older apps: a slot is also satisfied by the file
+    hard-coding that exact number, and a single-domain app whose file hard-codes
+    its port still follows a change (`SetAppPort`). Domains are left alone —
+    user configuration, not derived state. Their `_/` is user content, so
+    imports restore it (`unpacksAll`) instead of skipping it.
+- The add-app form mirrors the slot scan in JS (`detectComposePorts` /
+  `detectComposeSlots` in `project.html`) to name the service behind each slot as
+  the file is pasted or loaded, and bumps the domain count when a pasted file
+  publishes more slots than are shown; the server re-checks on submit and is the
+  source of truth.
+  - The app's own domain (slot 1) is the dialog's single **Domain** field, in the
+    same place for every type — `addAppForm.domain`, submitted as `domain`. The
+    port-map rows below it are the *extras*, slots 2..N (`domains[i]` →
+    `${PORT_(i+2)}`, submitted as `extra_domain`), matching how the settings page
+    splits them. Slot 1 still gets a row, but a read-only one echoing the field
+    above: a stack's port map is only legible whole. `domainCount` counts the
+    domains in total, so `syncDomains` keeps one row *fewer* than it.
+- `ops.go`: `Logs` (compose logs tail), `ReadEnv`/`WriteEnv` (`app/.env`, or
+  `_/.env` for compose apps; `.env` at the root for host apps),
   `Backup`/`ListBackups`/`BackupPath` (`.tar.gz` of the app dir under
   `data/backups/<project>_<app>/`; named volumes like DBs are **not** included).
 
-### 9.5 Reverse proxy + TLS (`internal/proxy`)
+### 9.5 Editing an app after it exists (`internal/apps/edit.go`)
+`Update(id, EditOpts)` backs `GET`/`POST /apps/{id}/settings` — one page per app
+holding everything the add-app form collected. The split it enforces:
+
+- **Configuration** — editable: name, the app's domains (one field, the full
+  comma-separated list — see §9.7), a compose app's extra
+  domains, the bundled UI's hostname (Adminer / mail admin), a host app's serve
+  mode + root dir + app folder (`source_dir`) + build/start commands, a proxy
+  app's upstream, and the `_/compose.yml` of any app that has one.
+- **Identity** — not editable: id, project, slug, type, engine, `db_mode`,
+  `wp_mode`. They name the app's containers, database and route shape, so
+  changing one is a migration, not a setting. `store.UpdateApp` writes only the
+  first list, which is where that rule is actually enforced. `source_dir` is on
+  the editable side despite naming a directory: a host app's files are the
+  user's own, so re-pointing copies, moves and deletes nothing.
+
+Invariants worth keeping:
+- **Everything is validated before anything is written** — hostnames, the
+  compose body, the slot/domain pairing, the upstream — so a rejected save
+  leaves the row, the file and the proxy exactly as they were
+  (`TestUpdateRejectsWithoutChanging`). The handler re-renders the page with
+  the submitted values, so a hand-edited compose file survives a rejection.
+- **Ports don't move on an edit.** The app keeps its own port; an existing
+  `${PORT_n}` slot keeps the port it was allocated even when its hostname
+  changes, so an unchanged service stays where it was. Only a *new* slot
+  allocates, and a removed one frees.
+- Domains are rewritten with `store.ReplaceAppDomains` — primary and service
+  rows in one transaction, because an edit can swap a hostname between the two
+  roles and two separate replaces would trip the unique hostname index midway.
+- A templated stack's compose file is editable too, but only structurally
+  checked (`validCompose`): its ports were written in at create, so it is not
+  held to the `${PORT_n}` contract. The replaced file is kept as
+  `compose.yml.bak`.
+- A db-backed app (`apps.UsesDB`: wordpress, laravel) gets a read-only
+  **Database** section in *both* modes — shared is a choice that was made, not
+  the absence of one. It names the database, the user, the server the app's
+  containers reach (`xdev-db:3306` vs the stack's own `db:3306`), links shared
+  ones to `/database/<name>`, and names the bundled Adminer and which server it
+  opens on. Shared names come from `apps.SharedDBName`, the same function that
+  provisions them; **dedicated names are duplicated from the type's compose
+  template** (`internal/templates/files/{laravel,wordpress}/compose.yml.tmpl`)
+  and have to be kept in step with it — see `appDB` in
+  `handlers_app_settings.go`.
+- Container **resource limits** live in the file's own
+  `deploy.resources.limits` blocks — the settings page points there rather than
+  offering fields that would drift from what the stack actually runs.
+- The handler restarts the app (stop → start) when it was running: a host app
+  that switched away from command mode has a process to retire, and a compose
+  stack should come up from the new file.
+
+### 9.6 Reverse proxy + TLS (`internal/proxy`)
 - `Supervisor.Start` runs `caddy run` as a child with `CADDY_ADMIN` set, waits
   for the admin API, and stops it on shutdown. On a server you'd instead run
   Caddy under systemd and set `-caddy=false`.
@@ -390,6 +523,32 @@ is bound to each session and validated on unsafe methods by `RequireAuth`.
   to `/load`. One HTTP server (`xdev`) listens on the HTTPS port; Caddy
   auto-creates the HTTP→HTTPS redirect using `http_port`/`https_port`. Each route
   matches a host and `reverse_proxy`s to `127.0.0.1:<app port>`.
+- **Proxy apps** take `http(s)://host[:port][/path]` (`validUpstream`). An
+  `https` upstream gets a TLS transport, with SNI unless it's addressed by IP;
+  the incoming `Host` header always passes through, so the other server's vhost
+  and websockets keep working. A **path** means the app lives under a prefix
+  there, and `reverseProxyHandlers` puts a `rewrite` to `<prefix>{uri}` in front
+  of the proxy. That rewrites only what we *send* — an app answering with its own
+  absolute links (`/webmail/app.js`) gets them prefixed twice, so it must be told
+  its public base path, or be proxied at the prefix it already uses.
+- **Serve-mode static apps** get `staticSiteHandlers`: `vars`(root) → a
+  `try_files` subroute → `file_server`, i.e. Caddy's
+  `try_files {path} {path}/ /index.html`. Real files win; a directory keeps its
+  index; **anything else falls back to `/index.html`**, which is what makes a
+  built SPA's deep links (`/dashboard/settings`) load instead of 404. Note the
+  consequence: a genuinely missing asset returns `index.html` with **200**, not
+  a 404. A site with no `index.html` matches nothing and gets file_server's 404.
+- **`deploy/caddy-hostfs.sh`** applies the prefix + mount to an *existing*
+  install (idempotent, `--dry-run`, `--revert`); new installs get it from
+  `install.sh`. It exits without changing anything when Caddy isn't
+  containerized, since a prefix would break paths that already work.
+- **`XDEV_CADDY_ROOT_PREFIX` (`Manager.hostPath`)** — a containerized Caddy only
+  opens what is bind-mounted into it, so a static root that is a real host path
+  (`/home/li/ui/xyz`, or anything under `projects/`) resolves to nothing inside
+  and every request 404s. The generated stacks mount `/` read-only at `/hostfs`
+  and set this to `/hostfs`; every `file_server` root is then prefixed. Empty for
+  a Caddy on the host. **Shared-WP docroots are deliberately exempt**: fpm opens
+  that same path, so prefixing it would break `SCRIPT_FILENAME`.
 - **TLS automation:** `internal` issuer (local CA) for local hosts; **ACME**
   issuer for public (prod) hosts (with `-acme-email` if set). Caddy's default
   storage holds the CA.
@@ -400,7 +559,20 @@ is bound to each session and validated on unsafe methods by `RequireAuth`.
   mints a fresh long-lived one. `caddyDataDir()` mirrors Caddy's storage path
   (honors `XDG_DATA_HOME`; macOS `~/Library/Application Support/Caddy`).
 
-### 9.6 Domains & hosts (`internal/domains`, `internal/platform`)
+### 9.7 Domains & hosts (`internal/domains`, `internal/platform`)
+- **An app's Domain field is a list.** One text input, comma-separated (spaces,
+  semicolons and newlines separate too) — `apps.parseHosts` normalizes, validates
+  and de-duplicates it, keeping order. The **first** name is the app's own
+  domain (`apps.subdomain`, what the UI links to, what service hostnames are
+  checked against); the rest are equals, not aliases — each is its own
+  `domains` row, its own Caddy route, its own certificate, serving the same
+  thing. Removing one from the field is how it stops routing, since
+  `ReplaceAppDomains` rewrites the whole set rather than merging into it.
+  Every name in the list is checked for collisions *before* anything is written,
+  so a list containing one taken hostname fails whole.
+  Service domains (Adminer, a compose slot) stay **one hostname each**: a slot's
+  position is what maps it to `${PORT_n}`, and a list there would blur how many
+  slots exist.
 - Local base domains default to **`<slug>.localhost`**, which resolves to
   127.0.0.1 at the OS level on macOS (and in browsers everywhere) — **no
   `/etc/hosts` edit needed**.
@@ -415,7 +587,7 @@ is bound to each session and validated on unsafe methods by `RequireAuth`.
 - `caddy trust` (sudo, one-time) installs the local root CA for a trusted
   padlock; xdev prints a hint at startup.
 
-### 9.7 Metrics (`internal/metrics`)
+### 9.8 Metrics (`internal/metrics`)
 - `Collector.Run` ticks every 10s: reads `<engine> stats --no-stream` for **all
   usable engines**, attributes containers to apps by name prefix
   (`<project>_<app>_`), aggregates cpu%/mem per app, inserts into `metrics`, and

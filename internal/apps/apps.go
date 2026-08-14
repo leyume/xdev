@@ -86,12 +86,28 @@ type CreateOpts struct {
 	BuildCmd  string
 	StartCmd  string
 
+	// SourceDir points a host app (static, go) at a directory that already
+	// exists on the host — "/home/li/ui/xyz" — instead of one created under the
+	// project. Blank keeps the default <project.dir>/<app-slug>.
+	SourceDir string
+
 	// Archive, when set, is a .tar.gz backup unpacked over the new app's files
 	// (after any scaffold, so the archive wins) before its first start.
 	Archive io.Reader
 
 	// Proxy-only: URL the domain forwards to (http(s)://host[:port]).
 	Upstream string
+
+	// Compose-only: the docker-compose.yml / compose.yml the user supplied
+	// (pasted or uploaded). Blank means "scaffold the starter compose file".
+	ComposeFile string
+
+	// Compose-only: hostnames for domains 2..N, in slot order — domain 1 is
+	// Domain above. xdev allocates one host port per domain and writes them as
+	// ${PORT}/${PORT_1}…${PORT_N} for the file to publish, so ExtraDomains[0]
+	// is the domain routed to ${PORT_2}. Blanks are rejected rather than
+	// skipped: dropping one would renumber the slots after it.
+	ExtraDomains []string
 
 	// Laravel-only: hostname for the Adminer DB UI (blank = adminer.<app-domain>).
 	AdminerDomain string
@@ -106,9 +122,10 @@ type CreateOpts struct {
 	WPMode string
 }
 
-// usesDB reports whether an app type carries a MariaDB (and can therefore opt
-// into the shared server).
-func usesDB(appType string) bool { return appType == "wordpress" || appType == "laravel" }
+// UsesDB reports whether an app type carries a MariaDB (and can therefore opt
+// into the shared server). Exported because the settings page shows an app's
+// database, and that question has one answer.
+func UsesDB(appType string) bool { return appType == "wordpress" || appType == "laravel" }
 
 // secondaryPrefix returns the default hostname prefix for a type's extra
 // proxied HTTP UI (Adminer for laravel, the Stalwart admin for mail);
@@ -147,22 +164,29 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 
 	slug := naming.Unique(name, func(c string) bool { return s.store.AppSlugExists(projectID, c) })
 
-	// Domain is free-form. If left blank, default to the project's base domain
+	// Domain is free-form and may list several hostnames, comma-separated — they
+	// all serve this app. If left blank, default to the project's base domain
 	// directly (so the first app is served at the bare domain); if that's
 	// already taken, fall back to <app-slug>.<base-domain>.
-	domain := normalizeHost(opts.Domain)
-	if domain == "" {
-		domain = proj.BaseDomain
-		if s.store.DomainOwner(domain) != 0 {
-			domain = slug + "." + proj.BaseDomain
-		}
-	}
-	if err := validHost(domain); err != nil {
+	hosts, err := parseHosts(opts.Domain)
+	if err != nil {
 		return store.App{}, err
 	}
-	if owner := s.store.DomainOwner(domain); owner != 0 {
-		return store.App{}, fmt.Errorf("domain %q is already in use", domain)
+	if len(hosts) == 0 {
+		fallback := proj.BaseDomain
+		if s.store.DomainOwner(fallback) != 0 {
+			fallback = slug + "." + proj.BaseDomain
+		}
+		hosts = []string{fallback}
 	}
+	for _, h := range hosts {
+		if owner := s.store.DomainOwner(h); owner != 0 {
+			return store.App{}, fmt.Errorf("domain %q is already in use", h)
+		}
+	}
+	// The first name is the app's own: what the UI links to, and what the other
+	// hostnames are checked against for collisions.
+	domain := hosts[0]
 
 	// Build the app row + on-disk layout, branching on execution model.
 	appDir := filepath.Join(proj.Dir, slug)
@@ -176,8 +200,31 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 		Runtime:   appEngine,
 	}
 
-	// adminerPort is allocated by layoutContainer for types that ship Adminer.
+	// A host app may live in a directory the user already has instead of one
+	// xdev creates. Resolve it before anything is written: it decides where every
+	// later step reads and writes, and a bad path should fail while there is
+	// still nothing to unwind.
+	if app.IsHostProc() {
+		if app.SourceDir, err = validSourceDir(opts.SourceDir); err != nil {
+			return store.App{}, err
+		}
+		if app.SourceDir != "" {
+			appDir = app.SourceDir
+		}
+	}
+	// Unwinding a failed create removes what xdev laid down. An external
+	// directory is not that: it existed before this app and outlives it.
+	discard := func() {
+		if !app.IsExternalDir() {
+			os.RemoveAll(appDir)
+		}
+	}
+
+	// adminerPort is allocated by layoutContainer for types that ship Adminer;
+	// composeExtras are the secondary port -> hostname routes a compose app asked
+	// for. Both are attached as domain rows once the app row exists.
 	var adminerPort int
+	var composeExtras []composeRoute
 	switch {
 	case opts.Type == store.TypeProxy:
 		// Proxy apps are only a Caddy route to another server: no container,
@@ -195,9 +242,17 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 		// process environment (staticEnv) — so the app just reads DB_* from env.
 		if opts.DBMode == store.DBShared {
 			if err := s.provisionHostAppDB(&app, proj, appDir); err != nil {
-				os.RemoveAll(appDir)
+				discard()
 				return store.App{}, err
 			}
+		}
+	case opts.Type == store.TypeCompose:
+		// Bring-your-own compose: the user's file is the stack. xdev writes the
+		// same _/ + app/ layout around it and allocates one host port per domain
+		// asked for, which the file publishes as ${PORT}/${PORT_n}.
+		composeExtras, err = s.layoutCompose(&app, &opts, proj, appDir, hosts)
+		if err != nil {
+			return store.App{}, err
 		}
 	case opts.Type == "wordpress" && opts.WPMode != "separate":
 		// Shared-host WordPress (default): no container or compose of its own —
@@ -220,8 +275,8 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 		if app.IsSharedWP() {
 			target = s.wpSiteDir(proj.Slug, app.Slug) // docroot, not <project>/<slug>
 		}
-		if err := extractAppArchive(opts.Archive, target, app.IsHostProc()); err != nil {
-			os.RemoveAll(appDir)
+		if err := extractAppArchive(opts.Archive, target, unpacksAll(app)); err != nil {
+			discard()
 			return store.App{}, fmt.Errorf("import archive: %w", err)
 		}
 	}
@@ -235,42 +290,48 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 			adminerDomain = secondaryPrefix(opts.Type) + "." + domain
 		}
 		if err := validHost(adminerDomain); err != nil {
-			os.RemoveAll(appDir)
+			discard()
 			return store.App{}, err
 		}
 		if owner := s.store.DomainOwner(adminerDomain); owner != 0 {
-			os.RemoveAll(appDir)
+			discard()
 			return store.App{}, fmt.Errorf("domain %q is already in use", adminerDomain)
 		}
 	}
 
 	saved, err := s.store.CreateApp(app)
 	if err != nil {
-		os.RemoveAll(appDir)
+		discard()
 		if app.WPMode == store.WPShared {
 			// Unwind the shared-site provisioning too (docroot + database).
 			os.RemoveAll(s.wpSiteDir(proj.Slug, app.Slug))
 			ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
 			defer cancel()
-			s.dropSharedDB(ctx, runtime.Engine(app.Runtime), sharedDBName(proj.Slug, app.Slug))
+			s.dropSharedDB(ctx, runtime.Engine(app.Runtime), SharedDBName(proj.Slug, app.Slug))
 		}
 		return store.App{}, err
 	}
 
-	// Attach the chosen domain for the reverse proxy. Local projects get an
+	// Attach the chosen hostnames for the reverse proxy. Local projects get an
 	// internally-issued cert; prod uses ACME (Phase 4).
 	sslMode, isLocal := "internal", true
 	if proj.Environment == "prod" {
 		sslMode, isLocal = "letsencrypt", false
 	}
-	if err := s.store.ReplaceAppDomain(saved.ID, domain, isLocal, sslMode); err != nil {
+	if err := s.store.ReplaceAppDomains(saved.ID, hosts, nil, isLocal, sslMode); err != nil {
 		// Non-fatal: the app still runs on its host port even without a domain.
-		log.Printf("attach domain %s to app %d: %v", domain, saved.ID, err)
+		log.Printf("attach domains %s to app %d: %v", strings.Join(hosts, ", "), saved.ID, err)
 	}
 	// Attach the Adminer hostname → its own host port (a secondary route).
 	if adminerDomain != "" {
 		if err := s.store.CreateDomain(saved.ID, adminerDomain, isLocal, sslMode, adminerPort); err != nil {
 			log.Printf("attach adminer domain %s to app %d: %v", adminerDomain, saved.ID, err)
+		}
+	}
+	// A compose app's other published ports, each on the hostname it was given.
+	for _, r := range composeExtras {
+		if err := s.store.CreateDomain(saved.ID, r.Host, isLocal, sslMode, r.Port); err != nil {
+			log.Printf("attach domain %s (port %d) to app %d: %v", r.Host, r.Port, saved.ID, err)
 		}
 	}
 
@@ -303,12 +364,12 @@ func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.P
 	// database/user on the platform xdev-db server before writing any files, so
 	// a provisioning failure leaves nothing to clean up. The rendered compose
 	// then drops its db service and joins xdev_shared instead.
-	shared := usesDB(opts.Type) && opts.DBMode != "dedicated"
+	shared := UsesDB(opts.Type) && opts.DBMode != "dedicated"
 	var dbName, dbPass string
 	if shared {
 		ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
 		defer cancel()
-		dbName = sharedDBName(proj.Slug, app.Slug)
+		dbName = SharedDBName(proj.Slug, app.Slug)
 		dbPass, err = s.provisionSharedDB(ctx, runtime.Engine(app.Runtime), dbName)
 		if err != nil {
 			return 0, err
@@ -421,9 +482,24 @@ func (s *Service) writeInfra(appType, underscore string) error {
 // no _/ or app/ subdirectories — and records its serve config. Command-mode
 // apps (all go apps, and static apps that ask for it) get a host port for their
 // server; serve-mode apps are file-served by Caddy and need none.
+//
+// An app pointed at an existing directory (app.SourceDir) gets the config but
+// none of the content: no scaffold, no placeholder, nothing removed on failure.
+// The directory is already somebody's project — dropping a starter Vite app or
+// an index.html into it would be xdev overwriting work it didn't create.
 func (s *Service) layoutStatic(app *store.App, opts *CreateOpts, appDir string) error {
-	if err := os.MkdirAll(appDir, 0o755); err != nil {
-		return err
+	external := app.IsExternalDir()
+	if !external {
+		if err := os.MkdirAll(appDir, 0o755); err != nil {
+			return err
+		}
+	}
+	// Only clean up a directory xdev made (validSourceDir already proved an
+	// external one exists, so there is nothing to create and nothing to undo).
+	discard := func() {
+		if !external {
+			os.RemoveAll(appDir)
+		}
 	}
 	mode := opts.ServeMode
 	if mode != store.ServeCommand {
@@ -451,18 +527,24 @@ func (s *Service) layoutStatic(app *store.App, opts *CreateOpts, appDir string) 
 		}
 		port, err := s.allocPort()
 		if err != nil {
-			os.RemoveAll(appDir)
+			discard()
 			return err
 		}
 		app.Port = port
+		if external {
+			break // the user's code is already there; see the doc comment
+		}
 		// Drop a runnable starter directly in the folder (Vite for static, a
 		// net/http server for go), skipping any files the user already added, so
 		// the default build/start commands work on first start.
 		if err := s.writeScaffold(app.Type, appDir); err != nil {
-			os.RemoveAll(appDir)
+			discard()
 			return err
 		}
 	case store.ServeStatic:
+		if external {
+			break
+		}
 		// Drop a friendly placeholder if the served dir has no index yet, so the
 		// domain shows something before the user adds their files.
 		s.writeStaticPlaceholder(filepath.Join(appDir, app.RootDir), app.Name)
@@ -483,14 +565,40 @@ func (s *Service) provisionHostAppDB(app *store.App, proj store.Project, appDir 
 	if err != nil {
 		return err
 	}
-	name := sharedDBName(proj.Slug, app.Slug)
+	name := SharedDBName(proj.Slug, app.Slug)
 	pass, err := s.provisionSharedDB(ctx, engine, name)
 	if err != nil {
 		return err
 	}
 	app.DBMode = store.DBShared
-	// 0600: the file holds the database password.
-	return os.WriteFile(filepath.Join(appDir, ".env"), []byte(dbEnvFile(name, pass, dbPort)), 0o600)
+	return writeDBEnv(filepath.Join(appDir, ".env"), dbEnvFile(name, pass, dbPort))
+}
+
+// writeDBEnv puts the generated DB_* block in the app's .env. A directory xdev
+// created has no .env yet, so this writes one; a directory the user pointed the
+// app at may already have one full of their own settings, and that file is
+// appended to rather than replaced. 0600 either way: it holds a password.
+func writeDBEnv(path, block string) error {
+	old, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		return os.WriteFile(path, []byte(block), 0o600)
+	}
+	sep := "\n" // a blank line between what was there and what xdev adds
+	if len(old) > 0 && !strings.HasSuffix(string(old), "\n") {
+		sep = "\n\n"
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(sep + block); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // dbEnvFile renders the .env a host app gets for its shared database. DB_DSN is
@@ -549,6 +657,15 @@ func (s *Service) Start(id int64) error {
 	if app.IsHostProc() {
 		return s.startStatic(app)
 	}
+	if app.IsCompose() {
+		// The file is the user's and may have been edited (or restored from a
+		// backup) since the last start: re-read it, follow any port change, and
+		// refresh the managed vars in _/.env before bringing the stack up.
+		if _, err := s.prepareCompose(app); err != nil {
+			s.store.SetAppStatus(app.ID, store.AppError)
+			return err
+		}
+	}
 	_, engine, workdir, pname, file, err := s.composeCtx(id)
 	if err != nil {
 		return err
@@ -582,7 +699,7 @@ func (s *Service) startStatic(app store.App) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(proj.Dir, app.Slug)
+	dir := s.appDir(app) // the project subdir, or wherever the user pointed it
 	env := s.staticEnv(app, dir)
 
 	// Both the build step and a supervised start command need the app's
@@ -737,7 +854,10 @@ func (s *Service) Delete(id int64, backupsRoot string) error {
 		if err := s.store.DeleteApp(id); err != nil {
 			return err
 		}
-		if dir != "" && dir != "." && dir != "/" {
+		// Only a directory xdev created goes with the app. One the user pointed it
+		// at is their working copy — deleting the app unhooks it from xdev, it does
+		// not delete their code.
+		if !app.IsExternalDir() && dir != "" && dir != "." && dir != "/" {
 			os.RemoveAll(dir)
 		}
 		return nil
@@ -767,6 +887,11 @@ func (s *Service) Delete(id int64, backupsRoot string) error {
 
 // RefreshStatus reconciles the stored status with reality and returns the
 // up-to-date status string.
+//
+// Nothing calls this today — the project page's ↻ button was the only caller
+// and it was removed. It is kept because it is the one place that notices a
+// container or process that died out of band; wiring it into a page load or a
+// ticker is the obvious way to bring that back.
 func (s *Service) RefreshStatus(id int64) (string, error) {
 	app, err := s.store.AppByID(id)
 	if err != nil {
@@ -910,37 +1035,14 @@ func portFree(p int) bool {
 	return true
 }
 
-// SetDomain changes the hostname an app is served at, updating both the app row
-// and its proxy domain. The caller reconciles the proxy afterwards.
-func (s *Service) SetDomain(id int64, domain string) error {
-	app, err := s.store.AppByID(id)
-	if err != nil {
-		return err
-	}
-	proj, err := s.store.ProjectByID(app.ProjectID)
-	if err != nil {
-		return err
-	}
-	domain = normalizeHost(domain)
-	if err := validHost(domain); err != nil {
-		return err
-	}
-	if owner := s.store.DomainOwner(domain); owner != 0 && owner != id {
-		return fmt.Errorf("domain %q is already in use", domain)
-	}
-	sslMode, isLocal := "internal", true
-	if proj.Environment == "prod" {
-		sslMode, isLocal = "letsencrypt", false
-	}
-	if err := s.store.SetAppDomain(id, domain); err != nil {
-		return err
-	}
-	return s.store.ReplaceAppDomain(id, domain, isLocal, sslMode)
-}
-
 // validUpstream validates a proxy app's upstream at the trust boundary: it must
-// parse as a bare http(s) URL — scheme + host[:port], nothing else (no path,
-// query, or credentials). Returns the normalized scheme://host[:port] form.
+// parse as an http(s) URL — scheme + host[:port], optionally followed by a path
+// prefix, and nothing else (no query string and no credentials). Returns the
+// normalized scheme://host[:port][/path] form with any trailing slash dropped.
+//
+// The path is optional because an app is not always at the root of the server
+// it lives on (https://mail.example.com/webmail). When one is given, xdev
+// prefixes it onto every proxied request — see reverseProxyHandlers.
 func validUpstream(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -948,14 +1050,93 @@ func validUpstream(raw string) (string, error) {
 	}
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
-		u.User != nil || u.RawQuery != "" || (u.Path != "" && u.Path != "/") {
-		return "", fmt.Errorf("invalid upstream %q — use http(s)://host[:port]", raw)
+		u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("invalid upstream %q — use http(s)://host[:port][/path]", raw)
 	}
-	return u.Scheme + "://" + u.Host, nil
+	// Keep the escaped form (EscapedPath, not Path) so a prefix that needed
+	// encoding is forwarded byte-for-byte rather than silently re-encoded.
+	path := strings.TrimSuffix(u.EscapedPath(), "/")
+	if path != "" && !strings.HasPrefix(path, "/") {
+		return "", fmt.Errorf("invalid upstream %q — the path must start with /", raw)
+	}
+	return u.Scheme + "://" + u.Host + path, nil
+}
+
+// validSourceDir checks a user-supplied app directory and returns it cleaned;
+// "" (the default) means the managed <project.dir>/<app-slug>.
+//
+// The directory has to already exist. That is the whole guard, and it is a
+// deliberate one: xdev writes into this path (a build runs there, a .env may be
+// added) but never creates or deletes it, so pointing an app at a typo should
+// fail here rather than quietly conjure a directory the user then wonders about.
+// Home-relative paths are expanded because "~/ui/xyz" is what people type.
+func validSourceDir(raw string) (string, error) {
+	dir := strings.TrimSpace(raw)
+	if dir == "" {
+		return "", nil
+	}
+	if dir == "~" || strings.HasPrefix(dir, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("cannot expand %q: %w", dir, err)
+		}
+		dir = filepath.Join(home, strings.TrimPrefix(dir, "~"))
+	}
+	if !filepath.IsAbs(dir) {
+		return "", fmt.Errorf("app folder %q must be an absolute path (e.g. /home/li/ui/xyz)", raw)
+	}
+	dir = filepath.Clean(dir)
+	if dir == string(filepath.Separator) {
+		return "", errors.New("app folder cannot be the filesystem root")
+	}
+	info, err := os.Stat(dir)
+	if os.IsNotExist(err) {
+		return "", fmt.Errorf("app folder %q does not exist — create it first, or leave this blank to have xdev make one", dir)
+	}
+	if err != nil {
+		return "", fmt.Errorf("app folder %q: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("app folder %q is a file, not a directory", dir)
+	}
+	return dir, nil
 }
 
 // normalizeHost lowercases and trims a hostname.
 func normalizeHost(h string) string { return strings.TrimSpace(strings.ToLower(h)) }
+
+// parseHosts splits an app's domain field into the hostnames it should answer
+// on. One field, comma-separated, because a site is usually reached by more
+// than one name — test.com, www.test.com, test.com.ng — and every one of them
+// wants the same content, a certificate, and no second app to maintain.
+//
+// Whitespace separates too, so a pasted list works however it was spaced. Each
+// name is normalized and validated, order is kept (the first is the app's
+// primary domain, the one shown in the UI), and a name repeated within the list
+// is an error rather than something to quietly drop — it usually means a typo
+// in one of the two.
+//
+// Returns an empty slice for empty input; callers decide whether that is a
+// default to fill in or an error.
+func parseHosts(raw string) ([]string, error) {
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	})
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		host := normalizeHost(f)
+		if err := validHost(host); err != nil {
+			return nil, err
+		}
+		for _, seen := range out {
+			if seen == host {
+				return nil, fmt.Errorf("domain %q is listed twice", host)
+			}
+		}
+		out = append(out, host)
+	}
+	return out, nil
+}
 
 // validHost does a light sanity check on a hostname (no scheme, port, or path).
 func validHost(h string) error {

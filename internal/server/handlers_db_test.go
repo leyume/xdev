@@ -90,8 +90,8 @@ func TestDatabaseDetailRenders(t *testing.T) {
 // on any page (not just the ones we fully render) fails a test.
 func TestAllPagesParse(t *testing.T) {
 	pages := []string{"setup", "login", "dashboard", "projects", "project_new",
-		"project", "app_metrics", "app_logs", "app_env", "app_backups", "events",
-		"admins", "database", "database_detail", "wordpress"}
+		"project", "app_metrics", "app_logs", "app_env", "app_backups", "app_settings",
+		"events", "admins", "database", "database_detail", "wordpress"}
 	for _, p := range pages {
 		if _, err := template.New(p).Funcs(tmplFuncs()).ParseFS(web.TemplatesFS,
 			"templates/layout.html", "templates/partials.html", "templates/twstyles.html", "templates/"+p+".html"); err != nil {

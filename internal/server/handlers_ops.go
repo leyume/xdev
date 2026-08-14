@@ -108,7 +108,8 @@ func (s *Server) handleAppEnvForm(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, "app_env", viewData{
 		"Title": app.Name + " .env · xdev", "App": app, "Project": proj, "Content": content,
-		"Saved": r.URL.Query().Get("saved") != "",
+		"EnvPath": s.apps.EnvLocation(app.ID),
+		"Saved":   r.URL.Query().Get("saved") != "",
 	})
 }
 
@@ -152,6 +153,42 @@ func uploadedArchive(r *http.Request) (io.Reader, func(), error) {
 		return nil, noop, errors.New("import needs a .tar.gz backup archive")
 	}
 	return file, func() { file.Close() }, nil
+}
+
+// maxComposeUpload caps an uploaded compose file. Compose files are a few KB;
+// the apps service applies the same limit to pasted ones.
+const maxComposeUpload = 256 << 10
+
+// suppliedComposeFile returns the compose file a "Compose" app was created with:
+// the uploaded compose_file if one was chosen, else the pasted compose_yaml
+// textarea. "" means none was supplied — the app gets the starter compose file.
+// Callers run after uploadedArchive, which has already parsed a multipart form.
+func suppliedComposeFile(r *http.Request) (string, error) {
+	if r.MultipartForm == nil {
+		return r.FormValue("compose_yaml"), nil
+	}
+	file, hdr, err := r.FormFile("compose_file")
+	if err != nil || hdr.Size == 0 {
+		if file != nil {
+			file.Close()
+		}
+		return r.FormValue("compose_yaml"), nil // no file chosen — use the textarea
+	}
+	defer file.Close()
+	if name := strings.ToLower(hdr.Filename); !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml") {
+		return "", errors.New("compose file must be a .yml / .yaml file (docker-compose.yml or compose.yml)")
+	}
+	if hdr.Size > maxComposeUpload {
+		return "", fmt.Errorf("compose file is too large (max %d KB)", maxComposeUpload>>10)
+	}
+	b, err := io.ReadAll(io.LimitReader(file, maxComposeUpload+1))
+	if err != nil {
+		return "", fmt.Errorf("read compose file: %w", err)
+	}
+	if len(b) > maxComposeUpload {
+		return "", fmt.Errorf("compose file is too large (max %d KB)", maxComposeUpload>>10)
+	}
+	return string(b), nil
 }
 
 // handleAppImport overwrites an existing app's files from an uploaded backup
@@ -226,22 +263,6 @@ func (s *Server) handleBackupDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Disposition", "attachment; filename="+url.PathEscape(filepath.Base(path)))
 	http.ServeFile(w, r, path)
-}
-
-// handleAppDomain changes the hostname an app is served at.
-func (s *Server) handleAppDomain(w http.ResponseWriter, r *http.Request) {
-	app, proj, ok := s.appAndProject(w, r)
-	if !ok {
-		return
-	}
-	target := "/projects/" + proj.Slug
-	if err := s.apps.SetDomain(app.ID, r.FormValue("domain")); err != nil {
-		redirectWithError(w, r, target, err)
-		return
-	}
-	s.store.AddEvent(proj.ID, app.ID, "info", "Changed domain of app "+app.Name)
-	s.reconcile()
-	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 // handleSetEngine switches the default container engine for new projects.

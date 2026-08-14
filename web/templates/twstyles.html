@@ -52,6 +52,9 @@ body {
   font: 14.5px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  /* Reserve the scrollbar so locking body scroll for a modal doesn't shift the
+     page sideways underneath it. */
+  scrollbar-gutter: stable;
 }
 
 ::selection { background: rgba(180, 140, 255, 0.35); }
@@ -270,6 +273,15 @@ button.danger:hover { background: rgba(245, 140, 140, 0.12); border-color: rgba(
   border-color: rgba(140, 232, 184, 0.3);
   color: var(--ok);
 }
+/* An in-dialog failure: engine output keeps its line breaks, and a long one
+   scrolls inside the panel instead of pushing the submit button off-screen. */
+.alert.form-error {
+  margin: 12px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow-y: auto;
+}
 .alert.warn-banner {
   background: rgba(242, 193, 78, 0.07);
   border-color: rgba(242, 193, 78, 0.25);
@@ -447,16 +459,22 @@ textarea.code {
 }
 .trust-hint { margin: -8px 0 20px; }
 
-/* Inline per-app domain editor */
-.domain-edit { display: flex; gap: 6px; margin-top: 8px; }
-.domain-edit input {
-  width: auto;
-  flex: 1 1 220px;
-  max-width: 320px;
-  padding: 5px 10px;
-  font-size: 13px;
+/* Small link-button (the per-app Settings link in a card's tab bar) */
+a.btn.small { padding: 5px 11px; font-size: 12.5px; margin-top: 0; }
+
+/* Read-only facts on the settings page: what an app *is*, beside what it can be
+   changed to. */
+.fact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 4px 0 12px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
 }
-.domain-edit button { padding: 5px 11px; font-size: 13px; }
 
 @media (max-width: 560px) {
   .runtime-grid, .host-grid, .row2 { grid-template-columns: 1fr; }
@@ -589,9 +607,55 @@ textarea.code {
 .ico { flex: none; display: inline-block; }
 button.link .ico { vertical-align: -3px; margin-right: 6px; }
 /* Icon-only chrome buttons (topbar logout / sidebar toggle) */
-.iconbtn { display: inline-flex; align-items: center; justify-content: center; padding: 7px; border-radius: var(--radius-sm); color: var(--muted); }
-.iconbtn:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+/* Icon-only controls: no chrome of their own — the glyph is the button, a wash
+   of background on hover is the only affordance. Selectors carry an element so
+   they outrank button.danger's border/background, whatever the source order. */
+button.iconbtn, a.iconbtn, .iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px;
+  border: none;
+  background: none;
+  box-shadow: none;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  text-decoration: none;
+}
+button.iconbtn:hover, a.iconbtn:hover, .iconbtn:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+button.iconbtn.go:hover { color: var(--ok); background: rgba(140, 232, 184, 0.12); }
+button.iconbtn.danger, button.iconbtn.danger:hover { border: none; }
+button.iconbtn.danger { color: var(--muted); background: none; }
+button.iconbtn.danger:hover { color: var(--danger); background: rgba(245, 140, 140, 0.12); }
 .iconbtn .ico { margin-right: 0; vertical-align: 0; }
+
+/* Hover label for an icon-only control: data-tip is the name the button would
+   have spelled out. Paired with aria-label, which is what actually reaches a
+   screen reader — this is decoration. A busy button's spinner claims the same
+   ::after (button.is-busy::after outranks .tip::after), so the two never fight. */
+.tip { position: relative; }
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(3px);
+  z-index: 20;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 14px -4px rgba(0, 0, 0, 0.6);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.tip:hover::after, .tip:focus-visible::after { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* Native select options render with OS colors; force dark-theme-readable ones. */
 option { background: var(--bg); color: var(--text); }
@@ -605,11 +669,54 @@ option { background: var(--bg); color: var(--text); }
 .switch input:checked + .slider::before { transform: translateX(14px); background: var(--accent); }
 .switch input:focus-visible + .slider { box-shadow: var(--ring); }
 
-/* Modal (Add-app on project detail) */
-.modal-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding: 8vh 20px 40px; background: rgba(6, 4, 10, 0.6); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); overflow-y: auto; }
-.modal { width: 100%; max-width: 560px; margin: 0; max-height: none; }
-.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+/* Modal (Add-app on project detail). The dialog scrolls inside itself — the
+   overlay never scrolls, so the page behind stays put while it is open. */
+.modal-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding: 6vh 20px 4vh; background: rgba(6, 4, 10, 0.6); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); overflow: hidden; }
+.modal { width: 100%; max-width: 560px; margin: 0; display: flex; flex-direction: column; max-height: 100%; overflow: hidden; }
+.modal-wide { max-width: 880px; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; flex: none; }
 .modal-head .iconbtn { font-size: 15px; }
+/* The scrolling region: everything below the sticky header. overscroll-behavior
+   keeps a scroll that reaches the end from chaining to the page behind. */
+.modal-body { overflow-y: auto; overscroll-behavior: contain; margin: 0 -22px -22px; padding: 0 22px 22px; }
+body.modal-open { overflow: hidden; }
+
+/* App-type picker: a grid of cards, one per catalog entry. Picking one reveals
+   the rest of the form. */
+.type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; margin: 10px 0 4px; }
+.type-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  text-align: left; white-space: normal; padding: 13px 14px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  transition: border-color 0.15s, background 0.15s, transform 0.08s;
+}
+.type-card:hover:not(:disabled) { border-color: rgba(180, 140, 255, 0.4); background: var(--panel-2); transform: translateY(-1px); }
+.type-card.active { border-color: var(--accent); background: rgba(180, 140, 255, 0.1); box-shadow: var(--ring); }
+.type-card:disabled { opacity: 0.45; cursor: not-allowed; }
+.type-ico { display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; margin-bottom: 6px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--border-soft); color: var(--accent); }
+.type-card.active .type-ico { background: rgba(180, 140, 255, 0.14); }
+.type-name { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
+.type-tag { font-size: 11.5px; font-weight: 400; line-height: 1.35; color: var(--muted); }
+/* Per-type tint, so the grid reads as a set of products at a glance. */
+.type-card[data-type="static"] .type-ico { color: #b48cff; }
+.type-card[data-type="go"] .type-ico { color: #00add8; }
+.type-card[data-type="proxy"] .type-ico { color: #8ce8b8; }
+.type-card[data-type="compose"] .type-ico { color: #4aa8ff; }
+.type-card[data-type="wordpress"] .type-ico { color: #7cc3e8; }
+.type-card[data-type="laravel"] .type-ico { color: #f58c8c; }
+.type-card[data-type="mail"] .type-ico { color: #f2c14e; }
+
+/* Detected compose ports → one domain each. */
+.port-map { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 4px; }
+.port-row { display: grid; grid-template-columns: 118px 1fr; gap: 12px; align-items: center; padding: 9px 12px; background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); }
+.port-row.is-primary { border-color: rgba(180, 140, 255, 0.4); background: rgba(180, 140, 255, 0.07); }
+.port-tag { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.port-num { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 600; }
+.port-svc { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.port-row .port-dest { display: flex; align-items: center; gap: 8px; }
+.port-row .port-dest input[type="text"] { flex: 1; padding: 7px 11px; font-size: 13px; }
+/* "How many domains" — a count, not a field to fill the row. */
+input[type="number"].count { max-width: 110px; }
 
 /* ---- KPI strip (Dashboard) ---- */
 .kpi-strip { display: grid; grid-template-columns: repeat(6, 1fr); padding: 0; overflow: hidden; }

@@ -1,0 +1,48 @@
+# Starter compose file written by xdev — edit it freely, it is yours now.
+# Project: {{.ProjectSlug}}   App: {{.AppSlug}}
+#
+# This is what a "Compose" app gets when you create one without supplying a
+# file. Everything below is a normal compose stack; xdev only cares about two
+# things:
+#
+#   1. The service behind this app's domain publishes "${PORT}:<container-port>".
+#      PORT is a host port xdev allocated for you — it is set in the .env next to
+#      this file, and xdev routes the domain to it. Never hard-code a number:
+#      xdev owns them, so a variable is what keeps two stacks from colliding.
+#      Need more domains? Say how many on the add-app form (up to five) and each
+#      gets its own port — ${PORT_2}, ${PORT_3}, … — with the hostname you gave
+#      it. (An app created with one domain has only ${PORT}; recreate to add.)
+#   2. Relative paths resolve from this directory (_/), so ../app is the app's
+#      content folder — the one the Backups tab archives.
+services:
+  web:
+    image: docker.io/library/nginx:alpine
+    container_name: {{.ProjectSlug}}_{{.AppSlug}}_web
+    restart: unless-stopped
+    volumes:
+      - ../app:/usr/share/nginx/html:ro
+    ports:
+      - "{{.HostPort}}:80"
+{{- if .HasLimits}}
+    deploy:
+      resources:
+        limits:
+{{- if .CPULimit}}
+          cpus: "{{.CPUStr}}"
+{{- end}}
+{{- if .MemLimit}}
+          memory: {{.MemStr}}
+{{- end}}
+{{- end}}
+    networks:
+      - internal
+      - projectnet
+
+networks:
+  # internal: private to this app (its own services reach each other by name).
+  internal:
+  # projectnet: shared across the project so other apps can reach this one by
+  # container name. Created by xdev; declared external here.
+  projectnet:
+    name: {{.NetworkName}}
+    external: true
