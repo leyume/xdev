@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -125,14 +126,15 @@ type composeRoute struct {
 //
 // The extra routes (domains 2..N, paired with their allocated port) come back
 // for the caller to attach once the app row exists; their hostnames are
-// validated here so a collision fails before anything is written.
-func (s *Service) layoutCompose(app *store.App, opts *CreateOpts, proj store.Project, appDir string) ([]composeRoute, error) {
-	yaml := strings.TrimSpace(opts.ComposeFile)
+// validated here so a collision fails before anything is written. appHosts is
+// every hostname domain 1 covers — one slot however many names it lists.
+func (s *Service) layoutCompose(app *store.App, opts *CreateOpts, proj store.Project, appDir string, appHosts []string) ([]composeRoute, error) {
+	yaml := strings.TrimSpace(normalizeYAML(opts.ComposeFile))
 	starter := yaml == ""
 
 	// One slot per domain: slot 1 is the app's own domain, the rest are the
 	// extra hostnames from the form, in the order they were entered.
-	hosts, err := s.composeExtraHosts(opts.ExtraDomains, app.Domain)
+	hosts, err := s.composeExtraHosts(opts.ExtraDomains, appHosts, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -226,8 +228,10 @@ func (s *Service) layoutCompose(app *store.App, opts *CreateOpts, proj store.Pro
 // composeExtraHosts validates the hostnames for domains 2..N, in the order the
 // form submitted them — that order is the slot numbering the user sees, so a
 // blank one is an error rather than something to skip: dropping it silently
-// would renumber every ${PORT_n} after it.
-func (s *Service) composeExtraHosts(domains []string, appDomain string) ([]string, error) {
+// would renumber every ${PORT_n} after it. appDomains is every hostname the app
+// itself answers on (domain 1 may list several); self is the app being edited
+// (0 on create), whose own hostnames are not collisions.
+func (s *Service) composeExtraHosts(domains []string, appDomains []string, self int64) ([]string, error) {
 	if len(domains)+1 > MaxComposeSlots {
 		return nil, fmt.Errorf("a compose app can have at most %d domains", MaxComposeSlots)
 	}
@@ -241,10 +245,10 @@ func (s *Service) composeExtraHosts(domains []string, appDomain string) ([]strin
 		if err := validHost(host); err != nil {
 			return nil, fmt.Errorf("domain %d: %w", slot, err)
 		}
-		if host == appDomain {
+		if slices.Contains(appDomains, host) {
 			return nil, fmt.Errorf("domain %d cannot be %q — that is this app's own domain (domain 1)", slot, host)
 		}
-		if owner := s.store.DomainOwner(host); owner != 0 {
+		if owner := s.store.DomainOwner(host); owner != 0 && owner != self {
 			return nil, fmt.Errorf("domain %q is already in use", host)
 		}
 		for _, h := range out {
@@ -295,7 +299,7 @@ func (s *Service) prepareCompose(app store.App) (store.App, error) {
 	if err != nil {
 		return app, fmt.Errorf("read compose file: %w", err)
 	}
-	yaml := string(raw)
+	yaml := normalizeYAML(string(raw))
 	if err := validCompose(yaml); err != nil {
 		return app, err
 	}
@@ -353,13 +357,20 @@ func (s *Service) prepareCompose(app store.App) (store.App, error) {
 // portTaken reports an error when another app (or service domain) already owns
 // the host port a compose file asks for — two stacks publishing the same port
 // means the second one fails to start and the domain routes to the wrong app.
-func (s *Service) portTaken(port int) error {
+// own lists the ports this app already holds: they are in the used set too, and
+// re-saving a file that hard-codes one of them is not a collision with itself.
+func (s *Service) portTaken(port int, own ...int) error {
 	if port <= 0 || port > 65535 {
 		return fmt.Errorf("invalid host port %d in compose file", port)
 	}
 	used, err := s.store.UsedPorts()
 	if err != nil {
 		return err
+	}
+	for _, p := range own {
+		if p == port {
+			return nil
+		}
 	}
 	for _, p := range used {
 		if p == port {
@@ -369,10 +380,32 @@ func (s *Service) portTaken(port int) error {
 	return nil
 }
 
+// normalizeYAML makes a supplied compose file look the way one typed on this
+// machine would. Two things arrive mangled otherwise, and both make the file
+// unparseable rather than merely untidy:
+//
+//   - CRLF line endings. Browsers submit textarea content with them (the HTML
+//     spec requires it), so *every* pasted file has them, and a Windows editor
+//     writes them too. Line-anchored matching then sees "services:\r", which is
+//     not a top-level services: block.
+//   - A UTF-8 BOM, which editors put in front of the first key, so the line
+//     reads as U+FEFF followed by "services:" and matches nothing.
+//
+// Applied on the way in, so what lands in _/compose.yml is plain LF text.
+func normalizeYAML(s string) string {
+	s = strings.TrimPrefix(s, "\ufeff")
+	if !strings.ContainsRune(s, '\r') {
+		return s
+	}
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return strings.ReplaceAll(s, "\r", "\n")
+}
+
 // validCompose does the structural checks xdev can make without a YAML parser:
 // the file must be sane text, of a plausible size, and declare top-level
 // services. Anything subtler is the engine's job to report on `compose up`.
 func validCompose(yaml string) error {
+	yaml = normalizeYAML(yaml)
 	if strings.TrimSpace(yaml) == "" {
 		return errors.New("compose file is empty")
 	}
@@ -405,7 +438,7 @@ func validCompose(yaml string) error {
 // tracks the current service by indentation inside the top-level services:
 // block and matches port entries in both compose syntaxes.
 func ComposePorts(yaml string) ([]ComposePort, error) {
-	sc := bufio.NewScanner(strings.NewReader(yaml))
+	sc := bufio.NewScanner(strings.NewReader(normalizeYAML(yaml)))
 	sc.Buffer(make([]byte, 0, 64<<10), maxComposeBytes)
 
 	var out []ComposePort

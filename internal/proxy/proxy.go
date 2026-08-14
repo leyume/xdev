@@ -28,7 +28,7 @@ import (
 // *.php handed to a fastcgi upstream.
 type Route struct {
 	Host     string // e.g. frontend.demo.test
-	Upstream string // e.g. 127.0.0.1:20000, or https://other-server.example (proxy apps)
+	Upstream string // e.g. 127.0.0.1:20000, or https://other.example[/prefix] (proxy apps)
 	Root     string // e.g. /…/projects/demo/frontend/dist (file_server)
 	FCGIPort int    // fastcgi host port for *.php under Root (shared-WP sites)
 	Internal bool   // true = local CA (.test); false = public ACME/Let's Encrypt
@@ -63,7 +63,25 @@ type Manager struct {
 	// sites over plain HTTP while on alt ports (no cert obtainable), e.g. behind
 	// another proxy during migration. Off by default (normal HTTP->HTTPS).
 	disableHTTPSRedirect bool
-	client               *http.Client
+	// rootPrefix is prepended to every file_server root. A containerized Caddy
+	// only sees what is bind-mounted into it, so a root like /home/li/ui/xyz —
+	// a real path on the host — resolves to nothing inside the container and
+	// every request 404s. Mounting the host filesystem read-only at one place
+	// ("/:/hostfs:ro") and setting this to /hostfs makes every root reachable,
+	// whatever path the user picks, without a second container or a mount per
+	// app. Empty (the default) leaves roots alone — correct for a Caddy running
+	// directly on the host, where the paths already match.
+	rootPrefix string
+	client     *http.Client
+}
+
+// hostPath maps a directory on the host to where Caddy sees it. Identity unless
+// rootPrefix is set (see the field comment).
+func (m *Manager) hostPath(dir string) string {
+	if m.rootPrefix == "" || dir == "" {
+		return dir
+	}
+	return strings.TrimSuffix(m.rootPrefix, "/") + dir
 }
 
 // NewManager creates a proxy Manager. acmeEmail may be empty; leafLifetime
@@ -86,6 +104,7 @@ func NewManager(adminAddr string, httpsPort, httpPort int, acmeEmail, leafLifeti
 		upstreamHost:         upstreamHost,
 		adminListen:          os.Getenv("XDEV_CADDY_ADMIN_LISTEN"),
 		disableHTTPSRedirect: os.Getenv("XDEV_DISABLE_HTTPS_REDIRECT") == "true",
+		rootPrefix:           strings.TrimSuffix(os.Getenv("XDEV_CADDY_ROOT_PREFIX"), "/"),
 		client:               &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -143,18 +162,30 @@ func (m *Manager) url(path string) string {
 	return "http://" + m.adminAddr + path
 }
 
-// reverseProxyHandler builds the reverse_proxy handler JSON for an upstream:
-// either a plain host:port (a local app port) or, for proxy apps, a full URL
-// (http(s)://host[:port]) to another server. An https upstream gets a TLS
-// transport, with SNI (server_name) when it's named rather than an IP so cert
-// verification against the origin works. The incoming Host header passes
-// through untouched (Caddy's default), keeping name-based vhosts — and
-// websockets — on the other server working.
-func reverseProxyHandler(upstream, upstreamHost string) map[string]any {
+// reverseProxyHandlers builds the handler chain for an upstream: either a plain
+// host:port (a local app port) or, for proxy apps, a full URL
+// (http(s)://host[:port][/path]) to another server.
+//
+// When the URL carries a path, the app lives under a prefix on that server
+// (https://mail.example.com/webmail) rather than at its root, so every proxied
+// request is rewritten to sit under that prefix first — Caddy's
+// `rewrite * /webmail{uri}`. {http.request.uri} is path+query, so the query
+// string survives. Note this only rewrites what we *send*: an app that answers
+// with absolute links of its own (/webmail/assets/app.js) will have the browser
+// ask for that path on the xdev domain, and it gets prefixed a second time. Such
+// an app has to be told its public base path, or be proxied at the same prefix
+// it already uses.
+//
+// An https upstream gets a TLS transport, with SNI (server_name) when it's named
+// rather than an IP so cert verification against the origin works. The incoming
+// Host header passes through untouched (Caddy's default), keeping name-based
+// vhosts — and websockets — on the other server working.
+func reverseProxyHandlers(upstream, upstreamHost string) []any {
 	h := map[string]any{"handler": "reverse_proxy"}
-	dial := upstream
+	dial, prefix := upstream, ""
 	if strings.Contains(upstream, "://") {
 		if u, err := url.Parse(upstream); err == nil && u.Host != "" {
+			prefix = strings.TrimSuffix(u.EscapedPath(), "/")
 			host, port := u.Hostname(), u.Port()
 			if port == "" {
 				if u.Scheme == "https" {
@@ -184,7 +215,13 @@ func reverseProxyHandler(upstream, upstreamHost string) map[string]any {
 	// reach the port where it's actually published (the host).
 	dial = swapLoopbackHost(dial, upstreamHost)
 	h["upstreams"] = []any{map[string]any{"dial": dial}}
-	return h
+	if prefix == "" {
+		return []any{h}
+	}
+	return []any{
+		map[string]any{"handler": "rewrite", "uri": prefix + "{http.request.uri}"},
+		h,
+	}
 }
 
 // swapLoopbackHost rewrites the host of a host:port dial to upstreamHost when it
@@ -226,7 +263,9 @@ func isLoopback(host string) bool {
 // /index.php), the fastcgi reverse_proxy, then a plain file_server for
 // everything else. The docroot is bind-mounted into the fpm container at the
 // same absolute path as on the host, so the root — and the SCRIPT_FILENAME the
-// transport derives from it — resolves on both sides.
+// transport derives from it — resolves on both sides. That is also why this
+// root is *not* passed through Manager.hostPath the way a static app's is:
+// rewriting it to a Caddy-only prefix would hand fpm a path it cannot open.
 func phpSiteSubroute(root string, fcgiPort int, upstreamHost string) map[string]any {
 	return map[string]any{
 		"handler": "subroute",
@@ -266,6 +305,39 @@ func phpSiteSubroute(root string, fcgiPort int, upstreamHost string) map[string]
 	}
 }
 
+// staticSiteHandlers builds the handler chain for a serve-mode static app:
+// Caddy file-serves root, and any URI with no file behind it falls back to
+// /index.html.
+//
+// That fallback is what makes a single-page app work. A deep link like
+// /dashboard/settings is a client-side route with nothing on disk, so without it
+// the first load of any URL but "/" is a 404 — which is exactly what a built
+// Vite/React/Astro app looks like when it "doesn't work". Real files still win:
+// the fallback only applies once the file matcher has failed to find one.
+//
+// It is Caddy's `try_files {path} {path}/ /index.html` expanded to JSON. The
+// "{path}/" candidate keeps directory index files working, and a site with no
+// index.html at all matches nothing and gets file_server's own 404.
+func staticSiteHandlers(root string) []any {
+	return []any{
+		map[string]any{"handler": "vars", "root": root},
+		map[string]any{
+			"handler": "subroute",
+			"routes": []any{map[string]any{
+				"match": []any{map[string]any{"file": map[string]any{
+					"try_files": []string{
+						"{http.request.uri.path}",
+						"{http.request.uri.path}/",
+						"/index.html",
+					},
+				}}},
+				"handle": []any{map[string]any{"handler": "rewrite", "uri": "{http.matchers.file.relative}"}},
+			}},
+		},
+		map[string]any{"handler": "file_server"},
+	}
+}
+
 // buildConfig assembles a full Caddy JSON config: one HTTP server listening on
 // the configured http+https ports, a route per host reverse-proxying to its
 // upstream, and a TLS automation policy using the internal (local) CA.
@@ -290,12 +362,9 @@ func (m *Manager) buildConfig(routes []Route) map[string]any {
 		case r.Root != "" && r.FCGIPort > 0:
 			handle = []any{phpSiteSubroute(r.Root, r.FCGIPort, m.upstreamHost)}
 		case r.Root != "":
-			handle = []any{
-				map[string]any{"handler": "vars", "root": r.Root},
-				map[string]any{"handler": "file_server"},
-			}
+			handle = staticSiteHandlers(m.hostPath(r.Root))
 		default:
-			handle = []any{reverseProxyHandler(r.Upstream, m.upstreamHost)}
+			handle = reverseProxyHandlers(r.Upstream, m.upstreamHost)
 		}
 		httpRoutes = append(httpRoutes, map[string]any{
 			"match":    []any{map[string]any{"host": []string{r.Host}}},

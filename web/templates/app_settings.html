@@ -1,0 +1,223 @@
+{{define "content"}}
+{{$app := .App}}{{$form := .Form}}
+<div class="crumbs">
+  <a href="/projects">Projects</a> /
+  <a href="/projects/{{.Project.Slug}}">{{.Project.Name}}</a> /
+  <strong>{{$app.Name}} settings</strong>
+</div>
+<section class="page-head">
+  <div>
+    <div class="title-row">
+      <h1>{{$app.Name}}</h1>
+      <span class="status-pill {{if eq $app.Status "running"}}ok{{else}}warn{{end}}">
+        <span class="status {{$app.Status}}"></span>{{$app.Status}}
+      </span>
+      <span class="chip">{{$app.Type}}</span>
+    </div>
+    <div class="muted small">Settings — changes apply on restart, which happens when you save.</div>
+  </div>
+  <a class="btn" href="/projects/{{.Project.Slug}}">← Back to project</a>
+</section>
+
+{{if .Error}}<div class="alert form-error">{{.Error}}</div>{{end}}
+{{if .Saved}}<div class="alert ok">Saved{{if eq $app.Status "running"}} and restarted{{end}}.</div>{{end}}
+
+<form method="post" action="/apps/{{$app.ID}}/settings"
+      x-data="appSettings({{json $form.ExtraDomains}}, {{json .SlotPorts}}, {{.MaxDomains}})">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+
+  <section class="card form-card">
+    <h3>App</h3>
+    <label>Name
+      <input type="text" name="name" value="{{$form.Name}}" required>
+    </label>
+    <div class="fact-grid">
+      <div><span class="muted small">Type</span><div>{{$app.Type}}</div></div>
+      <div><span class="muted small">Slug</span><div><code>{{$app.Slug}}</code></div></div>
+      <div><span class="muted small">Engine</span><div>{{if $app.Runtime}}{{$app.Runtime}}{{else}}—{{end}}</div></div>
+      <div><span class="muted small">Host port</span><div>{{if $app.Port}}{{$app.Port}}{{else}}—{{end}}</div></div>
+    </div>
+    <p class="muted small">The slug names this app's folder, containers and database, so it stays
+      as it was created — renaming here changes the label you see, nothing on disk.
+      {{if eq $app.WPMode "shared"}}This site is served by the platform's shared WordPress host rather
+      than a container of its own; that too is fixed at create time.{{end}}</p>
+  </section>
+
+  <section class="card form-card">
+    <h3>Domains</h3>
+    <label>Domain <span class="muted">(the hostnames this app is served at — comma-separated for more than one, e.g. <code>test.com, www.test.com</code>. The first is its address; removing one stops it routing)</span>
+      <input type="text" name="domain" value="{{$form.Domain}}" spellcheck="false" required
+             placeholder="{{.Project.BaseDomain}}">
+    </label>
+
+    {{if and .ServiceLabel .ServicePort}}
+    <label>{{.ServiceLabel}} domain <span class="muted">(bundled UI on port {{.ServicePort}})</span>
+      <input type="text" name="service_domain" value="{{$form.ServiceDomain}}" spellcheck="false" required>
+    </label>
+    {{end}}
+
+    {{if $app.IsCompose}}
+    <!-- One domain per ${PORT_n} slot, in order: the position of a row is its
+         slot number, so adding one at the end is the only way to add a port. -->
+    <div class="port-map">
+      <template x-for="(d, i) in domains" :key="i">
+        <div class="port-row">
+          <div class="port-tag">
+            <span class="port-num" x-text="portVar(i)"></span>
+            <span class="port-svc" x-text="portFor(i)"></span>
+          </div>
+          <div class="port-dest">
+            <span class="muted small nowrap" x-text="'Domain ' + (i + 2)"></span>
+            <input type="text" name="extra_domain" spellcheck="false" required
+                   x-model="domains[i]" :placeholder="'e.g. api.{{.Project.BaseDomain}}'">
+            <button type="button" class="link iconbtn" title="Remove this domain"
+                    aria-label="Remove this domain" @click="remove(i)">✕</button>
+          </div>
+        </div>
+      </template>
+    </div>
+    <div class="form-actions" style="justify-content:flex-start">
+      <button type="button" @click="add()" x-show="domains.length + 1 < maxDomains">+ Add a domain</button>
+      <span class="muted small" x-show="domains.length + 1 >= maxDomains">Up to {{.MaxDomains}} domains per stack.</span>
+    </div>
+    <p class="muted small">Each domain has a host port xdev allocated for it. Publish the service that
+      serves it on that slot's variable — <code>"${PORT}:80"</code> for this app's own domain,
+      <code>"${PORT_2}:8000"</code> for the second, and so on. Removing a domain frees its port; a new
+      one gets its number when you save, and the file has to publish that slot before it will.</p>
+    {{end}}
+  </section>
+
+  {{with .DB}}
+  <!-- Read-only: which database this app uses and how to get at it. Both modes
+       are shown — "shared" is not the absence of a setting. -->
+  <section class="card form-card">
+    <h3>Database</h3>
+    <div class="fact-grid">
+      <div><span class="muted small">Mode</span><div>{{if .Shared}}Shared{{else}}Dedicated{{end}}</div></div>
+      <div><span class="muted small">Database</span><div><code>{{.Name}}</code></div></div>
+      <div><span class="muted small">User</span><div><code>{{.User}}</code></div></div>
+      <div><span class="muted small">Server</span><div><code>{{.Server}}</code></div></div>
+    </div>
+    <p class="muted small">
+      {{if .Shared}}This app's database lives on the platform's single xdev MariaDB, shared with every
+        other app in shared mode — one server instead of one per app.
+        <a href="{{.ManageURL}}">Open {{.Name}} on the Database page ↗</a>
+      {{else}}This app runs its own MariaDB container inside its stack ({{if eq $app.Type "laravel"}}persisted under
+        <code>_volumes/mysql</code>{{else}}on a named volume{{end}}). Its credentials are in the compose file
+        below — change them there.{{end}}
+      {{if .Adminer}}<br>Adminer is bundled with this app at <code>{{.Adminer}}</code> (port {{.AdminerPort}}),
+        opening on {{.AdminerOn}} — rename it under Domains above.
+      {{else if .Shared}}<br>There's no Adminer bundled with this app; the Database page runs one for the
+        shared server.{{end}}
+    </p>
+    <p class="muted small">Switching between shared and dedicated isn't a setting — it moves the data, so
+      it's a migration: create the app the other way and import a backup.</p>
+  </section>
+  {{end}}
+
+  {{if $app.IsProxy}}
+  <section class="card form-card">
+    <h3>Upstream</h3>
+    <label>Upstream URL <span class="muted">(the server this domain forwards to — add a path if the app sits under one there, like <code>https://mail.example.com/webmail</code>)</span>
+      <input type="text" name="upstream" value="{{$form.Upstream}}" spellcheck="false" required
+             placeholder="https://other-server.example">
+    </label>
+  </section>
+  {{end}}
+
+  {{if $app.IsHostProc}}
+  <section class="card form-card" x-data="{ serve: '{{$form.ServeMode}}' }">
+    <h3>How it runs</h3>
+    {{if ne $app.Type "go"}}
+    <label>How to serve
+      <select name="serve_mode" x-model="serve">
+        <option value="serve" {{if ne $form.ServeMode "command"}}selected{{end}}>Serve files — Caddy serves a folder directly (no process)</option>
+        <option value="command" {{if eq $form.ServeMode "command"}}selected{{end}}>Run a command — system Node dev/build server</option>
+      </select>
+    </label>
+    <label x-show="serve==='serve'">Folder to serve <span class="muted">(subdir of the app folder — blank = the app folder itself)</span>
+      <input type="text" name="root_dir" value="{{$form.RootDir}}" spellcheck="false" placeholder="dist">
+    </label>
+    {{else}}
+    <input type="hidden" name="serve_mode" value="command">
+    {{end}}
+    <label>App folder <span class="muted">(absolute path to your code — blank = <code>{{.Project.Dir}}/{{$app.Slug}}</code>)</span>
+      <input type="text" name="source_dir" value="{{$form.SourceDir}}" spellcheck="false"
+             placeholder="{{.Project.Dir}}/{{$app.Slug}}">
+    </label>
+    <p class="muted small">Re-pointing this app changes where its build runs and which folder is served.
+      Nothing is copied or deleted — the folder it was on before is left exactly as it is, and a folder
+      of your own is never scaffolded into or removed with the app.</p>
+    <label>Build command <span class="muted">(runs once before start)</span>
+      <input type="text" name="build_cmd" value="{{$form.BuildCmd}}" spellcheck="false">
+    </label>
+    <label {{if ne $app.Type "go"}}x-show="serve==='command'"{{end}}>Start command
+      <span class="muted">(long-running; <code>$PORT</code> is set for you)</span>
+      <input type="text" name="start_cmd" value="{{$form.StartCmd}}" spellcheck="false">
+    </label>
+    <p class="muted small">Switching to a command allocates a host port if this app doesn't have one yet.
+      Leaving a command blank puts the default back.</p>
+  </section>
+  {{end}}
+
+  {{if .HasCompose}}
+  <section class="card form-card">
+    <h3>Compose file</h3>
+    <label>Replace it from a file <span class="muted">(drops into the box below — nothing is saved until you do)</span>
+      <input type="file" accept=".yml,.yaml,text/yaml,application/x-yaml" @change="loadFile($event)">
+    </label>
+    <textarea name="compose_yaml" class="code" rows="20" spellcheck="false" x-ref="compose">{{$form.Compose}}</textarea>
+    <p class="muted small">This is <code>_/compose.yml</code> — {{.ComposeName}}. It is checked before it
+      replaces what's there, and the previous version is kept beside it as <code>compose.yml.bak</code>.
+      Environment variables live in <a href="/apps/{{$app.ID}}/env">{{.EnvPath}}</a>, and resource limits
+      belong in this file's own <code>deploy.resources.limits</code> blocks.</p>
+  </section>
+  {{end}}
+
+  <div class="form-actions">
+    <a class="btn" href="/projects/{{.Project.Slug}}">Cancel</a>
+    <button class="primary" type="submit">Save{{if eq $app.Status "running"}} &amp; restart{{end}}</button>
+  </div>
+</form>
+
+<p class="muted small">Other places this app is configured:
+  <a href="/apps/{{$app.ID}}/env">environment</a> ·
+  <a href="/apps/{{$app.ID}}/backups">backups</a> ·
+  <a href="/apps/{{$app.ID}}/logs">logs</a>.
+  Changing this app's <strong>type</strong> isn't possible — create a new app and import a backup into it.</p>
+
+<script>
+// Settings-page state: the compose domain rows (a row's position is its
+// ${PORT_n} slot) and the file loader. Ports come from the server — an existing
+// slot keeps the one it was allocated, a row added here gets its number on save.
+function appSettings(domains, ports, maxDomains) {
+  return {
+    domains: domains || [],
+    ports: ports || [],
+    maxDomains: maxDomains,
+
+    add() {
+      if (this.domains.length + 1 < this.maxDomains) this.domains.push('');
+    },
+    remove(i) {
+      this.domains.splice(i, 1);
+      this.ports.splice(i, 1);
+    },
+    portVar(i) { return '${PORT_' + (i + 2) + '}'; },
+    portFor(i) { return this.ports[i] ? 'port ' + this.ports[i] : 'port on save'; },
+
+    // Read a chosen file into the textarea — seeing the file beats a filename.
+    loadFile(e) {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        this.$refs.compose.value = String(reader.result || '');
+        e.target.value = '';
+      };
+      reader.readAsText(file);
+    },
+  };
+}
+</script>
+{{end}}

@@ -222,6 +222,7 @@ services:
     volumes:
       - "${DATA_DIR}/caddy:/data/caddy"
       - "${DATA_DIR}/wp:${DATA_DIR}/wp:ro"
+      - "/:/hostfs:ro"
       - "${dir}/caddy-init.json:/etc/caddy/init.json:ro"
 EOF
   else
@@ -235,6 +236,7 @@ services:
     volumes:
       - "${DATA_DIR}/caddy:/data/caddy"
       - "${DATA_DIR}/wp:${DATA_DIR}/wp:ro"
+      - "/:/hostfs:ro"
 EOF
   fi
   info "starting Caddy container (${XDEV_ENGINE} compose up -d)…"
@@ -345,12 +347,19 @@ configure() {
       else
         # docker uses host networking: plain loopback, admin stays on loopback.
         : "${XDEV_UPSTREAM_HOST:=127.0.0.1}"; : "${XDEV_CADDY_ADMIN_LISTEN:=127.0.0.1:2019}"
-      fi ;;
+      fi
+      # A containerized Caddy only sees what is mounted into it, so a static
+      # app's folder — anywhere on the host — would 404. The stack we generate
+      # mounts the host read-only at /hostfs; this tells xdev to look there.
+      : "${XDEV_CADDY_ROOT_PREFIX:=/hostfs}" ;;
     self)
       ask XDEV_UPSTREAM_HOST "Host Caddy dials app ports at (127.0.0.1 / host.containers.internal)" "127.0.0.1"
-      ask XDEV_CADDY_ADMIN_LISTEN "Caddy admin address to re-assert on each push (blank to leave default)" "" ;;
+      ask XDEV_CADDY_ADMIN_LISTEN "Caddy admin address to re-assert on each push (blank to leave default)" ""
+      ask XDEV_CADDY_ROOT_PREFIX "Path your Caddy sees the host filesystem under (blank if it runs on the host)" "" ;;
     native)
-      : "${XDEV_UPSTREAM_HOST:=127.0.0.1}"; : "${XDEV_CADDY_ADMIN_LISTEN:=}" ;;
+      : "${XDEV_UPSTREAM_HOST:=127.0.0.1}"; : "${XDEV_CADDY_ADMIN_LISTEN:=}"
+      # Caddy runs on the host: the paths xdev writes are already the real ones.
+      : "${XDEV_CADDY_ROOT_PREFIX:=}" ;;
   esac
 
   if [ "$XDEV_MODE" = prod ]; then
@@ -472,6 +481,9 @@ XDEV_CADDY=${manage_caddy}
 XDEV_CADDY_ADMIN=127.0.0.1:2019
 XDEV_UPSTREAM_HOST=${XDEV_UPSTREAM_HOST:-127.0.0.1}
 XDEV_CADDY_ADMIN_LISTEN=${XDEV_CADDY_ADMIN_LISTEN:-}
+# Where a containerized Caddy sees the host filesystem (it serves static apps
+# from real host paths). Blank when Caddy runs directly on the host.
+XDEV_CADDY_ROOT_PREFIX=${XDEV_CADDY_ROOT_PREFIX:-}
 XDEV_HTTPS_PORT=${XDEV_HTTPS_PORT}
 XDEV_HTTP_PORT=${XDEV_HTTP_PORT}
 # Migration only: serve sites over plain HTTP with no HTTPS redirect. Set back to

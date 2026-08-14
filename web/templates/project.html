@@ -54,18 +54,24 @@
         <span class="chip">{{.Type}}</span>
         {{if eq .WPMode "shared"}}<span class="chip">shared host</span>{{end}}
         <span class="spacer"></span>
+        <!-- Icon-only actions, in the header rather than the tab bar: editing an
+             app shouldn't require expanding it first. Each carries its name as
+             a hover label (data-tip) and as aria-label; @click.stop so a click
+             acts instead of toggling the card. -->
+        <a class="iconbtn tip" data-tip="Settings" aria-label="Settings"
+           href="/apps/{{.ID}}/settings" @click.stop>{{template "icon_settings" .}}</a>
         <form class="inline act-stop" method="post" action="/apps/{{.ID}}/stop" @click.stop>
-          <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button type="submit">Stop</button>
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+          <button class="iconbtn tip" data-tip="Stop" aria-label="Stop" type="submit">{{template "icon_stop" .}}</button>
         </form>
         <form class="inline act-start" method="post" action="/apps/{{.ID}}/start" @click.stop>
-          <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button class="primary" type="submit">Start</button>
-        </form>
-        <form class="inline" method="post" action="/apps/{{.ID}}/refresh" title="Refresh status" @click.stop>
-          <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button type="submit">↻</button>
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+          <button class="iconbtn tip go" data-tip="Start" aria-label="Start" type="submit">{{template "icon_play" .}}</button>
         </form>
         <form class="inline" method="post" action="/apps/{{.ID}}/delete" @click.stop
           data-confirm="Delete app {{.Name}}?">
-          <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><button class="danger" type="submit">Delete</button>
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+          <button class="iconbtn tip danger" data-tip="Delete" aria-label="Delete" type="submit">{{template "icon_trash" .}}</button>
         </form>
       </div>
 
@@ -76,6 +82,14 @@
           {{if eq $.HTTPSPort 443}}<a href="https://{{$host}}" target="_blank">https://{{$host}}</a>
           {{else}}<a href="https://{{$host}}:{{$.HTTPSPort}}" target="_blank">https://{{$host}}:{{$.HTTPSPort}}</a>{{end}}
         {{else}}{{$host}}{{end}}
+        {{/* The app's other hostnames — same app, same content, own certificate. */}}
+        {{range index $.ExtraHosts .ID}}
+          <span class="muted">·</span>
+          {{if $.ProxyEnabled}}
+            {{if eq $.HTTPSPort 443}}<a href="https://{{.}}" target="_blank">{{.}}</a>
+            {{else}}<a href="https://{{.}}:{{$.HTTPSPort}}" target="_blank">{{.}}</a>{{end}}
+          {{else}}<span class="muted">{{.}}</span>{{end}}
+        {{end}}
         {{if .Port}}<span class="muted">·</span><a href="http://127.0.0.1:{{.Port}}" target="_blank" class="muted">:{{.Port}} direct</a>{{end}}
         {{if .Upstream}}<span class="muted">→ {{.Upstream}}</span>{{end}}
         {{$adm := index $.AdminerDomains .ID}}
@@ -107,12 +121,6 @@
         {{end}}
         <span class="tab" :class="{active: tab==='backups'}" @click="open('backups')">Backups</span>
         {{end}}
-        <span class="spacer"></span>
-        <form class="domain-edit" method="post" action="/apps/{{.ID}}/domain">
-          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-          <input type="text" name="domain" value="{{.Domain}}" spellcheck="false" aria-label="domain">
-          <button type="submit">Set domain</button>
-        </form>
       </div>
 
       {{if ne .Type "proxy"}}
@@ -186,7 +194,8 @@
     </div>
     <div class="modal-body">
     <form method="post" action="/projects/{{.Project.Slug}}/apps" enctype="multipart/form-data"
-          x-data="addAppForm('{{.Project.BaseDomain}}', {{.MaxDomains}})">
+          x-data="addAppForm('{{.Project.BaseDomain}}', {{.MaxDomains}})"
+          @submit.prevent="submit($event)">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <input type="hidden" name="type" :value="type">
 
@@ -207,14 +216,15 @@
       <label>App name
         <input type="text" name="name" x-bind:required="!!type" placeholder="e.g. frontend">
       </label>
-      <!-- Compose apps take their domains in the block below (one per allocated
-           port), so the single-domain field is left out for that type. -->
-      <template x-if="type!=='compose'">
-        <label>Domain <span class="muted">(optional — blank serves this app at <code>{{.Project.BaseDomain}}</code>)</span>
-          <input type="text" name="domain" x-model="domain"
-                 placeholder="{{.Project.BaseDomain}}  ·  or  api.{{.Project.BaseDomain}}">
-        </label>
-      </template>
+      <!-- Every type is served at a hostname, so the field is the same one in the
+           same place for all of them. A compose stack's *extra* domains — one per
+           ${PORT_n} its file publishes — are collected in its own block below. -->
+      <label>Domain
+        <span class="muted" x-show="type!=='compose'">(optional — blank serves this app at <code>{{.Project.BaseDomain}}</code>. List several, comma-separated, to serve them all)</span>
+        <span class="muted" x-show="type==='compose'" x-cloak>(optional — blank serves it at <code>{{.Project.BaseDomain}}</code>; this is the <code>${PORT}</code> domain. List several, comma-separated, to serve them all)</span>
+        <input type="text" name="domain" x-model="domain" spellcheck="false"
+               placeholder="{{.Project.BaseDomain}}  ·  or  test.com, www.test.com">
+      </label>
 
       <!-- Static apps: run on the host's system Node, no container. -->
       <template x-if="type==='static'">
@@ -225,7 +235,14 @@
               <option value="command">Run a command — system Node dev/build server</option>
             </select>
           </label>
-          <label x-show="serve==='serve'">Folder to serve <span class="muted">(subdir, optional — e.g. <code>dist</code>; blank = app folder)</span>
+          <label>App folder <span class="muted">(optional — an absolute path to code you already have, e.g. <code>/home/li/ui/xyz</code>; blank = a new folder in this project)</span>
+            <input type="text" name="source_dir" placeholder="/home/li/ui/xyz" spellcheck="false">
+          </label>
+          <p class="muted small" style="margin:-2px 0 10px">
+            The folder must already exist. xdev runs the app from there and never scaffolds into it,
+            moves it, or deletes it — removing the app just unhooks it.
+          </p>
+          <label x-show="serve==='serve'">Folder to serve <span class="muted">(subdir of the above, optional — e.g. <code>dist</code>; blank = the app folder itself)</span>
             <input type="text" name="root_dir" placeholder="dist" spellcheck="false">
           </label>
           <label>Build command <span class="muted">(optional, runs once with system Node — e.g. <code>npm ci &amp;&amp; npm run build</code>)</span>
@@ -251,6 +268,13 @@
             <code>DB_HOST</code>/<code>DB_PORT</code>/<code>DB_NAME</code>/<code>DB_USER</code>/<code>DB_PASSWORD</code>/<code>DB_DSN</code>
             — xdev loads them into the app's environment on start.
           </p>
+          <label>App folder <span class="muted">(optional — an absolute path to code you already have, e.g. <code>/home/li/src/api</code>; blank = a new folder in this project)</span>
+            <input type="text" name="source_dir" placeholder="/home/li/src/api" spellcheck="false">
+          </label>
+          <p class="muted small" style="margin:-2px 0 10px">
+            The folder must already exist. xdev builds and runs the app there and never scaffolds into it,
+            moves it, or deletes it — removing the app just unhooks it.
+          </p>
           <label>Build command <span class="muted">(runs once before start — blank = <code>go build -o app .</code>)</span>
             <input type="text" name="build_cmd" placeholder="go build -o app ." spellcheck="false">
           </label>
@@ -262,7 +286,7 @@
 
       <!-- Proxy: just a Caddy route forwarding the domain to another server. -->
       <template x-if="type==='proxy'">
-        <label>Upstream URL <span class="muted">(the server to forward to — e.g. <code>http://10.0.0.5:3000</code>)</span>
+        <label>Upstream URL <span class="muted">(the server to forward to — e.g. <code>http://10.0.0.5:3000</code>. Add a path if the app sits under one there, like <code>https://mail.example.com/webmail</code>)</span>
           <input type="text" name="upstream" required placeholder="https://other-server.example" spellcheck="false">
         </label>
       </template>
@@ -292,21 +316,32 @@
                    x-model.number="domainCount" @input="syncDomains()">
           </label>
 
+          <!-- Slot 1 is the app's own domain — the Domain field above, echoed here
+               so the whole port map reads in one place. The rows after it are
+               domains 2..N, and a row's position is its ${PORT_n}. -->
           <div class="port-map">
+            <div class="port-row is-primary">
+              <div class="port-tag">
+                <span class="port-num" x-text="portVar(0)"></span>
+                <span class="port-svc" x-text="slotService(0)"></span>
+              </div>
+              <div class="port-dest">
+                <span class="muted small nowrap">Domain 1 (this app)</span>
+                <code x-text="primaryDomain()"></code>
+                <span class="muted small nowrap" x-text="extraDomainNote()"></span>
+              </div>
+            </div>
             <template x-for="(d, i) in domains" :key="i">
-              <div class="port-row" :class="{'is-primary': i===0}">
+              <div class="port-row">
                 <div class="port-tag">
-                  <span class="port-num" x-text="portVar(i)"></span>
-                  <span class="port-svc" x-text="slotService(i)"></span>
+                  <span class="port-num" x-text="portVar(i+1)"></span>
+                  <span class="port-svc" x-text="slotService(i+1)"></span>
                 </div>
                 <div class="port-dest">
-                  <span class="muted small nowrap" x-text="'Domain ' + (i+1) + (i===0 ? ' (this app)' : '')"></span>
-                  <input type="text" spellcheck="false"
-                         :name="i===0 ? 'domain' : 'extra_domain'"
+                  <span class="muted small nowrap" x-text="'Domain ' + (i+2)"></span>
+                  <input type="text" name="extra_domain" spellcheck="false" required
                          x-model="domains[i]"
-                         :required="i>0"
-                         :placeholder="i===0 ? '{{.Project.BaseDomain}}'
-                                             : 'e.g. api.' + (domains[0].trim() || '{{.Project.BaseDomain}}')">
+                         :placeholder="'e.g. api.' + primaryDomain()">
                 </div>
               </div>
             </template>
@@ -375,7 +410,10 @@
           <input type="number" name="memory_mb" step="64" min="0" placeholder="e.g. 512">
         </label>
       </div>
-      <button class="primary" type="submit">Create &amp; start app</button>
+      <!-- A rejected create is answered in place: the dialog stays open with
+           everything still typed in it, and says what was wrong. -->
+      <div class="alert form-error" x-show="error" x-cloak x-ref="err" x-text="error"></div>
+      <button class="primary" type="submit" :class="{'is-busy': busy}" :disabled="busy">Create &amp; start app</button>
       </div><!-- /revealed once a type is picked -->
     </form>
     </div>
@@ -391,8 +429,41 @@
 function addAppForm(baseDomain, maxDomains) {
   return {
     type: '', serve: 'serve', wp: 'shared', godb: '', domain: '',
-    composeText: '', domainCount: 1, domains: [''], slots: [],
-    maxDomains: maxDomains,
+    // domains holds the *extra* hostnames (slots 2..N); slot 1 is `domain`, the
+    // same field every other type fills in.
+    composeText: '', domainCount: 1, domains: [], slots: [],
+    maxDomains: maxDomains, error: '', busy: false,
+
+    // Submit without leaving the page, so a rejected form keeps its contents —
+    // re-typing a pasted compose file because a hostname was taken is the kind
+    // of thing that makes people give up. The server answers JSON here (the
+    // Accept header asks for it): {redirect} on success, {error} on failure.
+    // Any transport-level problem falls back to a native submit, which lands on
+    // the server-rendered banner rather than swallowing the click.
+    async submit(e) {
+      if (this.busy) return;
+      const form = e.target;
+      this.error = '';
+      this.busy = true;
+      try {
+        const r = await fetch(form.action, {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' },
+          body: new FormData(form),
+          credentials: 'same-origin',
+        });
+        const data = await r.json().catch(() => ({}));
+        if (r.ok && data.redirect) { window.location = data.redirect; return; }
+        if (r.ok) { window.location.reload(); return; }
+        if (!data.error) { form.submit(); return; } // not our JSON (auth, proxy) — let the browser have it
+        this.error = data.error;
+        this.busy = false;
+        this.$nextTick(() => this.$refs.err && this.$refs.err.scrollIntoView({ block: 'nearest' }));
+      } catch (err) {
+        this.busy = false;
+        form.submit();
+      }
+    },
 
     // Read a chosen compose file into the textarea (and clear the file input, so
     // exactly one copy is submitted) — seeing the file is better than a filename.
@@ -409,10 +480,12 @@ function addAppForm(baseDomain, maxDomains) {
     },
 
     // Keep the hostname rows in step with the count, preserving what is typed.
+    // The count is the stack's domains in total, and the first of them is the
+    // Domain field, so there is one row fewer than that.
     syncDomains() {
       const n = Math.max(1, Math.min(this.maxDomains, parseInt(this.domainCount, 10) || 1));
-      while (this.domains.length < n) this.domains.push('');
-      this.domains.length = n;
+      while (this.domains.length < n - 1) this.domains.push('');
+      this.domains.length = n - 1;
       this.domainCount = n;
     },
 
@@ -420,12 +493,23 @@ function addAppForm(baseDomain, maxDomains) {
       this.slots = detectComposeSlots(this.composeText, this.maxDomains);
       // A pasted file that publishes more slots than the form shows is asking
       // for that many domains — follow it rather than making them count.
-      if (this.slots.length > this.domains.length) {
+      if (this.slots.length > this.domains.length + 1) {
         this.domainCount = this.slots.length;
         this.syncDomains();
       }
     },
 
+    // The Domain field may list several hostnames; the slot map shows the first,
+    // since a slot is one port however many names point at it.
+    primaryDomain() {
+      return this.domain.split(',')[0].trim() || '{{.Project.BaseDomain}}';
+    },
+    extraDomainNote() {
+      const n = this.domain.split(',').map(d => d.trim()).filter(Boolean).length;
+      return n > 1 ? '+ ' + (n - 1) + ' more — from Domain above' : '— from Domain above';
+    },
+
+    // Both take a slot index, 0-based: slot 0 is ${PORT} / the app's own domain.
     portVar(i) { return i === 0 ? '${PORT}' : '${PORT_' + (i + 1) + '}'; },
 
     // What the pasted file publishes for this slot: the service name, or a nudge

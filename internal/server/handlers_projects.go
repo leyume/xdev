@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -66,7 +67,14 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	// compose apps, which can route a hostname per published port.
 	adminerDomains := map[int64]string{}
 	serviceDomains := map[int64][]store.ServiceDomain{}
+	// The app's *other* hostnames — an app can be given several (a www. form, a
+	// country domain) and they all serve the same thing. a.Domain is the first of
+	// them and is already shown as the app's address, so only the rest go here.
+	extraHosts := map[int64][]string{}
 	for _, a := range apps {
+		if hs, err := s.store.AppHostnames(a.ID); err == nil && len(hs) > 1 {
+			extraHosts[a.ID] = hs[1:]
+		}
 		if a.IsCompose() {
 			// Compose apps get the full list instead: their extra routes are the
 			// user's own ports, not a bundled Adminer/admin console.
@@ -91,6 +99,9 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	if s.proxyEnabled() && proj.Environment == "local" {
 		for _, a := range apps {
 			addCandidate(a.Domain)
+			for _, h := range extraHosts[a.ID] {
+				addCandidate(h)
+			}
 			addCandidate(adminerDomains[a.ID])
 			for _, d := range serviceDomains[a.ID] {
 				addCandidate(d.Host)
@@ -118,6 +129,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		"Activity":       activity,
 		"AdminerDomains": adminerDomains,
 		"ServiceDomains": serviceDomains,
+		"ExtraHosts":     extraHosts,
 		"Catalog":        templates.Catalog(),
 		"MaxDomains":     maxComposeDomains,
 		"Error":          r.URL.Query().Get("error"),
@@ -187,6 +199,7 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		MemLimit:      memBytes,
 		ServeMode:     r.FormValue("serve_mode"),
 		RootDir:       r.FormValue("root_dir"),
+		SourceDir:     r.FormValue("source_dir"),
 		BuildCmd:      r.FormValue("build_cmd"),
 		StartCmd:      r.FormValue("start_cmd"),
 		Upstream:      r.FormValue("upstream"),
@@ -197,13 +210,26 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		WPMode:        r.FormValue("wp_mode"),
 		Archive:       archive,
 	})
+	target := "/projects/" + proj.Slug
 	if err != nil {
-		redirectWithError(w, r, "/projects/"+proj.Slug, err)
+		// The add-app dialog posts with Accept: application/json so a rejected
+		// form can be answered in place — the modal stays open, holding the
+		// pasted compose file and every field, and shows the message. A native
+		// submit still gets the redirect + banner.
+		if wantsJSON(r) {
+			writeJSONError(w, err, http.StatusBadRequest)
+			return
+		}
+		redirectWithError(w, r, target, err)
 		return
 	}
 	s.store.AddEvent(proj.ID, app.ID, "info", "Created "+app.Type+" app "+app.Name)
 	s.reconcile()
-	http.Redirect(w, r, "/projects/"+proj.Slug, http.StatusSeeOther)
+	if wantsJSON(r) {
+		writeJSON(w, map[string]string{"redirect": target})
+		return
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 // extraDomains collects the hostnames for a compose app's domains 2..N. The
@@ -219,15 +245,12 @@ func extraDomains(r *http.Request) []string {
 	return out
 }
 
-// handleAppStart / Stop / Refresh act on one app and return to its project page.
+// handleAppStart / Stop act on one app and return to its project page.
 func (s *Server) handleAppStart(w http.ResponseWriter, r *http.Request) {
 	s.appAction(w, r, "Started", s.apps.Start)
 }
 func (s *Server) handleAppStop(w http.ResponseWriter, r *http.Request) {
 	s.appAction(w, r, "Stopped", s.apps.Stop)
-}
-func (s *Server) handleAppRefresh(w http.ResponseWriter, r *http.Request) {
-	s.appAction(w, r, "", func(id int64) error { _, err := s.apps.RefreshStatus(id); return err })
 }
 
 // handleAppDelete removes an app (dumping its shared database into the backups
@@ -256,9 +279,9 @@ func (s *Server) appAction(w http.ResponseWriter, r *http.Request, verb string, 
 		return
 	}
 	target := "/projects/" + proj.Slug
-	json := wantsJSON(r)
+	asJSON := wantsJSON(r)
 	if err := fn(id); err != nil {
-		if json {
+		if asJSON {
 			// Non-2xx so the client falls back to a native submit and lands on
 			// the server-rendered error banner.
 			http.Error(w, firstLine(err.Error()), http.StatusInternalServerError)
@@ -276,15 +299,14 @@ func (s *Server) appAction(w http.ResponseWriter, r *http.Request, verb string, 
 		s.store.AddEvent(proj.ID, aid, "info", verb+" app "+app.Name)
 	}
 	s.reconcile()
-	if json {
+	if asJSON {
 		status := "deleted"
 		if verb != "Deleted" {
 			if fresh, err := s.store.AppByID(id); err == nil {
 				status = fresh.Status
 			}
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"` + status + `"}`))
+		writeJSON(w, map[string]string{"status": status})
 		return
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
@@ -294,6 +316,28 @@ func (s *Server) appAction(w http.ResponseWriter, r *http.Request, verb string, 
 // JSON reply instead of the classic POST-redirect page reload.
 func wantsJSON(r *http.Request) bool {
 	return strings.Contains(r.Header.Get("Accept"), "application/json")
+}
+
+// writeJSONError answers a failed in-place POST. Unlike the redirect path this
+// keeps the whole message: it lands in a panel that can wrap and scroll, and a
+// compose failure's detail is the useful part.
+func writeJSONError(w http.ResponseWriter, err error, status int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": clampError(err.Error())})
+}
+
+// clampError bounds an error before it is shown: `compose up` can fail with
+// screens of engine output, and the dialog wants a message, not a log.
+func clampError(msg string) string {
+	const maxLines, maxBytes = 12, 4000
+	if len(msg) > maxBytes {
+		msg = msg[:maxBytes] + "\n…"
+	}
+	if lines := strings.SplitN(msg, "\n", maxLines+1); len(lines) > maxLines {
+		msg = strings.Join(lines[:maxLines], "\n") + "\n…"
+	}
+	return msg
 }
 
 // redirectWithError redirects to target with a short ?error= message. Compose

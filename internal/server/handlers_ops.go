@@ -265,22 +265,6 @@ func (s *Server) handleBackupDownload(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
-// handleAppDomain changes the hostname an app is served at.
-func (s *Server) handleAppDomain(w http.ResponseWriter, r *http.Request) {
-	app, proj, ok := s.appAndProject(w, r)
-	if !ok {
-		return
-	}
-	target := "/projects/" + proj.Slug
-	if err := s.apps.SetDomain(app.ID, r.FormValue("domain")); err != nil {
-		redirectWithError(w, r, target, err)
-		return
-	}
-	s.store.AddEvent(proj.ID, app.ID, "info", "Changed domain of app "+app.Name)
-	s.reconcile()
-	http.Redirect(w, r, target, http.StatusSeeOther)
-}
-
 // handleSetEngine switches the default container engine for new projects.
 // Existing projects/apps keep the engine they were created with. The engine
 // card appears on both the Dashboard and Projects pages, so return to

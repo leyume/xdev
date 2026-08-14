@@ -36,6 +36,11 @@ func TestComposePorts(t *testing.T) {
 			[]ComposePort{{Service: "api", Slot: 2}}},
 		{"slot 1 may be written the long way", "services:\n  web:\n    ports:\n      - \"${PORT_1}:80\"\n",
 			[]ComposePort{{Service: "web", Slot: 1}}},
+		// What a browser textarea actually posts, and what a Windows editor saves.
+		{"crlf line endings", "services:\r\n  web:\r\n    ports:\r\n      - \"${PORT}:80\"\r\n",
+			[]ComposePort{{Service: "web", Slot: 1}}},
+		{"utf-8 bom", "\ufeffservices:\n  web:\n    ports:\n      - \"${PORT}:80\"\n",
+			[]ComposePort{{Service: "web", Slot: 1}}},
 		{"fixed short syntax", "services:\n  web:\n    ports:\n      - \"8080:80\"\n",
 			[]ComposePort{{Port: 8080, Service: "web"}}},
 		{"fixed unquoted", "services:\n  web:\n    ports:\n      - 8080:80\n",
@@ -132,6 +137,19 @@ func TestValidCompose(t *testing.T) {
 	if err := validCompose(good); err != nil {
 		t.Errorf("valid compose rejected: %v", err)
 	}
+	// A file typed into the browser's textarea arrives CRLF-terminated (the HTML
+	// spec says so), and editors add a BOM: neither is a broken compose file, so
+	// neither may be rejected as one.
+	for name, ok := range map[string]string{
+		"crlf":     "# my stack\r\nservices:\r\n  web:\r\n    image: nginx:alpine\r\n",
+		"bom":      "\ufeffservices:\n  web:\n    image: nginx:alpine\n",
+		"bom+crlf": "\ufeffservices:\r\n  web:\r\n    image: nginx:alpine\r\n",
+	} {
+		if err := validCompose(ok); err != nil {
+			t.Errorf("%s: valid compose rejected: %v", name, err)
+		}
+	}
+
 	for name, bad := range map[string]string{
 		"empty":           "   \n",
 		"no services":     "version: \"3\"\nweb:\n  image: nginx\n",
@@ -242,7 +260,7 @@ func TestLayoutCompose(t *testing.T) {
 		yaml := "services:\n  web:\n    image: caddy:2\n    ports:\n      - \"${PORT}:80\"\n"
 		app := store.App{ProjectID: proj.ID, Slug: "byo", Type: store.TypeCompose}
 		appDir := filepath.Join(proj.Dir, app.Slug)
-		extras, err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose, ComposeFile: yaml}, proj, appDir)
+		extras, err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose, ComposeFile: yaml}, proj, appDir, []string{app.Domain})
 		if err != nil {
 			t.Fatalf("layoutCompose: %v", err)
 		}
@@ -263,10 +281,28 @@ func TestLayoutCompose(t *testing.T) {
 		}
 	})
 
+	// A pasted file arrives with CRLF line endings — the browser's doing, not the
+	// user's. It has to be accepted, and stored as the LF text the engine reads.
+	t.Run("a pasted crlf file is accepted and stored as lf", func(t *testing.T) {
+		yaml := "services:\r\n  web:\r\n    image: nginx:alpine\r\n    ports:\r\n      - \"${PORT}:80\"\r\n"
+		app := store.App{ProjectID: proj.ID, Slug: "crlf", Type: store.TypeCompose}
+		appDir := filepath.Join(proj.Dir, app.Slug)
+		if _, err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose, ComposeFile: yaml}, proj, appDir, []string{app.Domain}); err != nil {
+			t.Fatalf("layoutCompose: %v", err)
+		}
+		got := readFile(t, filepath.Join(appDir, "_", "compose.yml"))
+		if strings.Contains(got, "\r") {
+			t.Errorf("carriage returns survived into the written file:\n%q", got)
+		}
+		if got != strings.ReplaceAll(yaml, "\r\n", "\n") {
+			t.Errorf("compose file was rewritten:\n%q", got)
+		}
+	})
+
 	t.Run("no file gets the starter", func(t *testing.T) {
 		app := store.App{ProjectID: proj.ID, Slug: "starter", Type: store.TypeCompose}
 		appDir := filepath.Join(proj.Dir, app.Slug)
-		if _, err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose}, proj, appDir); err != nil {
+		if _, err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose}, proj, appDir, []string{app.Domain}); err != nil {
 			t.Fatalf("layoutCompose: %v", err)
 		}
 		if app.Port < portMin || app.Port > portMax {
@@ -291,7 +327,7 @@ func TestLayoutCompose(t *testing.T) {
 			Type:         store.TypeCompose,
 			ComposeFile:  yaml,
 			ExtraDomains: []string{"api.demo.test", "admin.demo.test"},
-		}, proj, appDir)
+		}, proj, appDir, []string{app.Domain})
 		if err != nil {
 			t.Fatalf("layoutCompose: %v", err)
 		}
@@ -330,7 +366,7 @@ func TestLayoutCompose(t *testing.T) {
 		if _, err := svc.layoutCompose(&app, &CreateOpts{
 			Type: store.TypeCompose, ComposeFile: yaml,
 			ExtraDomains: []string{"api.demo.test"},
-		}, proj, appDir); err == nil {
+		}, proj, appDir, []string{app.Domain}); err == nil {
 			t.Fatal("a second domain with no ${PORT_2} should be rejected")
 		}
 		if _, err := os.Stat(appDir); !os.IsNotExist(err) {
@@ -344,7 +380,7 @@ func TestLayoutCompose(t *testing.T) {
 		if _, err := svc.layoutCompose(&app, &CreateOpts{
 			Type: store.TypeCompose, ComposeFile: yaml,
 			ExtraDomains: []string{"  "},
-		}, proj, filepath.Join(proj.Dir, app.Slug)); err == nil {
+		}, proj, filepath.Join(proj.Dir, app.Slug), []string{app.Domain}); err == nil {
 			t.Fatal("a blank domain should be rejected — skipping it would renumber the slots")
 		}
 	})
@@ -354,7 +390,7 @@ func TestLayoutCompose(t *testing.T) {
 			itoa(portMin) + ":9090\"\n"
 		app := store.App{ProjectID: proj.ID, Slug: "fixed", Type: store.TypeCompose}
 		if _, err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose, ComposeFile: yaml},
-			proj, filepath.Join(proj.Dir, app.Slug)); err != nil {
+			proj, filepath.Join(proj.Dir, app.Slug), []string{app.Domain}); err != nil {
 			t.Fatalf("layoutCompose: %v", err)
 		}
 		if app.Port == portMin {
@@ -377,7 +413,7 @@ func TestLayoutCompose(t *testing.T) {
 		if _, err := svc.layoutCompose(&app, &CreateOpts{
 			Type: store.TypeCompose, ComposeFile: yaml,
 			ExtraDomains: []string{"taken.demo.test"},
-		}, proj, appDir); err == nil {
+		}, proj, appDir, []string{app.Domain}); err == nil {
 			t.Fatal("a hostname another app owns should be rejected")
 		}
 		if _, err := os.Stat(appDir); !os.IsNotExist(err) {
@@ -391,7 +427,7 @@ func TestLayoutCompose(t *testing.T) {
 		if _, err := svc.layoutCompose(&app, &CreateOpts{
 			Type: store.TypeCompose, ComposeFile: yaml,
 			ExtraDomains: []string{"self.demo.test"},
-		}, proj, filepath.Join(proj.Dir, app.Slug)); err == nil {
+		}, proj, filepath.Join(proj.Dir, app.Slug), []string{app.Domain}); err == nil {
 			t.Fatal("an extra domain repeating the app's own should be rejected")
 		}
 	})
@@ -403,7 +439,7 @@ func TestLayoutCompose(t *testing.T) {
 		if _, err := svc.layoutCompose(&app, &CreateOpts{
 			Type: store.TypeCompose, ComposeFile: yaml,
 			ExtraDomains: []string{"same.demo.test", "same.demo.test"},
-		}, proj, filepath.Join(proj.Dir, app.Slug)); err == nil {
+		}, proj, filepath.Join(proj.Dir, app.Slug), []string{app.Domain}); err == nil {
 			t.Fatal("two slots on one hostname should be rejected")
 		}
 	})
@@ -413,7 +449,7 @@ func TestLayoutCompose(t *testing.T) {
 		appDir := filepath.Join(proj.Dir, app.Slug)
 		if _, err := svc.layoutCompose(&app, &CreateOpts{
 			Type: store.TypeCompose, ExtraDomains: []string{"api.demo.test"},
-		}, proj, appDir); err == nil {
+		}, proj, appDir, []string{app.Domain}); err == nil {
 			t.Fatal("asking the starter for two domains should be rejected")
 		}
 		if _, err := os.Stat(appDir); !os.IsNotExist(err) {
@@ -435,7 +471,7 @@ func TestLayoutCompose(t *testing.T) {
 		appDir := filepath.Join(proj.Dir, app.Slug)
 		if _, err := svc.layoutCompose(&app, &CreateOpts{
 			Type: store.TypeCompose, ComposeFile: yaml.String(), ExtraDomains: extra,
-		}, proj, appDir); err == nil {
+		}, proj, appDir, []string{app.Domain}); err == nil {
 			t.Fatalf("asking for %d domains should be rejected (cap is %d)", MaxComposeSlots+1, MaxComposeSlots)
 		}
 		if _, err := os.Stat(appDir); !os.IsNotExist(err) {
@@ -446,7 +482,7 @@ func TestLayoutCompose(t *testing.T) {
 	t.Run("bad file is rejected before anything is written", func(t *testing.T) {
 		app := store.App{ProjectID: proj.ID, Slug: "bad", Type: store.TypeCompose}
 		appDir := filepath.Join(proj.Dir, app.Slug)
-		if _, err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose, ComposeFile: "web:\n  image: nginx\n"}, proj, appDir); err == nil {
+		if _, err := svc.layoutCompose(&app, &CreateOpts{Type: store.TypeCompose, ComposeFile: "web:\n  image: nginx\n"}, proj, appDir, []string{app.Domain}); err == nil {
 			t.Fatal("a file without a services block should be rejected")
 		}
 		if _, err := os.Stat(appDir); !os.IsNotExist(err) {
@@ -480,7 +516,7 @@ func TestPrepareCompose(t *testing.T) {
 	appDir := filepath.Join(proj.Dir, app.Slug)
 	extras, err := svc.layoutCompose(&app, &CreateOpts{
 		Type: store.TypeCompose, ComposeFile: yaml, ExtraDomains: []string{"api.demo.test"},
-	}, proj, appDir)
+	}, proj, appDir, []string{app.Domain})
 	if err != nil {
 		t.Fatalf("layoutCompose: %v", err)
 	}

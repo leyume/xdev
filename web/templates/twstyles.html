@@ -273,6 +273,15 @@ button.danger:hover { background: rgba(245, 140, 140, 0.12); border-color: rgba(
   border-color: rgba(140, 232, 184, 0.3);
   color: var(--ok);
 }
+/* An in-dialog failure: engine output keeps its line breaks, and a long one
+   scrolls inside the panel instead of pushing the submit button off-screen. */
+.alert.form-error {
+  margin: 12px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow-y: auto;
+}
 .alert.warn-banner {
   background: rgba(242, 193, 78, 0.07);
   border-color: rgba(242, 193, 78, 0.25);
@@ -450,16 +459,22 @@ textarea.code {
 }
 .trust-hint { margin: -8px 0 20px; }
 
-/* Inline per-app domain editor */
-.domain-edit { display: flex; gap: 6px; margin-top: 8px; }
-.domain-edit input {
-  width: auto;
-  flex: 1 1 220px;
-  max-width: 320px;
-  padding: 5px 10px;
-  font-size: 13px;
+/* Small link-button (the per-app Settings link in a card's tab bar) */
+a.btn.small { padding: 5px 11px; font-size: 12.5px; margin-top: 0; }
+
+/* Read-only facts on the settings page: what an app *is*, beside what it can be
+   changed to. */
+.fact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 4px 0 12px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
 }
-.domain-edit button { padding: 5px 11px; font-size: 13px; }
 
 @media (max-width: 560px) {
   .runtime-grid, .host-grid, .row2 { grid-template-columns: 1fr; }
@@ -592,9 +607,55 @@ textarea.code {
 .ico { flex: none; display: inline-block; }
 button.link .ico { vertical-align: -3px; margin-right: 6px; }
 /* Icon-only chrome buttons (topbar logout / sidebar toggle) */
-.iconbtn { display: inline-flex; align-items: center; justify-content: center; padding: 7px; border-radius: var(--radius-sm); color: var(--muted); }
-.iconbtn:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+/* Icon-only controls: no chrome of their own — the glyph is the button, a wash
+   of background on hover is the only affordance. Selectors carry an element so
+   they outrank button.danger's border/background, whatever the source order. */
+button.iconbtn, a.iconbtn, .iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px;
+  border: none;
+  background: none;
+  box-shadow: none;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  text-decoration: none;
+}
+button.iconbtn:hover, a.iconbtn:hover, .iconbtn:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+button.iconbtn.go:hover { color: var(--ok); background: rgba(140, 232, 184, 0.12); }
+button.iconbtn.danger, button.iconbtn.danger:hover { border: none; }
+button.iconbtn.danger { color: var(--muted); background: none; }
+button.iconbtn.danger:hover { color: var(--danger); background: rgba(245, 140, 140, 0.12); }
 .iconbtn .ico { margin-right: 0; vertical-align: 0; }
+
+/* Hover label for an icon-only control: data-tip is the name the button would
+   have spelled out. Paired with aria-label, which is what actually reaches a
+   screen reader — this is decoration. A busy button's spinner claims the same
+   ::after (button.is-busy::after outranks .tip::after), so the two never fight. */
+.tip { position: relative; }
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(3px);
+  z-index: 20;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 14px -4px rgba(0, 0, 0, 0.6);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.tip:hover::after, .tip:focus-visible::after { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* Native select options render with OS colors; force dark-theme-readable ones. */
 option { background: var(--bg); color: var(--text); }

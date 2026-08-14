@@ -9,13 +9,19 @@ import (
 	"xdev/internal/templates"
 )
 
-// TestValidUpstream exercises the proxy-app upstream validator: bare
-// http(s)://host[:port] passes (normalized); anything else is rejected.
+// TestValidUpstream exercises the proxy-app upstream validator:
+// http(s)://host[:port] with an optional path prefix passes (normalized);
+// anything else is rejected.
 func TestValidUpstream(t *testing.T) {
 	good := map[string]string{
 		"http://10.0.0.5:3000":      "http://10.0.0.5:3000",
 		"https://coolify.example":   "https://coolify.example",
 		" https://h.example:8443/ ": "https://h.example:8443", // trimmed, trailing slash dropped
+		// An app under a prefix on the other server keeps its path.
+		"https://mail.example.com/snappymail": "https://mail.example.com/snappymail",
+		"https://mail.example.com/webmail/":   "https://mail.example.com/webmail", // trailing slash dropped
+		"http://10.0.0.5:3000/a/b":            "http://10.0.0.5:3000/a/b",
+		"https://h.example/one%20two":         "https://h.example/one%20two", // stays escaped
 	}
 	for in, want := range good {
 		got, err := validUpstream(in)
@@ -24,8 +30,9 @@ func TestValidUpstream(t *testing.T) {
 		}
 	}
 	for _, in := range []string{
-		"", "example.com", "ftp://x.example", "http://", "http://h.example/path",
-		"http://h.example?x=1", "http://user:pw@h.example",
+		"", "example.com", "ftp://x.example", "http://",
+		"http://h.example?x=1", "http://h.example/path?x=1", "http://user:pw@h.example",
+		"http://h.example/path#frag",
 	} {
 		if _, err := validUpstream(in); err == nil {
 			t.Errorf("validUpstream(%q) should be rejected", in)

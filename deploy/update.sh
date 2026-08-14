@@ -5,6 +5,7 @@
 #   sudo deploy/update.sh                 # build this checkout, install, restart
 #   sudo deploy/update.sh --binary ./xdev # install a binary you already built
 #   sudo deploy/update.sh --no-build      # same, using ./xdev from the repo root
+#   sudo deploy/update.sh --dry-run       # say what would happen, change nothing
 #
 # The swap is atomic (write beside, rename over) so the running process is never
 # truncated, the previous binary is kept as a timestamped backup, and if the
@@ -28,19 +29,30 @@ err()  { printf "%s✗%s %s\n" "$C_RED" "$C_RESET" "$*" >&2; }
 die()  { err "$*"; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 as_root() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
+# sha256 of a file, or "" when no hasher is available (then we install rather
+# than guess). This is what decides whether there is anything to do: a version
+# string can't tell two builds of the same dirty tree apart, and during
+# development every build is one of those.
+sum() {
+  if have sha256sum; then sha256sum "$1" | cut -d' ' -f1
+  elif have shasum; then shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
 
 BIN_PATH="${XDEV_BIN_PATH:-/usr/local/bin/xdev}"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 KEEP_BACKUPS=3
 SRC=""
 BUILD=1
+DRY_RUN=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --binary) SRC="${2:-}"; BUILD=0; shift 2 ;;
     --no-build) BUILD=0; shift ;;
     --bin-path) BIN_PATH="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (see --help)" ;;
   esac
 done
@@ -80,8 +92,22 @@ chmod +x "$SRC" 2>/dev/null || true
 NEW="$("$SRC" version 2>/dev/null || die "$SRC does not run here — wrong OS/arch?")"
 info "new:       $NEW"
 
+# Same bytes, not just the same name: two builds of a dirty working tree carry
+# the same `git describe` version, so comparing the strings would report
+# "nothing to do" for every rebuild between commits — the one case this script
+# exists for during development.
+CUR_SUM="$(sum "$BIN_PATH")"
+NEW_SUM="$(sum "$SRC")"
+if [ -n "$NEW_SUM" ] && [ "$NEW_SUM" = "$CUR_SUM" ]; then
+  ok "already running this exact binary ($NEW) — nothing to do"
+  exit 0
+fi
 if [ "$NEW" = "$CURRENT" ]; then
-  ok "already running $NEW — nothing to do"
+  info "same version string, different build — installing it"
+fi
+
+if [ "$DRY_RUN" = 1 ]; then
+  ok "dry run: would install $SRC → $BIN_PATH and restart the service"
   exit 0
 fi
 

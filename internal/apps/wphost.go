@@ -67,7 +67,7 @@ func (s *Service) layoutWPShared(app *store.App, proj store.Project) error {
 	if _, err := s.ensureWPHost(ctx, engine); err != nil {
 		return err
 	}
-	dbName := sharedDBName(proj.Slug, app.Slug)
+	dbName := SharedDBName(proj.Slug, app.Slug)
 	dbPass, err := s.provisionSharedDB(ctx, engine, dbName)
 	if err != nil {
 		return err

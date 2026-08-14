@@ -20,8 +20,12 @@ import (
 // appDir returns an app's on-disk root: <project.Dir>/<app-slug>. For container
 // apps this is the parent of _/ and app/; for static apps it holds the code
 // directly; shared-WP sites live under data/wp/sites instead. Derived from the
-// compose path when present, else from the project.
+// compose path when present, else from the project — unless the app was pointed
+// at a directory of the user's own, which wins over both.
 func (s *Service) appDir(app store.App) string {
+	if app.SourceDir != "" {
+		return app.SourceDir
+	}
 	if app.ComposePath != "" {
 		return filepath.Dir(filepath.Dir(app.ComposePath))
 	}
@@ -203,7 +207,7 @@ func (s *Service) Backup(id int64, backupsRoot string) (string, error) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
 		defer cancel()
-		if _, err := s.dumpSharedDB(ctx, engine, app, sharedDBName(proj.Slug, app.Slug), backupsRoot); err != nil {
+		if _, err := s.dumpSharedDB(ctx, engine, app, SharedDBName(proj.Slug, app.Slug), backupsRoot); err != nil {
 			return "", err
 		}
 	}
