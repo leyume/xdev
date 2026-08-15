@@ -274,6 +274,23 @@ install_node() {
   have node && have npm && ok "node ready ($(node --version 2>/dev/null))" || die "node still not on PATH after install"
 }
 
+# Apps deployed from a GitHub repository are cloned with the git CLI. It is
+# already present on most servers; installing it is cheap and saves a confusing
+# failure at the moment somebody first adds an app from a repo.
+install_git() {
+  if have git; then ok "git present ($(git --version 2>/dev/null | awk '{print $3}'))"; return 0; fi
+  info "installing git…"
+  if [ "$OS" = linux ]; then
+    export DEBIAN_FRONTEND=noninteractive
+    as_root apt-get update -qq && as_root apt-get install -y -qq git \
+      || warn "could not install git — apps deployed from a repository will not work until you do"
+  else
+    have brew && brew install git >/dev/null 2>&1 \
+      || warn "could not install git — apps deployed from a repository will not work until you do"
+  fi
+  have git && ok "git ready" || true
+}
+
 # Go apps build and run on the host toolchain (like static apps use host Node),
 # so `go` has to be on PATH. Skipped when XDEV_GO=false.
 install_go() {
@@ -650,6 +667,7 @@ main() {
   install_caddy
   install_node
   install_go
+  install_git
   download_binary
   write_config
   setup_caddy_container   # generate + start the Caddy container (container mode only)

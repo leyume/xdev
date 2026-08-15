@@ -156,6 +156,8 @@ xdev/
       store.go                #   Open(), embedded migration runner
       migrations/*.sql        #   schema (embedded)
       users.go sessions.go settings.go projects.go apps.go domains.go metrics.go events.go
+      deploykeys.go           #   per-app SSH deploy keys (private half encrypted)
+      deployments.go          #   deploy history + the endpoint paths/credentials
     auth/        auth.go      # single-admin, bcrypt, sessions, CSRF, middleware
     naming/      naming.go    # Slugify + unique-slug resolution
     runtime/                  # container engine layer
@@ -171,7 +173,11 @@ xdev/
       apps.go                 #   Create/Start/Stop/Delete, port alloc
       edit.go                 #   Update(): the settings page — everything editable after create
       compose.go              #   bring-your-own compose: slots, ports, _/.env
+      gitapp.go               #   apps cloned from a repository: clone, build detection
+      deploy.go               #   deploys: async runner, history, uploaded builds
       ops.go                  #   Logs, ReadEnv/WriteEnv, Backup/ListBackups, targz
+    gitsrc/      gitsrc.go    # git CLI wrapper: ParseRepo, Clone/Update, deploy keys
+    secrets/     secrets.go   # AES-256-GCM box keyed from <data-dir>/secret.key
     proxy/                    # Caddy integration
       proxy.go                #   Manager: build config + POST /load, ACME/internal, LocalCARoot
       supervisor.go           #   run caddy as a child, wait for admin API, Stop
@@ -189,6 +195,8 @@ xdev/
       handlers_metrics.go     #   metrics page + JSON
       handlers_ops.go         #   logs, env, backups, engine switch, hosts sync, events
       handlers_app_settings.go #  per-app settings page (edit every field after create)
+      handlers_git.go         #   deploy-key generation, Deploy, key rotation
+      handlers_deploy.go      #   public webhook + upload endpoints, token/secret admin
   web/
     web.go                    # embed templates/ and static/
     templates/*.html          # layout + pages
@@ -198,7 +206,7 @@ xdev/
   .github/workflows/          # release.yml (tag v* → Release), ci.yml (build/vet/test)
   .githooks/pre-push          # local build/vet/test gate (enable: make hooks)
   migrations live under internal/store/migrations (not top-level)
-  data/                       # RUNTIME (gitignored): sqlite db, backups/
+  data/                       # RUNTIME (gitignored): sqlite db, secret.key, backups/
   projects/                   # RUNTIME (gitignored): generated per-app stacks
   PLAN.md  GUIDELINE.md  Makefile  go.mod
 ```
@@ -253,7 +261,9 @@ engine. Each app records its `runtime` (engine) and `compose_path`.
 | `runtime` | Engine detection + selection + compose driver | `Detect`, `Info`, `EngineStatus`, `Selector`, `Compose/Up/Down/Start/Stop/Logs`, `Network*` |
 | `templates` | App-type catalog + compose rendering + scaffold | `Catalog`, `IsValidType`, `RenderCompose`, `ScaffoldFiles`, `Data` |
 | `projects` | Project create/delete (dir, network, engine pin) | `Service.Create`, `Service.Delete` |
-| `apps` | App create/start/stop/delete/edit, domain, port, logs, env, backups | `Service` (+ `ops.go`, `edit.go`) |
+| `apps` | App create/start/stop/delete/edit/deploy, domain, port, logs, env, backups | `Service` (+ `ops.go`, `edit.go`, `gitapp.go`, `deploy.go`) |
+| `gitsrc` | Clone/fetch a repository for a git-backed app; deploy keys | `ParseRepo`, `Repo`, `Source`, `Clone`, `Update`, `NewDeployKey` |
+| `secrets` | Encrypt the few values that must not sit in the clear | `New`, `Box.Seal`, `Box.Unseal` |
 | `proxy` | Caddy config builder, admin client, supervisor, local CA | `Manager`, `Supervisor`, `RefreshStaleIntermediate` |
 | `domains` | hosts-file managed block + elevated write | `SyncHosts`, `MissingFromHosts`, `SyncHostsElevated` |
 | `platform` | Reconcile DB → Caddy + hosts | `Reconciler.Sync`, `MissingHosts`, `WriteHostsElevated` |
@@ -275,6 +285,10 @@ migration — add a new one.**
 - `0003_project_engine.sql` — add `projects.engine`.
 - `0010_app_source_dir.sql` — add `apps.source_dir` (host apps pointed at a
   directory the user already has).
+- `0011_app_git.sql` — add `apps.git_url/git_ref/git_subdir/deployed_sha/
+  deployed_at` and the `deploy_keys` table (host apps cloned from a repository).
+- `0012_deploys.sql` — add `apps.hook_id/hook_secret/push_token_hash/
+  push_token_hint` and the `deployments` table (deploying from outside the UI).
 
 **Tables** (see `0001_init.sql` for exact columns):
 
@@ -287,7 +301,11 @@ migration — add a new one.**
   **`subdomain`** *(historical column name; now holds the app's FULL domain — Go
   field is `App.Domain`)*, `cpu_limit` (cores), `mem_limit` (bytes), `port`
   (host port), `compose_path`, `source_dir` (host apps only: an existing
-  directory the app was pointed at; `''` = the managed `<project.dir>/<slug>`).
+  directory the app was pointed at; `''` = the managed `<project.dir>/<slug>`),
+  `git_url`/`git_ref`/`git_subdir` (host apps only: the repository the app is a
+  clone of; `''` = not git-backed) and `deployed_sha`/`deployed_at` (which
+  commit is built and serving — observed state, not settings). `source_dir` and
+  `git_url` are **mutually exclusive**; see [§9.9](#99-git-backed-apps).
 - **app_env** — reserved (per-app key/value); the `.env` editor currently writes
   the app's `app/.env` file directly.
 - **domains** — `app_id`, `hostname` (UNIQUE), `is_local`, `ssl_mode`
@@ -297,6 +315,15 @@ migration — add a new one.**
   domains), rewritten together by `ReplaceAppDomains`. `apps.subdomain` holds
   only the **first** `port = 0` hostname: the app's address in the UI. The rest
   live only here, so anything that needs the full set reads `AppHostnames`.
+- **deployments** — one row per deploy attempt: `trigger` (manual|webhook|push),
+  `status` (running|ok|failed), `sha`, `message`, and the build `log` of a
+  failure. Deploys are asynchronous, so this row *is* the progress indicator.
+  Trimmed to the last 20 per app.
+- **deploy_keys** — one SSH keypair per git-backed app with a private
+  repository: `app_id` (0 while unbound), `public_key`, `private_key`
+  (**encrypted**), `fingerprint`. A key is created *before* its app, because the
+  public half has to reach GitHub before the first clone; unbound rows older
+  than a day are pruned at startup.
 - **metrics** — time series: `app_id`, `ts`, `cpu_pct`, `mem_bytes`,
   `mem_limit`. Raw, pruned to 24h.
 - **events** — audit log: `project_id?`, `app_id?`, `ts`, `level`, `message`.
@@ -323,6 +350,18 @@ GET  /projects/{slug}             project detail (apps, add-app form, hosts bann
 POST /projects/{slug}/delete
 POST /projects/{slug}/apps        create app
 POST /apps/{id}/start | stop | delete
+POST /deploy-keys                 generate an unbound deploy key (JSON: id, public_key, fingerprint)
+POST /apps/{id}/deploy            start a deploy (returns at once; it runs in the background)
+POST /apps/{id}/deploy-key        replace this app's deploy key
+POST /apps/{id}/webhook           enable / rotate / disable the GitHub webhook
+POST /apps/{id}/push-token        issue / revoke the CI deploy token
+GET  /apps/{id}/deploys/partial   deploy history fragment (polled while one runs)
+
+Public (no session, no CSRF — see §9.10). Caddy publishes these only on the
+hostname of an app that switched them on:
+
+POST /_xdev/hook/{hook}           GitHub push event; HMAC-verified, then deploys
+POST /_xdev/deploy                a .tar.gz of a built site; bearer-token auth
 GET  /apps/{id}/metrics           per-app chart page
 GET  /apps/{id}/metrics.json      chart data (arrays t/cpu/mem)
 GET  /apps/{id}/logs              tail of compose logs
@@ -396,6 +435,9 @@ is bound to each session and validated on unsafe methods by `RequireAuth`.
 - **Port allocation** scans `[20000, 29999]`, skipping DB-used ports and any port
   not free. `portFree` binds the **wildcard** `:p` (not loopback) to match how
   engines publish ports.
+- **Host apps can come from a repository** (`apps.git_url`) — cloned at create,
+  redeployed with `Service.DeployAsync`, a webhook, or an upload from CI. See
+  [§9.9](#99-git-backed-apps) and [§9.10](#910-deploying-from-outside-the-ui-internalappsdeploygo-internalserverhandlers_deploygo).
 - **Host apps can live outside the project** (`apps.source_dir`, `App.SourceDir`,
   `validSourceDir`). The add-app form and the settings page take an optional
   absolute **App folder** — `/home/li/ui/xyz`, `~` expanded — and when it is set
@@ -472,8 +514,11 @@ holding everything the add-app form collected. The split it enforces:
 - **Configuration** — editable: name, the app's domains (one field, the full
   comma-separated list — see §9.7), a compose app's extra
   domains, the bundled UI's hostname (Adminer / mail admin), a host app's serve
-  mode + root dir + app folder (`source_dir`) + build/start commands, a proxy
-  app's upstream, and the `_/compose.yml` of any app that has one.
+  mode + root dir + app folder (`source_dir`) + build/start commands, a
+  git-backed app's repository/branch/subdirectory, a proxy app's upstream, and
+  the `_/compose.yml` of any app that has one. A git app shows its repository
+  fields *instead of* the app folder — its directory is the clone and cannot
+  move, because a deploy resets it hard ([§9.9](#99-git-backed-apps)).
 - **Identity** — not editable: id, project, slug, type, engine, `db_mode`,
   `wp_mode`. They name the app's containers, database and route shape, so
   changing one is a migration, not a setting. `store.UpdateApp` writes only the
@@ -595,6 +640,217 @@ Invariants worth keeping:
 - Per-app chart page (`/apps/{id}/metrics`) uses uPlot fed by
   `/apps/{id}/metrics.json` (arrays `t`/`cpu`/`mem`).
 - `HostSnapshot()` (gopsutil) powers the dashboard host card (CPU/mem/disk).
+
+### 9.9 Git-backed apps (`internal/gitsrc`, `internal/apps/gitapp.go`)
+
+A host app (static, go) can take its code from a repository instead of a
+scaffold or a folder you already have. xdev clones it into the app's managed
+directory, builds it there, and serves the build output; **Deploy** is `fetch` +
+`reset --hard` + build.
+
+- **Three sources, one choice.** `source_dir` (your folder), `git_url` (a
+  clone), or neither (xdev scaffolds a starter). `git_url` + `source_dir`
+  together is refused at create *and* at edit, because a deploy resets the
+  working tree hard and xdev's standing promise about a folder of your own is
+  that it never rewrites it. Attaching a repository to an app that already
+  exists is refused for the same reason: making room for a clone would mean
+  deleting files, and the settings page deletes nothing.
+- **The repository is the app.** `Update` discards local modifications, so
+  editing a file on the server is not a way to change a git app — it is
+  something the next deploy silently undoes. Untracked files are *kept*, so
+  `node_modules/` and the previous build survive to make the next build faster.
+- **Defaults come from the repo.** After the clone, `detectNodeBuild` reads
+  `package.json`: no `scripts.build` means no build command at all (a plain HTML
+  repo just gets served), the lockfile picks the package manager (`npm ci`,
+  `pnpm install --frozen-lockfile`, `yarn`, `bun` — and `npm install` when there
+  is no lockfile, since `npm ci` fails without one), and the framework in
+  `devDependencies` guesses the output directory (`dist`, `build` for CRA,
+  `.output/public` for Nuxt). All of it is only a default: anything typed in the
+  form wins, and the settings page can change it afterwards.
+- **`root_dir` stays relative to the app directory**, so a monorepo's output is
+  `<git_subdir>/<outdir>` — the route builder joins `root_dir` to the app dir
+  and knows nothing about repositories. `git_subdir` moves only where the
+  *build* runs (`Service.buildDir`); the `.env`, the logs and the backups still
+  belong to the app directory.
+- **Private repositories use a per-app SSH deploy key.** GitHub allows a deploy
+  key on exactly one repository per account, so these cannot be shared between
+  apps. The key is generated **before** the app exists (`POST /deploy-keys`
+  returns an unbound row) because the clone happens during create, and a private
+  repo whose key is not yet on GitHub is indistinguishable from one that does
+  not exist — `cloneAdvice` turns git's "Repository not found" into that
+  sentence. The key binds to the app once the row is written, and is deleted
+  with the app.
+- **The private half is encrypted at rest** (`internal/secrets`, AES-256-GCM,
+  key at `<data-dir>/secret.key`, 0600, created on first use). This protects a
+  database that leaves the host — a backup, an scp — and explicitly **not**
+  against someone who is already root here, since the key file sits beside the
+  database. A wrong-sized key file stops startup rather than being replaced:
+  regenerating it would make every stored secret permanently unreadable.
+- **Credentials never persist.** The key is written to a 0600 file in a temp
+  directory that is removed before the call returns, and passed via
+  `GIT_SSH_COMMAND` — never into `.git/config`, a remote URL, or `git remote -v`
+  output. `ParseRepo` rejects a URL carrying credentials for the same reason: a
+  token in a field that is displayed back and stored in the clear is the mistake
+  the design exists to prevent.
+- **GitHub's SSH host key is pinned** (`githubHostKey`, verified against the
+  published fingerprint) so the first clone is checked rather than trusted
+  blindly. Other hosts are `accept-new` into a throwaway known_hosts, which
+  means a non-GitHub host is effectively trust-on-first-use *every* time —
+  a real limitation, and the reason to pin more hosts if xdev ever targets them.
+- **The served root refuses `.git` and `.env`** (`staticSiteHandlers`). A git
+  app's root *is* a checkout, so without that refusal `/.git/config` is a
+  download and the repository's history goes with it. The matcher runs before
+  the try_files rewrite — after it, the rewrite would have found the real file
+  already — and answers 404 rather than 403, which tells a scanner less.
+- **A deploy runs in the background** (`Service.DeployAsync`, §9.10) and reports
+  through the `deployments` table. Only the first clone, at create, is
+  synchronous — there is no app to show progress against yet.
+
+### 9.10 Deploying from outside the UI (`internal/apps/deploy.go`, `internal/server/handlers_deploy.go`)
+
+Two ways in, for the two places a build can happen:
+
+- **Pull** — GitHub posts a push event, xdev fetches and builds *on this server*
+  (`store.DeployWebhook`). Nothing to configure in the repository beyond a URL
+  and a secret.
+- **Push** — CI builds and uploads a `.tar.gz` of the finished site, xdev only
+  unpacks it (`store.DeployPush`). For builds that need private packages, a warm
+  cache, or a toolchain you would rather not install on the server.
+
+Both share the deploy record, the concurrency rule, and the endpoint mechanism.
+
+**Where the endpoints live.** On the app's *own* hostname, under `/_xdev/`
+(`store.HookPathPrefix`, `store.PushPath`). That hostname already resolves and
+already has a certificate, so there is nothing extra to point at the server —
+and Caddy is given a **path-scoped** route (`proxy.Route.Paths`) that forwards
+only those paths to the control plane. `platform.Reconciler.endpointRoutes`
+emits them **before** the app's own route, because Caddy takes the first match
+and a host-wide route would otherwise swallow `/_xdev/` too. An app with neither
+endpoint enabled gets no such route: the control plane is reachable from the
+internet only where somebody switched it on, and then only at a path that
+answers nothing without a signature or a token.
+
+**How each proves itself.** The webhook is HMAC-SHA256 over the *raw* body
+(`X-Hub-Signature-256`) — re-serializing the JSON would change the bytes and
+every delivery would fail. The push endpoint takes a bearer token compared
+against a stored SHA-256; the token itself is shown once and never written down,
+so a copy of the database cannot deploy. Both comparisons are constant-time.
+Neither handler trusts the URL for anything but finding the app, and the push
+endpoint identifies the app by **Host header**, so a token cannot be used
+against a hostname that is not its app's.
+
+**What the webhook ignores** rather than treats as an error, because a red
+delivery in GitHub's list should mean something is actually wrong: a `ping`, an
+event other than `push`, a push to a branch this app does not track, a branch
+deletion, and a push arriving while a deploy is already running.
+
+**One deploy at a time per app** (`apps.inflight`, `ErrDeployInProgress`). Two
+builds writing one output directory produce a mixture of both. A second trigger
+is refused rather than queued — queueing would mean a burst of five pushes
+builds five times to reach the state the last one describes. In-flight rows are
+reaped at startup (`ReapRunningDeployments`): a deploy is a goroutine, so xdev
+stopping mid-build would otherwise leave a row claiming to run forever, blocking
+every later deploy.
+
+**An uploaded build is swapped in, not merged into.** `PushDeploy` unpacks to a
+staging directory beside the target, then renames — so the site is never half of
+two builds, and a corrupt or empty archive leaves the previous build serving.
+The rules about what may be replaced are in `pushTarget`, and they are the same
+promises as everywhere else: never a folder of the user's own, and never the
+directory holding a git checkout (set a *Folder to serve* first, so an upload
+replaces the build output rather than `.git`).
+
+### 9.11 Laravel from a repository (`internal/apps/laravel.go`, `internal/apps/actions.go`)
+
+A Laravel app can be deployed from a repository like a static or Go one, but
+almost none of the machinery is shared past the `git fetch`.
+
+**The checkout is `app/`, not the app directory** (`Service.codeDir`). The app
+directory also holds what xdev generates (`_/compose.yml`, `_/laravel.env`) and
+what it keeps (`_volumes/`), none of which a deploy may touch. That boundary
+already existed for the bind mount; making it the checkout root is what lets the
+ordinary deploy path work here unchanged. `deployNow` resolves it through
+`codeDir` for every app type.
+
+**State is mounted in from outside the checkout.** A deploy is `git reset
+--hard`, so anything inside `app/` is disposable by definition:
+
+	_volumes/storage/  → /var/www/html/storage   uploads, sessions, cache, logs
+	_/laravel.env      → /var/www/html/.env      app key, DB credentials
+
+Both are gitignored in a stock Laravel repo, so before this they survived a
+reset only by luck — and a re-clone or a pushed build would still have taken
+them. `writeLaravelEnv` generates `APP_KEY` once at create and never rewrites
+it: rotating it invalidates every encrypted column, signed URL and session the
+app has issued.
+
+**The build runs in a container, but not always the app's own**
+(`Service.deployContainer`, `composerInstall`). The host has no PHP and the
+versions that matter are the image's — but the *production* Swoole image is
+runtime-only and ships no composer, and a fresh clone has no `vendor/` at all
+(repositories gitignore it), so the production image cannot even boot until
+dependencies exist. Requiring a live container to install them would deadlock.
+So `composerInstall` probes the running container for composer and falls back to
+a one-off `composerToolchainImage` container bind-mounting the same checkout.
+
+That image is the official `composer:2`, and the reason is architecture: the
+Swoole family is published as single-arch images, `-prod` for amd64 and `-dev`
+for arm64, so the dev image cannot be borrowed as a toolchain on an amd64 host
+("exec format error"). The app's own image family is therefore not something a
+deploy can rely on. Building outside the app's image costs two flags:
+`--ignore-platform-reqs`, because the toolchain has no ext-swoole and would
+refuse a lockfile that installs fine (safe only because `composer.lock` already
+exists — this unpacks an already-resolved set rather than choosing one, and a
+genuine PHP-version mismatch now surfaces at boot instead of here); and
+`--no-scripts`, because Laravel's post-autoload-dump hook boots the framework.
+`deployContainer` runs that hook — `artisan package:discover` — afterwards, or
+packages would be on disk but unregistered.
+
+**Every artisan step runs in a one-off container** (`compose run --rm
+--entrypoint php app artisan …`), not `compose exec`. A deploy exists to make an
+app healthy, so it must not require the app to already be healthy: the container
+being fixed is usually crash-looping on exactly the state the deploy is fixing,
+and exec'ing into it fails with "Container … is restarting". A one-off container
+has the same image, mounts, environment and networks, and writes to the same
+bind-mounted checkout. `exec` is used for one thing only — `octane:reload`,
+which by definition needs a live server — and its failure is not fatal: it means
+there was no healthy server to talk to, which the `up -d` that follows
+addresses. If the app still will not stay up, the deploy attaches the last 40
+lines of container logs to the failure, because that is the one failure whose
+cause is never in any earlier step. Order: `composer install --no-dev` → migrations → clear+rebuild config
+/route/view caches → `octane:reload`. Migrations come *before* the caches so a
+failed one leaves the caches describing the code that still works; the reload is
+last because Swoole serves the old code from memory until told otherwise — a
+deploy that skipped it would report success while serving the previous release.
+
+**Migrations are dumped before they are applied, and never auto-restored.**
+`dumpBeforeMigrate` writes into the app's backups directory (`SetBackupsRoot`,
+wired in `main.go`), and a dump that was wanted but failed *stops the deploy* —
+running an irreversible change with no way back is worse than not deploying.
+On failure the deployment records the artisan output and points at the dump.
+Restoring stays a human act: rows written between the dump and the failure are
+real, and an automatic restore would discard them to fix a problem nobody has
+looked at yet. `apps.skip_db_dump` (migration 0013) opts out per app, for a
+database too large to snapshot every time; the settings page states plainly what
+that costs.
+
+**`init.sh` does nothing to a checkout.** A git app that is missing
+`laravel/octane` or `config/octane.php` fails with a message saying to commit
+them, rather than running `composer require` — which would edit `composer.json`
+inside the checkout and be reverted by the next deploy, forever. It also skips
+the boot-time `migrate`, since migrating is the deploy's job and a plain restart
+must not apply a schema change with no dump taken.
+
+**Maintenance commands are an allowlist, not a command box**
+(`internal/apps/actions.go`). An arbitrary-command endpoint in the web UI is a
+root shell in the container, reachable from the internet behind a session
+cookie. `RunContainerAction` resolves a *key* against a fixed list, so no
+request can name a command that is not in it; adding one is a code change.
+`migrate` from a button takes the same dump the deploy does.
+
+**Only some types can be git-backed** (`canDeployFromGit`): static, go, laravel.
+WordPress and bring-your-own compose have no deploy path a repository could
+drive, so attaching one is refused at create rather than cloned and ignored.
 
 ---
 

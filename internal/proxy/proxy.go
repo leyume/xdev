@@ -32,6 +32,13 @@ type Route struct {
 	Root     string // e.g. /…/projects/demo/frontend/dist (file_server)
 	FCGIPort int    // fastcgi host port for *.php under Root (shared-WP sites)
 	Internal bool   // true = local CA (.test); false = public ACME/Let's Encrypt
+	// Paths narrows a route to specific request paths on its host; empty means
+	// the whole host. Used to publish an app's deploy endpoints on the app's own
+	// hostname: the route matches /_xdev/… and proxies it to the control plane,
+	// and every other path on that host falls through to the route for the app
+	// itself. That fall-through is why such a route must come *first* in the
+	// list, and why nothing else of xdev is reachable through it.
+	Paths []string
 }
 
 // Manager talks to a Caddy admin API and knows which ports the public servers
@@ -318,9 +325,27 @@ func phpSiteSubroute(root string, fcgiPort int, upstreamHost string) map[string]
 // It is Caddy's `try_files {path} {path}/ /index.html` expanded to JSON. The
 // "{path}/" candidate keeps directory index files working, and a site with no
 // index.html at all matches nothing and gets file_server's own 404.
+//
+// Before any of that, the dotfiles that are configuration rather than content
+// are refused. A git-backed app's root is a checkout, so without this
+// /.git/config — and from it the whole history, and any credential ever
+// committed — is a plain download. The same applies to a .env sitting in a
+// served folder.
 func staticSiteHandlers(root string) []any {
 	return []any{
 		map[string]any{"handler": "vars", "root": root},
+		map[string]any{
+			"handler": "subroute",
+			"routes": []any{map[string]any{
+				"match": []any{map[string]any{"path": []string{
+					"/.git", "/.git/*", "/*/.git", "/*/.git/*",
+					"/.env", "/.env.*", "/*/.env", "/*/.env.*",
+				}}},
+				// 404 rather than 403: "this does not exist" tells a scanner less
+				// than "this exists and you may not have it".
+				"handle": []any{map[string]any{"handler": "static_response", "status_code": 404}},
+			}},
+		},
 		map[string]any{
 			"handler": "subroute",
 			"routes": []any{map[string]any{
@@ -348,9 +373,14 @@ func (m *Manager) buildConfig(routes []Route) map[string]any {
 	httpRoutes := make([]any, 0, len(routes))
 	var internalHosts, publicHosts []string
 	for _, r := range routes {
-		if r.Internal {
+		// A path-scoped route shares its hostname with the route for the app
+		// itself, which is the one that registers it for a certificate. Listing
+		// it twice would only put a duplicate subject in the automation policy.
+		switch {
+		case len(r.Paths) > 0:
+		case r.Internal:
 			internalHosts = append(internalHosts, r.Host)
-		} else {
+		default:
 			publicHosts = append(publicHosts, r.Host)
 		}
 		// Serve a directory directly when Root is set (the `vars` handler sets the
@@ -366,8 +396,12 @@ func (m *Manager) buildConfig(routes []Route) map[string]any {
 		default:
 			handle = reverseProxyHandlers(r.Upstream, m.upstreamHost)
 		}
+		match := map[string]any{"host": []string{r.Host}}
+		if len(r.Paths) > 0 {
+			match["path"] = r.Paths
+		}
 		httpRoutes = append(httpRoutes, map[string]any{
-			"match":    []any{map[string]any{"host": []string{r.Host}}},
+			"match":    []any{match},
 			"handle":   handle,
 			"terminal": true,
 		})

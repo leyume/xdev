@@ -24,7 +24,7 @@ func editFixture(t *testing.T) (*Service, *store.Store, store.Project) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	return New(st, nil, nil, ""), st, proj
+	return New(st, nil, nil, "", nil), st, proj
 }
 
 // newComposeApp lays out a compose app the way Create would (files, ports,

@@ -24,6 +24,9 @@ type appSettingsForm struct {
 	ServeMode     string
 	RootDir       string
 	SourceDir     string
+	GitURL        string
+	GitRef        string
+	GitSubdir     string
 	BuildCmd      string
 	StartCmd      string
 	Upstream      string
@@ -51,11 +54,15 @@ func (s *Server) handleAppSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	form := settingsFormFrom(r)
 	updated, err := s.apps.Update(app.ID, apps.EditOpts{
-		Name:          form.Name,
-		Domain:        form.Domain,
-		ServeMode:     form.ServeMode,
-		RootDir:       form.RootDir,
-		SourceDir:     form.SourceDir,
+		Name:      form.Name,
+		Domain:    form.Domain,
+		ServeMode: form.ServeMode,
+		RootDir:   form.RootDir,
+		SourceDir: form.SourceDir,
+		// Read through the same helper as the add-app form. Spelling the fields
+		// out here once meant KeyID was silently dropped, so an app re-pointed
+		// at a private repository could never be given a key.
+		Git:           gitOptsFrom(r),
 		BuildCmd:      form.BuildCmd,
 		StartCmd:      form.StartCmd,
 		Upstream:      form.Upstream,
@@ -86,10 +93,27 @@ func (s *Server) handleAppSettingsSave(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, target+"?saved=1", http.StatusSeeOther)
 }
 
+// actionResult is the output of a maintenance command run inside a container
+// app, shown on the page that started it. Nil when the page was not reached
+// that way.
+type actionResult struct {
+	Label  string
+	Output string
+	Failed bool
+}
+
 // renderAppSettings draws the page around a form — the app's current settings on
 // a GET, the rejected ones on a failed save.
 func (s *Server) renderAppSettings(w http.ResponseWriter, r *http.Request, app store.App, proj store.Project, form appSettingsForm, errMsg string) {
+	s.renderAppSettingsWith(w, r, app, proj, form, errMsg, nil)
+}
+
+// renderAppSettingsWith is renderAppSettings plus the output of a container
+// action, which is rendered in place rather than redirected away — a redirect
+// would lose the only thing the user pressed the button for.
+func (s *Server) renderAppSettingsWith(w http.ResponseWriter, r *http.Request, app store.App, proj store.Project, form appSettingsForm, errMsg string, result *actionResult) {
 	svc, _ := s.store.AppServiceDomains(app.ID)
+	deploys, _ := s.store.AppDeployments(app.ID, 8)
 	// Ports for the compose rows the form is showing: an existing slot keeps
 	// its allocated port, one added by this edit gets its number on save.
 	ports := make([]int, len(form.ExtraDomains))
@@ -111,8 +135,17 @@ func (s *Server) renderAppSettings(w http.ResponseWriter, r *http.Request, app s
 		"HasCompose":   app.ComposePath != "",
 		"ComposeName":  composeFileLabel(app),
 		"EnvPath":      s.apps.EnvLocation(app.ID),
+		"Git":          s.appGit(app),
+		"Deploy":       s.appDeploys(app, newPushToken(r)),
+		"Deploys":      deploys,
+		"Deploying":    s.apps.Deploying(app.ID),
+		"Actions":      apps.ContainerActions(app),
+		"ActionResult": result,
 		"Error":        errMsg,
 		"Saved":        r.URL.Query().Get("saved") != "",
+		"JustStarted":  r.URL.Query().Get("deploying") != "",
+		"Rotated":      r.URL.Query().Get("rotated") != "",
+		"HookState":    r.URL.Query().Get("hook"),
 	})
 }
 
@@ -132,6 +165,9 @@ func (s *Server) settingsFormFor(app store.App) appSettingsForm {
 		ServeMode: app.ServeMode,
 		RootDir:   app.RootDir,
 		SourceDir: app.SourceDir,
+		GitURL:    app.GitURL,
+		GitRef:    app.GitRef,
+		GitSubdir: app.GitSubdir,
 		BuildCmd:  app.BuildCmd,
 		StartCmd:  app.StartCmd,
 		Upstream:  app.Upstream,
@@ -162,6 +198,9 @@ func settingsFormFrom(r *http.Request) appSettingsForm {
 		ServeMode:     r.FormValue("serve_mode"),
 		RootDir:       r.FormValue("root_dir"),
 		SourceDir:     r.FormValue("source_dir"),
+		GitURL:        strings.TrimSpace(r.FormValue("git_url")),
+		GitRef:        strings.TrimSpace(r.FormValue("git_ref")),
+		GitSubdir:     strings.TrimSpace(r.FormValue("git_subdir")),
 		BuildCmd:      r.FormValue("build_cmd"),
 		StartCmd:      r.FormValue("start_cmd"),
 		Upstream:      r.FormValue("upstream"),

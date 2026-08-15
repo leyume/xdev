@@ -122,3 +122,89 @@ func TestRetryUntilLiveStopsOnContext(t *testing.T) {
 		t.Fatal("retry ignored context cancellation")
 	}
 }
+
+// TestEndpointRoutesAreScopedAndFirst covers what makes the deploy endpoints
+// safe to publish. An app that has one gets a route for exactly those paths on
+// its own hostname, pointing at xdev — and it is emitted before the app's own
+// route, because Caddy takes the first match and a host-wide route would
+// otherwise swallow /_xdev/.
+//
+// Just as important is the negative: an app with neither a webhook nor a token
+// gets no such route, so the control plane is never reachable from the internet
+// by default.
+func TestEndpointRoutesAreScopedAndFirst(t *testing.T) {
+	r := newReconciler(t, "127.0.0.1:1")
+	r.SetSelfAddr("127.0.0.1:7331")
+
+	proj, err := r.store.CreateProject(store.Project{
+		Name: "Demo", Slug: "demo", BaseDomain: "demo.test", Environment: "local",
+		NetworkName: "xdev_demo", Engine: "docker", Dir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One app with both endpoints on, one with neither.
+	hooked, err := r.store.CreateApp(store.App{
+		ProjectID: proj.ID, Name: "site", Slug: "site", Type: store.TypeStatic,
+		Domain: "site.demo.test", ServeMode: store.ServeStatic,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := r.store.CreateApp(store.App{
+		ProjectID: proj.ID, Name: "other", Slug: "other", Type: store.TypeStatic,
+		Domain: "other.demo.test", ServeMode: store.ServeStatic,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.store.SetAppHook(hooked.ID, "hook123", "sealed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.store.SetAppPushToken(hooked.ID, "hash", "xdp_abc"); err != nil {
+		t.Fatal(err)
+	}
+
+	routes := r.endpointRoutes()
+	if len(routes) != 1 {
+		t.Fatalf("got %d endpoint routes, want exactly one (only the app that enabled them)", len(routes))
+	}
+	got := routes[0]
+	if got.Host != "site.demo.test" {
+		t.Errorf("host = %q, want the app's own hostname", got.Host)
+	}
+	if got.Upstream != "127.0.0.1:7331" {
+		t.Errorf("upstream = %q, want xdev itself", got.Upstream)
+	}
+	want := []string{store.HookPathPrefix + "hook123", store.PushPath}
+	if len(got.Paths) != len(want) {
+		t.Fatalf("paths = %v, want %v", got.Paths, want)
+	}
+	for i := range want {
+		if got.Paths[i] != want[i] {
+			t.Errorf("path %d = %q, want %q", i, got.Paths[i], want[i])
+		}
+	}
+	if got.Paths[0] == "" || len(got.Paths) == 0 {
+		t.Error("an unscoped route would publish the whole control plane on this hostname")
+	}
+	_ = plain
+
+	// With no self address there is nothing to proxy to, so nothing is published.
+	r.SetSelfAddr("")
+	if n := len(r.endpointRoutes()); n != 0 {
+		t.Errorf("got %d routes with no self address, want none", n)
+	}
+
+	// Turning the endpoints off removes the route entirely.
+	r.SetSelfAddr("127.0.0.1:7331")
+	if err := r.store.SetAppHook(hooked.ID, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.store.SetAppPushToken(hooked.ID, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(r.endpointRoutes()); n != 0 {
+		t.Errorf("got %d routes after disabling both endpoints, want none", n)
+	}
+}

@@ -2,8 +2,10 @@ package server
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
@@ -191,7 +193,7 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		memBytes = memMB * 1024 * 1024
 	}
 
-	app, err := s.apps.Create(proj.ID, apps.CreateOpts{
+	opts := apps.CreateOpts{
 		Name:          r.FormValue("name"),
 		Type:          r.FormValue("type"),
 		Domain:        r.FormValue("domain"),
@@ -200,6 +202,7 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		ServeMode:     r.FormValue("serve_mode"),
 		RootDir:       r.FormValue("root_dir"),
 		SourceDir:     r.FormValue("source_dir"),
+		Git:           gitOptsFrom(r),
 		BuildCmd:      r.FormValue("build_cmd"),
 		StartCmd:      r.FormValue("start_cmd"),
 		Upstream:      r.FormValue("upstream"),
@@ -209,27 +212,89 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		DBMode:        r.FormValue("db_mode"),
 		WPMode:        r.FormValue("wp_mode"),
 		Archive:       archive,
-	})
+	}
 	target := "/projects/" + proj.Slug
+
+	// The dialog asked for JSON, so it can render progress: run the create in
+	// the background and hand back a job id to poll. Cloning a repository and
+	// running composer takes minutes, which is far too long to hold a request
+	// open and much too long to show nothing.
+	//
+	// A native submit (no JS) keeps the old synchronous path — it has nowhere to
+	// put progress, and a redirect at the end is the whole interaction.
+	if wantsJSON(r) {
+		if archive != nil {
+			// The multipart file dies with the request, and the goroutine
+			// outlives it. Spool it first, or the create reads a closed file.
+			spooled, cleanup, err := spoolArchive(archive)
+			if err != nil {
+				writeJSONError(w, err, http.StatusBadRequest)
+				return
+			}
+			opts.Archive = spooled
+			defer cleanup()
+			cleanupAfterJob := cleanup
+			id, j := s.jobs.start()
+			go s.runCreateJob(j, proj, opts, target, cleanupAfterJob)
+			writeJSON(w, map[string]string{"job": id})
+			return
+		}
+		id, j := s.jobs.start()
+		go s.runCreateJob(j, proj, opts, target, nil)
+		writeJSON(w, map[string]string{"job": id})
+		return
+	}
+
+	app, err := s.apps.Create(proj.ID, opts)
 	if err != nil {
 		// The add-app dialog posts with Accept: application/json so a rejected
 		// form can be answered in place — the modal stays open, holding the
 		// pasted compose file and every field, and shows the message. A native
 		// submit still gets the redirect + banner.
-		if wantsJSON(r) {
-			writeJSONError(w, err, http.StatusBadRequest)
-			return
-		}
 		redirectWithError(w, r, target, err)
 		return
 	}
 	s.store.AddEvent(proj.ID, app.ID, "info", "Created "+app.Type+" app "+app.Name)
 	s.reconcile()
-	if wantsJSON(r) {
-		writeJSON(w, map[string]string{"redirect": target})
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+// runCreateJob performs a create in the background, reporting each step into the
+// job the dialog is polling. It owns the whole outcome: the job is the only
+// thing left to tell anyone what happened.
+func (s *Server) runCreateJob(j *job, proj store.Project, opts apps.CreateOpts, target string, cleanup func()) {
+	if cleanup != nil {
+		defer cleanup()
+	}
+	opts.Progress = func(step, out string) { j.step(step, out) }
+
+	app, err := s.apps.Create(proj.ID, opts)
+	if err != nil {
+		j.finish(err.Error(), "")
 		return
 	}
-	http.Redirect(w, r, target, http.StatusSeeOther)
+	s.store.AddEvent(proj.ID, app.ID, "info", "Created "+app.Type+" app "+app.Name)
+	s.reconcile()
+	j.finish("", target)
+}
+
+// spoolArchive copies an uploaded archive somewhere that outlives the request,
+// so a background create can still read it.
+func spoolArchive(src io.Reader) (io.Reader, func(), error) {
+	f, err := os.CreateTemp("", "xdev-upload-*.tar.gz")
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanup := func() { f.Close(); os.Remove(f.Name()) }
+	if _, err := io.Copy(f, src); err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	return f, cleanup, nil
 }
 
 // extraDomains collects the hostnames for a compose app's domains 2..N. The

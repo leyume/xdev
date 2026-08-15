@@ -33,6 +33,9 @@ type Server struct {
 	httpsPort  int                           // public HTTPS port, for building site URLs
 	tmpl       map[string]*template.Template // page name -> parsed template set
 	mux        *http.ServeMux
+	// jobs tracks long creates so the add-app dialog can show their progress
+	// instead of a spinner. In memory only — see jobs.go.
+	jobs jobs
 }
 
 // New builds the server, parses templates, and registers routes.
@@ -98,6 +101,27 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /projects/{slug}/apps", s.auth.RequireAuth(s.handleAppCreate))
 
 	// App actions.
+	// Git-backed apps: a key is generated before the app exists (a private repo
+	// cannot be cloned until its key is on GitHub), then deploys pull and build.
+	mux.HandleFunc("POST /deploy-keys", s.auth.RequireAuth(s.handleDeployKeyNew))
+	mux.HandleFunc("POST /apps/{id}/deploy", s.auth.RequireAuth(s.handleAppDeploy))
+	mux.HandleFunc("POST /apps/{id}/deploy-key", s.auth.RequireAuth(s.handleAppDeployKeyRotate))
+	mux.HandleFunc("POST /apps/{id}/webhook", s.auth.RequireAuth(s.handleAppWebhookSet))
+	mux.HandleFunc("POST /apps/{id}/push-token", s.auth.RequireAuth(s.handleAppPushTokenSet))
+	// Maintenance commands inside a container app. The body names an action
+	// key, which is resolved against a fixed allowlist — never a command.
+	mux.HandleFunc("GET /jobs/{id}", s.auth.RequireAuth(s.handleJob))
+	mux.HandleFunc("POST /apps/{id}/action", s.auth.RequireAuth(s.handleAppAction))
+	mux.HandleFunc("POST /apps/{id}/db-dump", s.auth.RequireAuth(s.handleAppDumpToggle))
+	mux.HandleFunc("GET /apps/{id}/deploys/partial", s.auth.RequireAuth(s.handleAppDeploysPartial))
+
+	// The two endpoints reachable from the internet. No session, no CSRF: they
+	// carry no cookie and prove themselves with a signature or a bearer token.
+	// Caddy publishes these paths only on the hostnames of apps that switched
+	// them on — see handlers_deploy.go.
+	mux.HandleFunc("POST "+store.HookPathPrefix+"{hook}", s.handleGitHubHook)
+	mux.HandleFunc("POST "+store.PushPath, s.handlePushDeploy)
+
 	mux.HandleFunc("POST /apps/{id}/start", s.auth.RequireAuth(s.handleAppStart))
 	mux.HandleFunc("POST /apps/{id}/stop", s.auth.RequireAuth(s.handleAppStop))
 	mux.HandleFunc("POST /apps/{id}/delete", s.auth.RequireAuth(s.handleAppDelete))
@@ -164,6 +188,25 @@ type viewData map[string]any
 
 // render executes a page template into a buffer first (so template errors don't
 // emit half a page) and attaches common fields (user, CSRF token).
+// renderFragment writes one named template from a page's set, without the
+// layout — for the parts of a page that refresh on their own. The name has to
+// be defined somewhere in that page's set (partials.html, or the page itself).
+func (s *Server) renderFragment(w http.ResponseWriter, page, name string, data viewData) {
+	t, ok := s.tmpl[page]
+	if !ok {
+		http.Error(w, "unknown page: "+page, http.StatusInternalServerError)
+		return
+	}
+	var buf bytes.Buffer
+	if err := t.ExecuteTemplate(&buf, name, data); err != nil {
+		log.Printf("render fragment %s/%s: %v", page, name, err)
+		http.Error(w, "template error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	buf.WriteTo(w)
+}
+
 func (s *Server) render(w http.ResponseWriter, r *http.Request, page string, data viewData) {
 	if data == nil {
 		data = viewData{}

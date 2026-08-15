@@ -28,9 +28,11 @@ import (
 	"strings"
 	"time"
 
+	"xdev/internal/gitsrc"
 	"xdev/internal/hostproc"
 	"xdev/internal/naming"
 	"xdev/internal/runtime"
+	"xdev/internal/secrets"
 	"xdev/internal/store"
 	"xdev/internal/templates"
 )
@@ -63,13 +65,34 @@ type Service struct {
 	sel   *runtime.Selector
 	sup   *hostproc.Supervisor // supervises static (host) apps
 	wpDir string               // data/wp — shared WP core + site docroots (wphost.go)
+	keys  *secrets.Box         // seals git deploy keys; nil = private repos unavailable
+	// backups is <data>/backups, where a deploy writes its pre-migration
+	// database dump. Set by SetBackupsRoot; "" disables the dump.
+	backups string
+	// clone overrides how a git-backed app is first populated; nil means
+	// gitsrc.Clone. See Service.cloneFn.
+	clone func(context.Context, string, gitsrc.Source) error
+	// deploying is the set of apps with a deploy running, so a second trigger
+	// is refused rather than allowed to build over the first.
+	deploying inflight
 }
 
 // New creates an app Service. wpDir is the absolute data/wp directory used by
-// the shared WordPress host.
-func New(st *store.Store, sel *runtime.Selector, sup *hostproc.Supervisor, wpDir string) *Service {
-	return &Service{store: st, sel: sel, sup: sup, wpDir: wpDir}
+// the shared WordPress host; keys encrypts the deploy keys of git-backed apps
+// and may be nil, in which case only public repositories can be used.
+func New(st *store.Store, sel *runtime.Selector, sup *hostproc.Supervisor, wpDir string, keys *secrets.Box) *Service {
+	return &Service{store: st, sel: sel, sup: sup, wpDir: wpDir, keys: keys}
 }
+
+// Secrets exposes the seal used for deploy keys, so the handler that generates
+// one before an app exists can store it the same way.
+func (s *Service) Secrets() *secrets.Box { return s.keys }
+
+// SetBackupsRoot tells the service where backup archives live, so a deploy can
+// put its pre-migration database dump beside them and the existing
+// list/download flow picks it up. Empty (the zero value) disables the dump:
+// without somewhere to write it there is nothing to take.
+func (s *Service) SetBackupsRoot(dir string) { s.backups = dir }
 
 // CreateOpts carries the fields the UI collects for a new app. The static-only
 // fields are ignored for container types.
@@ -91,9 +114,19 @@ type CreateOpts struct {
 	// project. Blank keeps the default <project.dir>/<app-slug>.
 	SourceDir string
 
+	// Git makes a host app a clone of a repository instead: xdev fills the app
+	// directory from it and keeps it current with Deploy. Mutually exclusive
+	// with SourceDir.
+	Git GitOpts
+
 	// Archive, when set, is a .tar.gz backup unpacked over the new app's files
 	// (after any scaffold, so the archive wins) before its first start.
 	Archive io.Reader
+
+	// Progress, when set, is called as each step of the create finishes. Create
+	// is slow — a clone, an image pull, composer — and the only thing the UI can
+	// otherwise show is a spinner. Optional: nil means nobody is watching.
+	Progress ProgressFunc
 
 	// Proxy-only: URL the domain forwards to (http(s)://host[:port]).
 	Upstream string
@@ -225,6 +258,14 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 	// for. Both are attached as domain rows once the app row exists.
 	var adminerPort int
 	var composeExtras []composeRoute
+	// Which types can be deployed from a repository. Static and go check this
+	// themselves further down; among container types only laravel has the
+	// deploy sequence (composer, migrate, octane) that makes a checkout mean
+	// anything. Refusing here keeps a repository from being cloned into a stack
+	// that would ignore it.
+	if strings.TrimSpace(opts.Git.URL) != "" && !canDeployFromGit(opts.Type) {
+		return store.App{}, fmt.Errorf("a %s app cannot be deployed from a repository — static, go and laravel apps can", opts.Type)
+	}
 	switch {
 	case opts.Type == store.TypeProxy:
 		// Proxy apps are only a Caddy route to another server: no container,
@@ -312,8 +353,70 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 		return store.App{}, err
 	}
 
+	// The deploy key was generated before the app existed (the only order that
+	// lets its public half reach GitHub before the first clone); now that the row
+	// is here, it has an owner. The clone already succeeded with this key, so a
+	// failure to bind is a lost association, not a broken app — log it.
+	if saved.IsGit() && opts.Git.KeyID > 0 {
+		if err := s.store.BindDeployKey(opts.Git.KeyID, saved.ID); err != nil {
+			log.Printf("bind deploy key %d to app %d: %v", opts.Git.KeyID, saved.ID, err)
+		}
+	}
+	if saved.IsGit() {
+		// codeDir, not appDir: a container app's checkout is app/, and reading
+		// the app directory would just fail and leave the app looking as though
+		// it had never deployed.
+		ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
+		if sha, err := gitsrc.HeadSHA(ctx, s.codeDir(saved)); err == nil {
+			s.store.SetDeployed(saved.ID, sha)
+		}
+		cancel()
+	}
+
+	// Bring the app up *before* publishing its hostnames.
+	//
+	// A domain row is live routing: the next reconcile points Caddy at this app
+	// and asks Let's Encrypt for a certificate. Doing that first means a failed
+	// create leaves the hostname resolving to a 502 — and burns an ACME issuance
+	// for a site that does not exist. So the domains go on last, once there is
+	// something behind them, and a failure below leaves the name unclaimed.
+	opts.Progress.report("start the stack", "")
+	if err := s.Start(saved.ID); err != nil {
+		return saved, err
+	}
+	opts.Progress.report("start the stack", "containers created")
+	// A container app cloned from a repository has no vendor/ — repositories
+	// gitignore it — and the production image cannot boot Octane without one.
+	// `compose up -d` still succeeds, because creating a container that then
+	// exits is not an error to compose, so without this the app is created
+	// looking healthy and answers 502. Run the same sequence a deploy runs.
+	if saved.IsGit() && !saved.IsHostProc() {
+		fresh, err := s.store.AppByID(saved.ID)
+		if err != nil {
+			return saved, err
+		}
+		// Recorded like any other deploy, so the first build is inspectable
+		// afterwards instead of existing only in whatever error text the browser
+		// happened to show. It is the build most likely to fail, and the one
+		// nobody is watching a log for.
+		depID, derr := s.store.StartDeployment(saved.ID, store.DeployCreate)
+		out, err := s.deployContainer(fresh, opts.Progress)
+		if derr == nil {
+			status, msg := store.DeployOK, "first build"
+			if err != nil {
+				status, msg = store.DeployFailed, firstLine(err.Error())
+			}
+			s.store.FinishDeployment(depID, status, fresh.DeployedSHA, msg, tailLog(out, err))
+		}
+		if err != nil {
+			s.store.SetAppStatus(saved.ID, store.AppError)
+			return saved, fmt.Errorf("the app was created and its repository cloned, but the first build failed: %w\n\n%s", err, out)
+		}
+	}
+
 	// Attach the chosen hostnames for the reverse proxy. Local projects get an
 	// internally-issued cert; prod uses ACME (Phase 4).
+	opts.Progress.report("publish "+strings.Join(hosts, ", "), "")
 	sslMode, isLocal := "internal", true
 	if proj.Environment == "prod" {
 		sslMode, isLocal = "letsencrypt", false
@@ -333,10 +436,6 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 		if err := s.store.CreateDomain(saved.ID, r.Host, isLocal, sslMode, r.Port); err != nil {
 			log.Printf("attach domain %s (port %d) to app %d: %v", r.Host, r.Port, saved.ID, err)
 		}
-	}
-
-	if err := s.Start(saved.ID); err != nil {
-		return saved, err
 	}
 	return s.store.AppByID(saved.ID)
 }
@@ -386,6 +485,14 @@ func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.P
 		dirs = append(dirs, filepath.Join(appDir, "_volumes", "redis"))
 		if !shared {
 			dirs = append(dirs, filepath.Join(appDir, "_volumes", "mysql"))
+		}
+		// storage/ lives beside the checkout, not in it, so a deploy that
+		// resets app/ hard cannot take uploads, sessions and logs with it.
+		// Laravel refuses to boot without the framework subdirectories, and it
+		// only creates them itself when it installs — which a cloned app never
+		// does — so they are made here.
+		for _, sub := range laravelStorageDirs {
+			dirs = append(dirs, filepath.Join(appDir, "_volumes", "storage", sub))
 		}
 	}
 	for _, d := range dirs {
@@ -442,9 +549,28 @@ func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.P
 		os.RemoveAll(appDir)
 		return 0, err
 	}
-	// Drop scaffold content (placeholder index.html etc.) without clobbering
-	// anything already present.
-	if err := s.writeScaffold(opts.Type, content); err != nil {
+	// The .env the container sees, written outside app/ so a deploy cannot
+	// delete the app key with the checkout.
+	if opts.Type == "laravel" {
+		if err := writeLaravelEnv(underscore, app.Name, app.Domain, shared, dbName, dbPass); err != nil {
+			os.RemoveAll(appDir)
+			return 0, err
+		}
+	}
+	// The code: either cloned from a repository into app/, or the type's own
+	// scaffold. A repository replaces the scaffold rather than landing beside
+	// it — git needs an empty target, and a starter file the user never asked
+	// for would be the first thing a deploy deleted anyway.
+	if strings.TrimSpace(opts.Git.URL) != "" {
+		opts.Progress.report("git clone "+opts.Git.URL, "")
+		if err := s.cloneRepo(app, opts, content); err != nil {
+			os.RemoveAll(appDir)
+			return 0, err
+		}
+		opts.Progress.report("git clone "+opts.Git.URL, "cloned into "+content)
+	} else if err := s.writeScaffold(opts.Type, content); err != nil {
+		// Drop scaffold content (placeholder index.html etc.) without clobbering
+		// anything already present.
 		os.RemoveAll(appDir)
 		return 0, err
 	}
@@ -489,6 +615,12 @@ func (s *Service) writeInfra(appType, underscore string) error {
 // an index.html into it would be xdev overwriting work it didn't create.
 func (s *Service) layoutStatic(app *store.App, opts *CreateOpts, appDir string) error {
 	external := app.IsExternalDir()
+	fromGit := strings.TrimSpace(opts.Git.URL) != ""
+	if external && fromGit {
+		// A deploy is `git reset --hard`. Doing that to a folder the user owns is
+		// the one thing the external-directory feature exists to prevent.
+		return errors.New("choose one source: a repository xdev clones, or a folder you already have — a repository is deployed with a hard reset, which xdev will not do to your own folder")
+	}
 	if !external {
 		if err := os.MkdirAll(appDir, 0o755); err != nil {
 			return err
@@ -501,6 +633,12 @@ func (s *Service) layoutStatic(app *store.App, opts *CreateOpts, appDir string) 
 			os.RemoveAll(appDir)
 		}
 	}
+	if fromGit {
+		if err := s.cloneRepo(app, opts, appDir); err != nil {
+			discard()
+			return err
+		}
+	}
 	mode := opts.ServeMode
 	if mode != store.ServeCommand {
 		mode = store.ServeStatic
@@ -511,6 +649,22 @@ func (s *Service) layoutStatic(app *store.App, opts *CreateOpts, appDir string) 
 	app.ServeMode = mode
 	app.RootDir = strings.Trim(strings.TrimSpace(opts.RootDir), "/")
 	app.BuildCmd = strings.TrimSpace(opts.BuildCmd)
+
+	// A repository says how it is built, so fill in what the form left blank
+	// from its package.json rather than making the user work it out. Anything
+	// they did type wins.
+	if fromGit && app.Type == store.TypeStatic {
+		build := detectNodeBuild(filepath.Join(appDir, app.GitSubdir))
+		if app.BuildCmd == "" {
+			app.BuildCmd = build.Command
+		}
+		if mode == store.ServeStatic && app.RootDir == "" {
+			// RootDir is always relative to the app directory, so a monorepo's
+			// output is <subdir>/<outdir> — the route builder joins it to the app
+			// dir and knows nothing about repositories.
+			app.RootDir = strings.Trim(filepath.Join(app.GitSubdir, build.OutDir), "/")
+		}
+	}
 
 	switch mode {
 	case store.ServeCommand:
@@ -531,8 +685,8 @@ func (s *Service) layoutStatic(app *store.App, opts *CreateOpts, appDir string) 
 			return err
 		}
 		app.Port = port
-		if external {
-			break // the user's code is already there; see the doc comment
+		if external || fromGit {
+			break // the code is already there — the user's folder, or the clone
 		}
 		// Drop a runnable starter directly in the folder (Vite for static, a
 		// net/http server for go), skipping any files the user already added, so
@@ -542,7 +696,7 @@ func (s *Service) layoutStatic(app *store.App, opts *CreateOpts, appDir string) 
 			return err
 		}
 	case store.ServeStatic:
-		if external {
+		if external || fromGit {
 			break
 		}
 		// Drop a friendly placeholder if the served dir has no index yet, so the
@@ -699,7 +853,8 @@ func (s *Service) startStatic(app store.App) error {
 	if err != nil {
 		return err
 	}
-	dir := s.appDir(app) // the project subdir, or wherever the user pointed it
+	dir := s.appDir(app)    // the project subdir, or wherever the user pointed it
+	work := s.buildDir(app) // dir, or the subdirectory of a monorepo it builds from
 	env := s.staticEnv(app, dir)
 
 	// Both the build step and a supervised start command need the app's
@@ -722,7 +877,7 @@ func (s *Service) startStatic(app store.App) error {
 	}
 
 	if cmd := strings.TrimSpace(app.BuildCmd); cmd != "" {
-		if _, err := s.sup.RunBuild(dir, cmd, env); err != nil {
+		if _, err := s.sup.RunBuild(work, cmd, env); err != nil {
 			s.store.SetAppStatus(app.ID, store.AppError)
 			return err
 		}
@@ -738,7 +893,7 @@ func (s *Service) startStatic(app store.App) error {
 			s.store.SetAppStatus(app.ID, store.AppError)
 			return fmt.Errorf("port %d already in use — another process is holding it; stop it and retry", app.Port)
 		}
-		if err := s.sup.Start(app.ID, name, dir, app.StartCmd, env); err != nil {
+		if err := s.sup.Start(app.ID, name, work, app.StartCmd, env); err != nil {
 			s.store.SetAppStatus(app.ID, store.AppError)
 			return err
 		}
@@ -813,11 +968,23 @@ func (s *Service) Stop(id int64) error {
 // Delete tears the app down, removes the app row, and deletes its directory.
 // Shared-database apps get their database dumped into backupsRoot first, then
 // dropped (with its user) from the shared server.
-func (s *Service) Delete(id int64, backupsRoot string) error {
+func (s *Service) Delete(id int64, backupsRoot string) (err error) {
 	app, err := s.store.AppByID(id)
 	if err != nil {
 		return err
 	}
+	// The deploy key goes with the app — but only once the app is actually gone.
+	// A delete that failed halfway leaves an app that still has to be able to
+	// reach its repository. The key stays listed on GitHub until the user removes
+	// it there; without its private half it opens nothing.
+	defer func() {
+		if err != nil {
+			return
+		}
+		if derr := s.store.DeleteDeployKeysForApp(id); derr != nil {
+			log.Printf("delete deploy keys for app %d: %v", id, derr)
+		}
+	}()
 	if app.IsProxy() {
 		return s.store.DeleteApp(id) // nothing on disk or in a runtime to tear down
 	}

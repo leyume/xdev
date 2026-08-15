@@ -254,7 +254,7 @@ func TestLayoutCompose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	svc := New(st, nil, nil, "")
+	svc := New(st, nil, nil, "", nil)
 
 	t.Run("single-domain file gets one allocated port", func(t *testing.T) {
 		yaml := "services:\n  web:\n    image: caddy:2\n    ports:\n      - \"${PORT}:80\"\n"
@@ -508,7 +508,7 @@ func TestPrepareCompose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	svc := New(st, nil, nil, "")
+	svc := New(st, nil, nil, "", nil)
 
 	// A two-domain app, laid out and persisted the way Create does it.
 	yaml := "services:\n  web:\n    ports:\n      - \"${PORT}:80\"\n  api:\n    ports:\n      - \"${PORT_2}:3000\"\n"

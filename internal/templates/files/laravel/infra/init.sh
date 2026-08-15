@@ -4,12 +4,23 @@
 # waits for the database, and migrates; then it serves with Swoole. On later
 # starts everything is already in place, so it skips straight to serving.
 #
-# DB_* / REDIS_* come from the compose `environment:` block. The published host
-# port maps to :8000 below.
+# An app deployed from a repository is different: the repository owns
+# composer.json, so this script installs nothing it hasn't been given and
+# reports what is missing instead. Writing to the checkout here would be undone
+# by the next `git reset --hard` anyway, so the same work would run every
+# deploy, forever.
+#
+# DB_* / REDIS_* come from the compose `environment:` block; .env and storage/
+# are mounted in from outside app/. The published host port maps to :8000 below.
 set -e
 cd /var/www/html
 
 log() { echo "▶ xdev: $*"; }
+die() { echo "✗ xdev: $*" >&2; exit 1; }
+
+# A checkout means the repository is the source of truth for this app's code.
+FROM_GIT=0
+[ -e .git ] && FROM_GIT=1
 
 # Production (a prod-environment project) installs without dev dependencies and
 # caches config/routes at the end. Everything else is identical, so a Laravel
@@ -52,6 +63,7 @@ install_flags="$install_flags $bootstrap_flags"
 #    dotfiles) so a stray file in app/ (e.g. a Finder .DS_Store) doesn't trip
 #    composer's "directory not empty" guard.
 if [ ! -f artisan ]; then
+  [ "$FROM_GIT" = 1 ] && die "no artisan in the checkout — is this a Laravel repository?"
   log "installing Laravel (composer create-project)…"
   tmp="$(mktemp -d)"
   # shellcheck disable=SC2086 # base_flags is a deliberate word list
@@ -60,7 +72,9 @@ if [ ! -f artisan ]; then
   rm -rf "$tmp"
 fi
 
-# 2. Ensure PHP dependencies are present.
+# 2. Ensure PHP dependencies are present. vendor/ is gitignored, so a fresh
+#    clone always needs this — for a git app it is the deploy's job, but a
+#    container starting before the first deploy still has to come up.
 if [ ! -f vendor/autoload.php ]; then
   log "composer install…"
   # shellcheck disable=SC2086 # install_flags is a deliberate word list
@@ -70,7 +84,13 @@ fi
 # 3. Ensure Octane (Swoole) is installed. The guard is a filesystem check, not
 #    `composer show`: the prod image ships no composer, and a "command not
 #    found" would read as "not installed" and send us into `composer require`.
+#
+#    For an app deployed from a repository this is the repository's job:
+#    requiring it here would edit composer.json and composer.lock inside the
+#    checkout, and the next deploy's hard reset would revert both — so the same
+#    work would run on every deploy, forever. Say so instead.
 if [ ! -d vendor/laravel/octane ]; then
+  [ "$FROM_GIT" = 1 ] && die "laravel/octane is not in this repository — add it with 'composer require laravel/octane' and commit"
   log "requiring laravel/octane…"
   # base_flags, not install_flags: `require` rejects --no-dev, so in prod this
   # pulls the root package's dev dependencies back in. Harmless vendor bloat —
@@ -110,15 +130,27 @@ if [ ! -f .env ] && [ -f .env.example ]; then
 fi
 
 if [ ! -f config/octane.php ]; then
+  [ "$FROM_GIT" = 1 ] && die "config/octane.php is missing — run 'php artisan octane:install --server=swoole' locally and commit it"
   log "octane:install --server=swoole…"
   php artisan octane:install --server=swoole --no-interaction
 fi
 
-# 4. Generate the app key once.
+# 4. The app key comes from _/laravel.env, which xdev generates at create and
+#    mounts here as .env. Only generate one if that mount is somehow absent —
+#    writing a new key over a working app would invalidate every session,
+#    signed URL and encrypted column it has issued.
 if ! grep -q '^APP_KEY=base64:' .env 2>/dev/null; then
-  log "key:generate…"
+  log "no APP_KEY in .env — generating one"
   php artisan key:generate --no-interaction
 fi
+
+# 4b. storage/ is mounted from _volumes/, so it starts empty and Laravel's own
+#     installer never gets to create its subdirectories. Missing framework dirs
+#     are a boot failure, not a warning.
+mkdir -p storage/app/public storage/framework/cache/data \
+         storage/framework/sessions storage/framework/testing \
+         storage/framework/views storage/logs bootstrap/cache
+chmod -R ug+rwX storage bootstrap/cache 2>/dev/null || true
 
 # 5. Wait for the database to accept connections (the db healthcheck can report
 #    ready before MariaDB finishes startup, so probe over TCP from here).
@@ -142,8 +174,15 @@ until php -r '
 done
 
 # 6. Run migrations (non-fatal so a migration hiccup doesn't block serving).
-log "migrate…"
-php artisan migrate --force || true
+#    Not for a git app: there, migrating is the deploy's job, which dumps the
+#    database first and stops on failure. Doing it here as well would apply a
+#    new migration on a plain restart, with no dump taken and nothing watching.
+if [ "$FROM_GIT" = 1 ]; then
+  log "git app — skipping migrate (deploys run it, after a database dump)"
+else
+  log "migrate…"
+  php artisan migrate --force || true
+fi
 
 # 6b. Production: cache config/routes/views. Non-fatal — a cacheable-config
 #     complaint (a closure in a config file) must not stop the app from serving.

@@ -45,6 +45,29 @@ in [`deploy/README.md`](deploy/README.md).
   `"${PORT_3}:9000"` — domain 2 is always `${PORT_2}`, up to five per stack. No
   port numbers to pick or keep out of each other's way. Leave the file blank for
   a starter to edit.
+- **Deploy from GitHub** — point a static or Go app at a repository and xdev
+  clones it, reads `package.json` to work out how to build it (npm/pnpm/yarn/bun,
+  from the lockfile), and serves the build output. **Deploy** pulls the branch
+  and rebuilds. Private repos get their own SSH deploy key: xdev generates it,
+  shows you the public half to paste into the repository, and keeps the private
+  half encrypted on disk. Monorepos build from a subdirectory.
+- **…and keep it deployed, two ways.** Turn on a **webhook** and every push to
+  the tracked branch deploys itself — xdev gives you the URL and secret to paste
+  into the repository. Or issue a **deploy token** and let GitHub Actions build
+  and upload the finished site; xdev swaps it in atomically, so nothing is ever
+  half-published. Both endpoints live on the app's own domain, so there is no
+  extra hostname or certificate to arrange, and only those two paths are exposed
+  — your admin UI stays off the internet. Deploys run in the background with a
+  history and build logs on the app's page.
+- **Laravel from a repository, too** — point a Laravel app at a repo and each
+  deploy pulls, runs `composer install` and your migrations inside the app's own
+  container, rebuilds the config/route/view caches, and reloads Octane. Your
+  `.env` and `storage/` are mounted from outside the checkout, so a deploy can
+  never take the app key or user uploads with it. Pending migrations get a
+  database dump first — kept with your backups, and never auto-restored, because
+  rows written since the dump are real. A short list of named commands
+  (`migrate`, `optimize:clear`, `octane:reload`, `storage:link`…) runs inside the
+  container from the app's page; there is no free-form command box, on purpose.
 - **Several domains per app** — the Domain field takes a comma-separated list:
   `test.com, www.test.com, test.com.ng`. Every name serves the same app and gets
   its own certificate; the first is the app's address. Add or remove one any time
@@ -59,7 +82,7 @@ in [`deploy/README.md`](deploy/README.md).
   domain, add or drop a compose stack's extra domains, change a static app's
   build/start commands or a proxy's upstream, and edit the `compose.yml` itself.
   Changes are checked before they're written and applied on restart.
-- **Bring your own folder** — static and Go apps can run from code you already
+- **Bring your own folder** — static and Go apps can also run from code you already
   have (`/home/li/ui/xyz`) instead of a folder xdev creates, set when you add
   the app or changed later. xdev never scaffolds into that folder, and deleting
   the app unhooks it rather than deleting your code.
