@@ -1,11 +1,15 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"xdev/internal/store"
 )
@@ -99,4 +103,56 @@ func TestActionWithoutJSONStillRendersThePage(t *testing.T) {
 	if !strings.Contains(body, "Migration status") {
 		t.Error("the rendered page does not name the command that ran")
 	}
+}
+
+// End to end through the real router: session cookie, CSRF, multipart body —
+// the same request the page makes. The direct-handler tests above skip all of
+// that, and it is exactly where a "could not reach xdev" in the browser comes
+// from: any answer that is not JSON (a CSRF rejection, a login redirect, an
+// older server rendering a page) lands in the client's catch.
+func TestActionThroughTheRouterAnswersJSON(t *testing.T) {
+	srv, app := actionFixture(t)
+
+	user, err := srv.store.CreateUser("a@b.co", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const token, csrf = "sess-token", "csrf-token"
+	if err := srv.store.CreateSession(token, user.ID, csrf, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Multipart, because that is what fetch sends for a FormData body.
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	mw.WriteField("csrf_token", csrf)
+	mw.WriteField("action", "migrate-status")
+	mw.Close()
+
+	r := httptest.NewRequest("POST", "/apps/"+strconv.FormatInt(app.ID, 10)+"/action", &body)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	r.Header.Set("Accept", "application/json")
+	r.AddCookie(&http.Cookie{Name: "xdev_session", Value: token})
+
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, r)
+
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Fatalf("answer is %s, not JSON (status %d) — the page would show \"could not reach xdev\"\n%s",
+			ct, w.Code, firstN(w.Body.String(), 200))
+	}
+	var got map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("not JSON: %v", err)
+	}
+	if got["label"] != "Migration status" {
+		t.Errorf("label = %v", got["label"])
+	}
+}
+
+func firstN(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
 }

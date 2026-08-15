@@ -271,6 +271,7 @@ jobs:
        is the only thing the button was pressed for. */}}
   <details class="action-box"{{if $.ActionResult}} open{{end}}>
     <summary class="action-summary">
+      <span class="chevron">{{template "icon_chevron" .}}</span>
       <h3 style="margin:0">Run a command</h3>
       <span class="chip">{{len .}}</span>
       <span class="spacer"></span>
@@ -646,22 +647,40 @@ function actionRow() {
       this.shown = true;
       this.failed = false;
       this.output = '';
+      const form = e.target;
+      let r;
       try {
-        const r = await fetch(e.target.action, {
+        r = await fetch(form.action, {
           method: 'POST',
           headers: { 'Accept': 'application/json' },
-          body: new FormData(e.target),
+          body: new FormData(form),
           credentials: 'same-origin',
         });
-        const d = await r.json().catch(() => null);
-        if (!d) throw 0;
-        this.failed = !r.ok || !!d.failed;
-        this.output = d.output || d.error || (this.failed ? 'the command failed with no output' : 'done — no output');
       } catch (err) {
+        // Nothing answered at all. This is the only case that is really "we
+        // could not reach xdev" — everything below did get a reply.
+        this.busy = false;
         this.failed = true;
-        this.output = 'could not reach xdev — check that it is still running, then try again';
+        this.output = 'no answer from xdev — check that it is still running, then try again';
+        return;
       }
+      // An answer that is not JSON came from something that renders pages: a
+      // CSRF rejection, a session that expired into a login redirect, or an
+      // older xdev that predates this endpoint. Submitting the form for real
+      // shows whichever it is, instead of this row inventing a reason.
+      if (!(r.headers.get('content-type') || '').includes('application/json')) {
+        form.submit();
+        return;
+      }
+      const d = await r.json().catch(() => null);
       this.busy = false;
+      if (!d) {
+        this.failed = true;
+        this.output = 'xdev answered with something this page could not read (HTTP ' + r.status + ')';
+        return;
+      }
+      this.failed = !r.ok || !!d.failed;
+      this.output = d.output || d.error || (this.failed ? 'the command failed with no output' : 'done — no output');
     },
   };
 }
@@ -765,6 +784,7 @@ function appSettings(domains, ports, maxDomains) {
        after it replaces this list; data-running is how it knows to keep asking. */}}
   <details class="deploy-row" data-deploy="{{.ID}}"{{if .Running}} data-running="1" open{{end}}>
     <summary class="deploy-head">
+      <span class="chevron">{{template "icon_chevron" .}}</span>
       {{if .Running}}<span class="status running" title="running"></span>
       {{else if eq .Status "ok"}}<span class="status ok" title="ok"></span>
       {{else}}<span class="status error" title="failed"></span>{{end}}
@@ -781,6 +801,7 @@ function appSettings(domains, ports, maxDomains) {
       {{range $i, $step := .}}
       <details class="step{{if $step.Failed}} step-failed{{end}}" data-step="{{$i}}"{{if $step.Failed}} open{{end}}>
         <summary class="small">
+          <span class="chevron">{{template "icon_chevron" .}}</span>
           {{if $step.Failed}}<span class="status error"></span>{{else}}<span class="status ok"></span>{{end}}
           <code>{{if $step.Name}}{{$step.Name}}{{else}}output{{end}}</code>
         </summary>

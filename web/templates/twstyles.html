@@ -424,8 +424,6 @@ code {
   list-style: none;
 }
 .steps .step > summary::-webkit-details-marker { display: none; }
-.steps .step > summary::before { content: "▸"; opacity: .5; font-size: 11px; }
-.steps .step[open] > summary::before { content: "▾"; }
 .steps .step > summary:hover { background: var(--code-bg); }
 .steps .step-failed > summary { color: var(--danger, #ff6b6b); }
 .steps .step > pre.logs { border: 0; border-radius: 0; max-height: 40vh; margin: 0; }
@@ -707,8 +705,6 @@ button.iconbtn.danger:hover { color: var(--danger); background: rgba(245, 140, 1
   cursor: pointer; list-style: none;
 }
 .action-summary::-webkit-details-marker { display: none; }
-.action-summary::before { content: "▸"; opacity: .5; font-size: 11px; }
-.action-box[open] > .action-summary::before { content: "▾"; }
 .action-list { margin-top: 12px; }
 .action-row {
   display: flex; align-items: center; gap: var(--gap-sm);
@@ -853,8 +849,6 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
   cursor: pointer; list-style: none;
 }
 .deploy-head::-webkit-details-marker { display: none; }
-.deploy-head::before { content: "▸"; opacity: .5; font-size: 11px; }
-.deploy-row[open] > .deploy-head::before { content: "▾"; }
 .deploy-head:hover { color: var(--text); }
 .deploy-head .status { margin: 0; align-self: center; }
 .deploy-msg { margin-bottom: 6px; }
@@ -903,6 +897,13 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
 .app-card > .app-card-head { cursor: pointer; user-select: none; }
 .chevron { display: inline-flex; align-items: center; color: var(--muted); transition: transform 0.2s; }
 .chevron.is-collapsed { transform: rotate(-90deg); }
+/* The same chevron as a <details> marker, driven by [open] instead of a class.
+   The native marker is hidden per-summary above; this replaces the ▸/▾ glyphs
+   that stood in for it, which depend on the font having those code points and
+   render as tofu (or at the wrong size) where it does not. */
+summary > .chevron { flex: none; transform: rotate(-90deg); }
+summary > .chevron .ico { width: 14px; height: 14px; }
+details[open] > summary > .chevron { transform: rotate(0deg); }
 .app-card-head .status { margin: 0; align-self: center; }
 .app-card-name { font-size: 16px; font-weight: 700; }
 /* One labelled entry per fact about where an app lives — its hostnames, its

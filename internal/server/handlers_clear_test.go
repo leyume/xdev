@@ -357,3 +357,62 @@ func TestActionsRunInPlace(t *testing.T) {
 		t.Error("the form has no server-side fallback")
 	}
 }
+
+// Disclosure markers are the same SVG chevron used everywhere else, not ▸/▾
+// text. Those code points are missing from plenty of system fonts, where they
+// render as tofu or at a size that does not match the row.
+func TestDisclosureMarkersUseTheSVGChevron(t *testing.T) {
+	settings := renderSettings(t, gitApp(), appSettingsForm{Name: "web"},
+		mergeViewData(deployViewData(), actionsViewData(nil)))
+	project := renderProject(t, nil)
+
+	for name, out := range map[string]string{"settings": settings, "project": project} {
+		if strings.Contains(out, `content: "▸"`) || strings.Contains(out, `content: "▾"`) {
+			t.Errorf("%s: a disclosure marker is still a text triangle", name)
+		}
+	}
+	// Every collapsible summary carries one.
+	for _, want := range []string{
+		`<summary class="deploy-head">` + "\n" + `      <span class="chevron">`,
+		`<summary class="action-summary">` + "\n" + `      <span class="chevron">`,
+	} {
+		if !strings.Contains(settings, want) {
+			t.Errorf("settings: a summary has no chevron: %q", want)
+		}
+	}
+	// And the rule that turns it as the section opens.
+	if !strings.Contains(settings, "details[open] > summary > .chevron") {
+		t.Error("no rule rotates the chevron when a section opens")
+	}
+}
+
+func mergeViewData(vds ...viewData) viewData {
+	out := viewData{}
+	for _, v := range vds {
+		for k, val := range v {
+			out[k] = val
+		}
+	}
+	return out
+}
+
+// A non-JSON answer is not a network failure. An older server, a CSRF
+// rejection and an expired session all reply with a page — the row used to
+// report every one of them as "could not reach xdev", which sent people
+// checking a service that was running fine.
+func TestActionFallsBackWhenTheAnswerIsNotJSON(t *testing.T) {
+	out := renderSettings(t, gitApp(), appSettingsForm{Name: "web"}, actionsViewData(nil))
+
+	if !strings.Contains(out, "form.submit();") {
+		t.Error("a non-JSON answer no longer falls back to a real submit, so the reason stays hidden")
+	}
+	// The "no answer" wording is reserved for a fetch that actually threw.
+	i := strings.Index(out, "no answer from xdev")
+	j := strings.Index(out, "} catch (err) {")
+	if i < 0 || j < 0 || i < j {
+		t.Error("the unreachable message is not confined to the catch block")
+	}
+	if strings.Contains(out, "could not reach xdev — check that it is still running") {
+		t.Error("the old blanket message is still there")
+	}
+}
