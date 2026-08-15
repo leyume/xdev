@@ -359,6 +359,7 @@ POST /apps/{id}/action            run one allowlisted container command (see 9.1
 POST /apps/{id}/db-dump           switch pre-migration database dumps on/off
 POST /apps/{id}/adminer           add / remove the bundled Adminer (laravel)
 GET  /apps/{id}/deploys/partial   deploy history fragment (polled while one runs)
+POST /apps/{id}/deploys/clear     empty the deploy history (a running deploy is kept)
 GET  /jobs/{id}                   progress of a background create (polled by the dialog)
 
 Public (no session, no CSRF — see §9.10). Caddy publishes these only on the
@@ -369,10 +370,12 @@ POST /_xdev/deploy                a .tar.gz of a built site; bearer-token auth
 GET  /apps/{id}/metrics           per-app chart page
 GET  /apps/{id}/metrics.json      chart data (arrays t/cpu/mem)
 GET  /apps/{id}/logs              tail of compose logs
+POST /apps/{id}/logs/clear        empty a host app's log file (container logs are the engine's)
 GET  /apps/{id}/env               POST /apps/{id}/env   edit .env + restart
 GET  /apps/{id}/settings          POST /apps/{id}/settings  edit the app (see 9.5)
 POST /apps/{id}/backup            GET /apps/{id}/backups        GET /apps/{id}/backups/{name}
 GET  /events                      audit log
+POST /events/clear                empty it (all, or one project via project_id)
 POST /settings/engine             switch default container engine
 POST /settings/hosts-sync         one-click /etc/hosts write (elevates if needed)
 GET  /static/...                  embedded assets
@@ -924,6 +927,27 @@ remove, and a leftover container is not a reason to refuse the setting.
   survives a failed start (the UI shows it in an error state); the hostname
   stays unclaimed. Guarded by
   `TestCreateDoesNotPublishDomainsWhenStartFails`.
+- **A poll must not undo what the user just did.** Both self-refreshing views —
+  the deploy list (replaces its HTML every 3s) and the create dialog's step list
+  (re-renders every ~1s) — used to reset every `<details>` on each tick, so a
+  panel opened to read a slow build closed itself a second later. Expanded state
+  is now held outside the markup that gets replaced: `deployWatch.openKeys()` /
+  `restore()` keyed on `data-deploy`/`data-step`, and `openSteps` in the add-app
+  dialog. Anything else that re-renders on a timer owes the same. Guarded by
+  `TestDeployPollRestoresExpandedEntries` and `TestCreateStepsStayOpenAcrossPolls`.
+- **`data-confirm` works on any form** (and on any submit button), via one
+  capture-phase listener in `layout.html` registered *before* the others, which
+  check `defaultPrevented`. It used to be read only inside the
+  start/stop/delete handler, which returns early for every other action — so 13
+  of 15 confirmations in the app silently never appeared, including "Run
+  migrate? This changes the database". Guarded by `TestConfirmWorksOnAnyForm`.
+- **Clearing a log never clears live state.** `ClearDeployments` keeps a
+  *running* row: the goroutine building right now finishes into it, and its
+  presence is how a second deploy is refused. `ClearLogs` covers host-process
+  apps only — xdev owns that file — and `Start` opens it `O_APPEND` so a
+  truncation underneath a live writer leaves an empty file rather than a hole of
+  NULs (`TestClearLogsWhileRunning`). A container app's output belongs to the
+  engine's logging driver, so there is no button for it.
 - **DB is source of truth**; Caddy config + hosts file are always rebuilt from it.
 - **Never touch the `bizepp` containers** (`be_*`) during testing.
 - **Created projects are off-limits.** Do not edit, regenerate, or run lifecycle

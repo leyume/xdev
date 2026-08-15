@@ -37,6 +37,28 @@ func (s *Store) ListEventsByProject(projectID int64, limit int) ([]Event, error)
 		projectID, limit))
 }
 
+// ClearEvents deletes the activity log — every row, or one project's when
+// projectID is non-zero. Returns how many rows went, which is what the page
+// says afterwards: "cleared" with no number reads the same whether it deleted
+// two hundred rows or silently matched none.
+//
+// The log is a record of what happened, not state anything reads back, so
+// clearing it is safe in a way that clearing most tables is not. Rows for a
+// deleted project are only reachable through the all-events view, so an
+// unscoped clear is the only thing that can ever remove them.
+func (s *Store) ClearEvents(projectID int64) (int64, error) {
+	query, args := `DELETE FROM events`, []any(nil)
+	if projectID > 0 {
+		query += ` WHERE project_id = ?`
+		args = append(args, projectID)
+	}
+	res, err := s.db.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func scanEvents(rows *sql.Rows, err error) ([]Event, error) {
 	if err != nil {
 		return nil, err

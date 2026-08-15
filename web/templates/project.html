@@ -204,7 +204,20 @@
 
   <div class="side-col">
     <section class="card">
-      <h3>Project activity</h3>
+      <div class="title-row">
+        <h3 style="margin:0">Project activity</h3>
+        <span class="spacer"></span>
+        {{/* Scoped to this project — the same handler clears everything when no
+             project id is sent, which is what the Activity page does. */}}
+        {{if .Activity}}
+        <form method="post" action="/events/clear" style="display:inline"
+              data-confirm="Clear the activity log for this project?">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          <input type="hidden" name="project_id" value="{{.Project.ID}}">
+          <button class="danger" type="submit">Clear</button>
+        </form>
+        {{end}}
+      </div>
       {{if .Activity}}
       <div class="event-list">
         {{range .Activity}}
@@ -543,7 +556,8 @@
            rather than in a log somebody has to go and find. -->
       <div class="steps" x-show="steps.length" x-cloak style="margin-bottom:10px">
         <template x-for="(st, i) in steps" :key="i">
-          <details class="step" :class="{'step-failed': st.failed}" :open="st.failed">
+          <details class="step" :class="{'step-failed': st.failed}"
+                   :open="stepOpen(i, st)" @toggle="openSteps[i] = $event.target.open">
             <summary class="small">
               <span class="status"
                     :class="st.failed ? 'error' : (st.output === '' && running ? 'running' : 'ok')"></span>
@@ -593,6 +607,11 @@ function addAppForm(baseDomain, maxDomains, csrf) {
     composeText: '', domainCount: 1, domains: [], slots: [],
     maxDomains: maxDomains, csrf: csrf, error: '', busy: false,
     running: false, steps: [],
+    // Which step panels the user opened, by index. Kept here rather than left
+    // to the <details> elements themselves: the step list is re-rendered on
+    // every poll, and a bound :open would re-assert its own value each time —
+    // closing, roughly once a second, whatever was just expanded.
+    openSteps: {},
 
     // --- stepping ---------------------------------------------------------
     // Picking the type you already picked is a second way to say "yes, that
@@ -695,8 +714,16 @@ function addAppForm(baseDomain, maxDomains, csrf) {
     // 404 (the job expired, or the server restarted mid-create — either way
     // there is nothing left to follow), or after enough consecutive transport
     // failures that the connection is clearly gone rather than blipping.
+    // Whether a step panel is open: what the user last chose for it, and until
+    // they choose, open iff it failed — the failing step is the only one worth
+    // reading unprompted.
+    stepOpen(i, st) {
+      return i in this.openSteps ? this.openSteps[i] : !!st.failed;
+    },
+
     async follow(id) {
       this.steps = [];
+      this.openSteps = {};
       this.running = true;
       let misses = 0;
       for (;;) {

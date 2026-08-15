@@ -183,6 +183,23 @@ func (s *Store) PruneDeployments(appID int64) error {
 	return err
 }
 
+// ClearDeployments deletes an app's deploy history and returns how many rows
+// went.
+//
+// A deploy that is still running is deliberately kept. Its row is doing two
+// jobs beyond being history: it is where the goroutine building right now will
+// write its result, and a running row is how a second deploy is refused. Delete
+// it and the build carries on invisibly, finishes into a row that no longer
+// exists, and nothing stops another deploy starting on top of it.
+func (s *Store) ClearDeployments(appID int64) (int64, error) {
+	res, err := s.db.Exec(
+		`DELETE FROM deployments WHERE app_id = ? AND status != ?`, appID, DeployRunning)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // ReapRunningDeployments marks in-flight deploys as failed. A deploy runs in a
 // goroutine, so xdev stopping mid-build leaves a row that would otherwise say
 // "running" forever — and block the next deploy, since a running one is how

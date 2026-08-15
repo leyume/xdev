@@ -21,6 +21,7 @@
 
 {{if .Error}}<div class="alert form-error">{{.Error}}</div>{{end}}
 {{if .Saved}}<div class="alert ok">Saved{{if eq $app.Status "running"}} and restarted{{end}}.</div>{{end}}
+{{if .Cleared}}<div class="alert ok">Cleared {{.Cleared}} deploy log(s).</div>{{end}}
 {{if .JustStarted}}<div class="alert ok">Deploy started — it runs in the background; watch it in <strong>Deploys</strong> on the right.</div>{{end}}
 {{if eq .HookState "on"}}<div class="alert ok">Webhook enabled. Add the URL and secret below to the repository.</div>{{end}}
 {{if eq .HookState "off"}}<div class="alert warn-banner">Webhook disabled — that URL now answers nothing. Remove it from the repository too.</div>{{end}}
@@ -531,6 +532,16 @@ jobs:
       <h3 style="margin:0">Deploys</h3>
       <span class="spacer"></span>
       <button type="button" @click="refresh()">Refresh</button>
+      {{/* Clear is a form rather than a fetch so it goes through the same CSRF
+           check as every other mutation, and so it still works with no JS. It
+           only appears when there is something to clear. */}}
+      {{if $.Deploys}}
+      <form method="post" action="/apps/{{$app.ID}}/deploys/clear" style="display:inline"
+            data-confirm="Clear this app's deploy history? A deploy that is still running is kept.">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <button class="danger" type="submit">Clear</button>
+      </form>
+      {{end}}
     </div>
     <div x-ref="list">{{template "deploy_list" .}}</div>
   </section>
@@ -549,11 +560,38 @@ function deployWatch(appID, running) {
     busy: running,
     start() { if (this.busy) this.tick(); },
     tick() { setTimeout(() => this.refresh(), 3000); },
+
+    // Which <details> are open right now, as stable ids rather than positions.
+    // A refresh replaces this whole list, and a replaced element is a new
+    // element with default state — so without this, expanding a build's output
+    // while it runs closes it again within three seconds, exactly when the
+    // output is the thing you are trying to read.
+    openKeys() {
+      const keys = new Set();
+      this.$refs.list.querySelectorAll('details[open]').forEach(d => {
+        const key = d.dataset.deploy
+          ? 'd' + d.dataset.deploy
+          : (d.closest('[data-deploy]') ? 'd' + d.closest('[data-deploy]').dataset.deploy + 's' + d.dataset.step : '');
+        if (key) keys.add(key);
+      });
+      return keys;
+    },
+    restore(keys) {
+      this.$refs.list.querySelectorAll('details[data-deploy]').forEach(d => {
+        if (keys.has('d' + d.dataset.deploy)) d.open = true;
+        d.querySelectorAll('details[data-step]').forEach(s => {
+          if (keys.has('d' + d.dataset.deploy + 's' + s.dataset.step)) s.open = true;
+        });
+      });
+    },
+
     async refresh() {
       try {
+        const keys = this.openKeys();
         const r = await fetch(`/apps/${appID}/deploys/partial`, { credentials: 'same-origin' });
         const html = await r.text();
         this.$refs.list.innerHTML = html;
+        this.restore(keys);
         this.busy = html.includes('data-running');
       } catch (e) {
         this.busy = false; // stop polling into a void; the Refresh button still works
@@ -606,33 +644,41 @@ function appSettings(domains, ports, maxDomains) {
 {{if .Deploys}}
 <div class="deploy-list">
   {{range .Deploys}}
-  <div class="deploy-row"{{if .Running}} data-running="1"{{end}}>
-    <div class="deploy-head">
+  {{/* One collapsed entry per deploy, headed by when it ran. A deploy history
+       is read by date — "what happened at 14:02" — so the date line is the
+       handle, and twenty past builds cost twenty lines instead of twenty walls
+       of output. The one still running starts open: it was just triggered, and
+       hiding a build in progress behind a click is the opposite of watching it.
+
+       data-deploy is the identity the poll uses to put expanded entries back
+       after it replaces this list; data-running is how it knows to keep asking. */}}
+  <details class="deploy-row" data-deploy="{{.ID}}"{{if .Running}} data-running="1" open{{end}}>
+    <summary class="deploy-head">
       {{if .Running}}<span class="status running" title="running"></span>
       {{else if eq .Status "ok"}}<span class="status ok" title="ok"></span>
       {{else}}<span class="status error" title="failed"></span>{{end}}
       <span class="chip">{{.Trigger}}</span>
       <span class="spacer"></span>
       <span class="muted small nowrap">{{.CreatedAt}}</span>
-    </div>
-    <div class="small">{{if .Running}}<em class="muted">deploying…</em>{{else}}{{.Message}}{{end}}</div>
+    </summary>
+    <div class="small deploy-msg">{{if .Running}}<em class="muted">deploying…</em>{{else}}{{.Message}}{{end}}</div>
     {{/* One collapsed block per command the deploy ran, so a build reads as a
          list of steps rather than a wall of output. The step a failed deploy
          stopped on starts open — it is the only one anybody wants. */}}
     {{with .Steps}}
     <div class="steps">
-      {{range .}}
-      <details class="step{{if .Failed}} step-failed{{end}}"{{if .Failed}} open{{end}}>
+      {{range $i, $step := .}}
+      <details class="step{{if $step.Failed}} step-failed{{end}}" data-step="{{$i}}"{{if $step.Failed}} open{{end}}>
         <summary class="small">
-          {{if .Failed}}<span class="status error"></span>{{else}}<span class="status ok"></span>{{end}}
-          <code>{{if .Name}}{{.Name}}{{else}}output{{end}}</code>
+          {{if $step.Failed}}<span class="status error"></span>{{else}}<span class="status ok"></span>{{end}}
+          <code>{{if $step.Name}}{{$step.Name}}{{else}}output{{end}}</code>
         </summary>
-        <pre class="logs">{{.Output}}</pre>
+        <pre class="logs">{{$step.Output}}</pre>
       </details>
       {{end}}
     </div>
     {{end}}
-  </div>
+  </details>
   {{end}}
 </div>
 {{else}}

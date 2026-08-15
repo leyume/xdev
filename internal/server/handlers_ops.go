@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"xdev/internal/apps"
 	"xdev/internal/auth"
 	xruntime "xdev/internal/runtime"
 	"xdev/internal/store"
@@ -92,7 +93,25 @@ func (s *Server) handleAppLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, "app_logs", viewData{
 		"Title": app.Name + " logs · xdev", "App": app, "Project": proj, "Logs": logs,
+		"CanClear": apps.CanClearLogs(app),
+		"Cleared":  r.URL.Query().Get("cleared") != "",
+		"Error":    r.URL.Query().Get("error"),
 	})
+}
+
+// handleAppLogsClear empties a host-process app's log file.
+func (s *Server) handleAppLogsClear(w http.ResponseWriter, r *http.Request) {
+	app, proj, ok := s.appAndProject(w, r)
+	if !ok {
+		return
+	}
+	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/logs"
+	if err := s.apps.ClearLogs(app.ID); err != nil {
+		redirectWithError(w, r, target, err)
+		return
+	}
+	s.store.AddEvent(proj.ID, app.ID, "info", "Cleared the log for app "+app.Name)
+	http.Redirect(w, r, target+"?cleared=1", http.StatusSeeOther)
 }
 
 // handleAppEnvForm shows the editable .env for an app.
@@ -304,6 +323,28 @@ func (s *Server) handleHostsSync(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, ref+sep+"hosts_msg="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
+// handleEventsClear empties the activity log, all of it or one project's.
+//
+// The scope comes from a form field rather than two routes, because the two
+// buttons differ only in what they cover and the page already knows which it
+// is showing. A project id that no longer exists simply matches nothing.
+func (s *Server) handleEventsClear(w http.ResponseWriter, r *http.Request) {
+	projectID, _ := strconv.ParseInt(r.FormValue("project_id"), 10, 64)
+	target := "/events"
+	if projectID > 0 {
+		target = "/projects/" + strconv.FormatInt(projectID, 10)
+	}
+	n, err := s.store.ClearEvents(projectID)
+	if err != nil {
+		redirectWithError(w, r, target, err)
+		return
+	}
+	// The first entry in the newly-empty log says who emptied it. Written after
+	// the delete on purpose — written before, it would delete itself.
+	s.store.AddEvent(projectID, 0, "info", fmt.Sprintf("Cleared %d activity entries", n))
+	http.Redirect(w, r, target+"?cleared="+strconv.FormatInt(n, 10), http.StatusSeeOther)
+}
+
 // handleEvents shows the audit log.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	events, err := s.store.ListEvents(200)
@@ -311,5 +352,8 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not load events", http.StatusInternalServerError)
 		return
 	}
-	s.render(w, r, "events", viewData{"Title": "Activity · xdev", "Events": events})
+	cleared, _ := strconv.Atoi(r.URL.Query().Get("cleared"))
+	s.render(w, r, "events", viewData{
+		"Title": "Activity · xdev", "Events": events, "Cleared": cleared,
+	})
 }

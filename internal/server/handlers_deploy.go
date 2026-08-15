@@ -26,6 +26,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -345,6 +346,32 @@ func (s *Server) handleAppDeploysPartial(w http.ResponseWriter, r *http.Request)
 		"Deploys":   deploys,
 		"Deploying": s.apps.Deploying(app.ID),
 	})
+}
+
+// handleAppDeploysClear empties an app's deploy history.
+//
+// Build logs are the bulkiest thing xdev keeps per app and the least useful
+// once a deploy is old — a settings page that opens onto twenty stale builds
+// buries the one that matters. Clearing is a display decision, not a
+// destructive one: nothing about the running app is described by these rows,
+// and the next deploy writes a fresh one.
+func (s *Server) handleAppDeploysClear(w http.ResponseWriter, r *http.Request) {
+	app, proj, ok := s.appAndProject(w, r)
+	if !ok {
+		return
+	}
+	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/settings"
+	n, err := s.store.ClearDeployments(app.ID)
+	if err != nil {
+		redirectWithError(w, r, target, err)
+		return
+	}
+	// Recorded in the activity log rather than nowhere: somebody wondering where
+	// a failed build went should be able to find out that it was cleared, and
+	// when.
+	s.store.AddEvent(proj.ID, app.ID, "info",
+		fmt.Sprintf("Cleared %d deploy log(s) for app %s", n, app.Name))
+	http.Redirect(w, r, target+"?cleared="+strconv.FormatInt(n, 10), http.StatusSeeOther)
 }
 
 // randomToken returns n bytes of randomness as an unpadded URL-safe string.

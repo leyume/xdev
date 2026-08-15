@@ -20,15 +20,33 @@
         },
       };
     }
+    // Any form carrying data-confirm asks before it submits.
+    //
+    // This used to live inside the start/stop/delete handler below, which
+    // returns early for every other action — so every other data-confirm in the
+    // app was inert. The attribute was on the button, the prompt never
+    // appeared, and "Run migrate? This changes the database" ran silently.
+    //
+    // Registered first and in the capture phase so a cancelled prompt also
+    // stops the two handlers below; both check defaultPrevented.
+    document.addEventListener('submit', function (e) {
+      var f = e.target;
+      var ask = f.dataset && f.dataset.confirm;
+      // The confirmation can also sit on the button that submitted the form,
+      // which is where it belongs when one form has several of them.
+      if (!ask && e.submitter && e.submitter.dataset) ask = e.submitter.dataset.confirm;
+      if (ask && !window.confirm(ask)) e.preventDefault();
+    }, true);
+
     // App start/stop/delete without a page reload: POST via fetch and
     // patch the app's status in place. Capture phase so it runs before the
     // spinner handler below. Falls back to a native submit on any error (lands
     // on the server-rendered error banner) or when fetch is unavailable.
     document.addEventListener('submit', function (e) {
+      if (e.defaultPrevented) return; // the confirm above was declined
       var f = e.target;
       var act = f.getAttribute && f.getAttribute('action');
       if (!act || !/^\/apps\/\d+\/(start|stop|delete)$/.test(act)) return;
-      if (f.dataset.confirm && !confirm(f.dataset.confirm)) { e.preventDefault(); return; }
       e.preventDefault();
       var host = f.closest('[data-app-id]');
       var b = e.submitter || f.querySelector('button:not([type=button])');

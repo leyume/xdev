@@ -115,6 +115,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /apps/{id}/db-dump", s.auth.RequireAuth(s.handleAppDumpToggle))
 	mux.HandleFunc("POST /apps/{id}/adminer", s.auth.RequireAuth(s.handleAppAdminerToggle))
 	mux.HandleFunc("GET /apps/{id}/deploys/partial", s.auth.RequireAuth(s.handleAppDeploysPartial))
+	mux.HandleFunc("POST /apps/{id}/deploys/clear", s.auth.RequireAuth(s.handleAppDeploysClear))
 
 	// The two endpoints reachable from the internet. No session, no CSRF: they
 	// carry no cookie and prove themselves with a signature or a bearer token.
@@ -135,6 +136,7 @@ func (s *Server) routes() {
 
 	// App ops: logs, env editor, backups.
 	mux.HandleFunc("GET /apps/{id}/logs", s.auth.RequireAuth(s.handleAppLogs))
+	mux.HandleFunc("POST /apps/{id}/logs/clear", s.auth.RequireAuth(s.handleAppLogsClear))
 	mux.HandleFunc("GET /apps/{id}/env", s.auth.RequireAuth(s.handleAppEnvForm))
 	mux.HandleFunc("POST /apps/{id}/env", s.auth.RequireAuth(s.handleAppEnvSave))
 	mux.HandleFunc("GET /apps/{id}/settings", s.auth.RequireAuth(s.handleAppSettingsForm))
@@ -151,6 +153,7 @@ func (s *Server) routes() {
 
 	// Activity / audit log.
 	mux.HandleFunc("GET /events", s.auth.RequireAuth(s.handleEvents))
+	mux.HandleFunc("POST /events/clear", s.auth.RequireAuth(s.handleEventsClear))
 
 	// Settings.
 	mux.HandleFunc("POST /settings/engine", s.auth.RequireAuth(s.handleSetEngine))

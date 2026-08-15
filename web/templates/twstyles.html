@@ -803,8 +803,18 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
    page wide, where four table cells wrap into an unreadable stack anyway. */
 .deploy-list { display: flex; flex-direction: column; gap: 14px; }
 .deploy-row + .deploy-row { border-top: 1px solid var(--border-soft); padding-top: 14px; }
-.deploy-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+/* The whole entry is a <details>; the date line is its handle. Same disclosure
+   vocabulary as .steps below, one level up. */
+.deploy-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+  cursor: pointer; list-style: none;
+}
+.deploy-head::-webkit-details-marker { display: none; }
+.deploy-head::before { content: "▸"; opacity: .5; font-size: 11px; }
+.deploy-row[open] > .deploy-head::before { content: "▾"; }
+.deploy-head:hover { color: var(--text); }
 .deploy-head .status { margin: 0; align-self: center; }
+.deploy-msg { margin-bottom: 6px; }
 
 .apps-table-head { display: flex; align-items: center; margin-bottom: 6px; }
 .apps-table-head h2 { margin: 0; }

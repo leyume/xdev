@@ -1,8 +1,21 @@
 {{define "content"}}
 <section class="page-head">
   <h1>Activity</h1>
-  <a class="btn" href="/">← Dashboard</a>
+  <div class="form-actions">
+    {{if .Events}}
+    {{/* No project_id: this page shows every project's activity, so Clear here
+         means all of it — including rows belonging to projects that no longer
+         exist, which nothing else can reach. */}}
+    <form class="inline" method="post" action="/events/clear"
+          data-confirm="Clear the entire activity log for every project?">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="danger" type="submit">Clear all</button>
+    </form>
+    {{end}}
+    <a class="btn" href="/">← Dashboard</a>
+  </div>
 </section>
+{{if .Cleared}}<div class="alert ok">Activity log cleared ({{.Cleared}} entries).</div>{{end}}
 {{if .Events}}
 <div class="card">
   <table class="table">

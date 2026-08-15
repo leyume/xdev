@@ -146,15 +146,26 @@ func TestAdminerToggle(t *testing.T) {
 // form in xdev and the one this test is really about.
 func renderProject(t *testing.T, apps []store.App) string {
 	t.Helper()
-	return renderNamed(t, "project", viewData{
+	return renderProjectWith(t, apps, nil)
+}
+
+// renderProjectWith is renderProject plus whatever the caller needs on top —
+// the activity list, say, which most of these tests do not care about.
+func renderProjectWith(t *testing.T, apps []store.App, extra viewData) string {
+	t.Helper()
+	data := viewData{
 		"Title":   "Demo · xdev",
-		"Project": store.Project{Name: "Demo", Slug: "demo", BaseDomain: "demo.test", Dir: "/p/demo"},
+		"Project": store.Project{ID: 3, Name: "Demo", Slug: "demo", BaseDomain: "demo.test", Dir: "/p/demo"},
 		"Apps":    apps, "AppsRunning": len(apps), "Catalog": templates.Catalog(),
 		"MaxDomains": maxComposeDomains,
 		"ExtraHosts": map[int64][]string{}, "AdminerDomains": map[int64]string{},
 		"ServiceDomains": map[int64][]store.ServiceDomain{},
 		"ProxyEnabled":   true, "HTTPSPort": 443,
-	})
+	}
+	for k, v := range extra {
+		data[k] = v
+	}
+	return renderNamed(t, "project", data)
 }
 
 // The add-app dialog asks for one thing at a time: a type, then what that type
