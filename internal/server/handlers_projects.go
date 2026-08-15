@@ -123,6 +123,16 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	activity, _ := s.store.ListEventsByProject(proj.ID, 8)
+	// Where each app is actually reachable, worked out once here rather than
+	// reassembled from domain + proxy state + port in the template. On a
+	// domainless install these are the only addresses there are.
+	reach := s.reach()
+	addresses := make(map[int64]string, len(apps))
+	portURLs := make(map[int64]string, len(apps))
+	for _, a := range apps {
+		addresses[a.ID] = reach.Address(a)
+		portURLs[a.ID] = reach.PortAddress(a.Port)
+	}
 	s.render(w, r, "project", viewData{
 		"Title":          proj.Name + " · xdev",
 		"Project":        proj,
@@ -137,6 +147,10 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		"Error":          r.URL.Query().Get("error"),
 		"ProxyEnabled":   s.proxyEnabled(),
 		"HTTPSPort":      s.httpsPort,
+		"Addresses":      addresses,
+		"PortURLs":       portURLs,
+		"PortOnly":       reach.PortOnly(),
+		"PublicHost":     reach.Host(),
 		"NeedsHosts":     needsHosts,
 		"HostsMsg":       r.URL.Query().Get("hosts_msg"),
 	})

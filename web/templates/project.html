@@ -92,7 +92,14 @@
           <span class="meta-k">Address</span>
           <span class="meta-v">
             {{$host := .Domain}}
-            {{if $.ProxyEnabled}}
+            {{/* An app with no hostname is not unfinished — on an install with
+                 no domains it is reached at its published port, and that URL is
+                 its address. */}}
+            {{if not $host}}
+              {{$addr := index $.Addresses .ID}}
+              {{if $addr}}<a href="{{$addr}}" target="_blank">{{$addr}}</a>
+              {{else}}<span class="muted">—</span>{{end}}
+            {{else if $.ProxyEnabled}}
               {{if eq $.HTTPSPort 443}}<a href="https://{{$host}}" target="_blank">{{$host}}</a>
               {{else}}<a href="https://{{$host}}:{{$.HTTPSPort}}" target="_blank">{{$host}}:{{$.HTTPSPort}}</a>{{end}}
             {{else}}{{$host}}{{end}}
@@ -109,7 +116,11 @@
         {{if .Port}}
         <div class="meta">
           <span class="meta-k">Host port</span>
-          <span class="meta-v"><a href="http://127.0.0.1:{{.Port}}" target="_blank">127.0.0.1:{{.Port}}</a></span>
+          {{/* Addressed at the server's public host when one is configured —
+               127.0.0.1 is right only for whoever is reading this through an
+               ssh tunnel, which is not the same person opening the link. */}}
+          {{$port := index $.PortURLs .ID}}
+          <span class="meta-v"><a href="{{$port}}" target="_blank">{{trimPrefix $port "http://"}}</a></span>
         </div>
         {{end}}
         {{if .IsGit}}
@@ -315,10 +326,18 @@
            same place for all of them. A compose stack's *extra* domains — one per
            ${PORT_n} its file publishes — are collected in its own block below. -->
       <label>Domain
+        {{if .PortOnly}}
+        {{/* This install has no domains: XDEV_PUBLIC_HOST is set, so blank means
+             "reach it at its port" rather than "make one up from the project's
+             base domain". Inventing a hostname here would produce a dead link, a
+             route Caddy cannot serve, and a wrong APP_URL. */}}
+        <span class="muted">(optional — blank means this app is reached at its port, <code>http://{{.PublicHost}}:&lt;port&gt;</code>)</span>
+        {{else}}
         <span class="muted" x-show="type!=='compose'">(optional — blank serves this app at <code>{{.Project.BaseDomain}}</code>. List several, comma-separated, to serve them all)</span>
         <span class="muted" x-show="type==='compose'" x-cloak>(optional — blank serves it at <code>{{.Project.BaseDomain}}</code>; this is the <code>${PORT}</code> domain. List several, comma-separated, to serve them all)</span>
+        {{end}}
         <input type="text" name="domain" x-model="domain" spellcheck="false"
-               placeholder="{{.Project.BaseDomain}}  ·  or  test.com, www.test.com">
+               placeholder="{{if .PortOnly}}leave blank for a port-only app{{else}}{{.Project.BaseDomain}}  ·  or  test.com, www.test.com{{end}}">
       </label>
 
       <!-- Static apps: run on the host's system Node, no container. -->

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	apps2 "xdev/internal/apps"
 	"xdev/internal/gitsrc"
 	"xdev/internal/store"
 	"xdev/internal/templates"
@@ -29,6 +30,7 @@ func gitViewData() viewData {
 		},
 		"Deploy": &deployInfo{
 			HookURL: "https://web.demo.test/_xdev/hook/hk", HookSecret: "the-signing-secret",
+			HookPath: "/_xdev/hook/hk", LocalHookURL: "http://127.0.0.1:7331/_xdev/hook/hk",
 			Ref: "main", PushURL: "https://web.demo.test/_xdev/deploy", PushHint: "xdp_abc",
 			PushTarget: "/p/demo/web", NewToken: "xdp_freshly-issued-token", Repo: "o/r",
 		},
@@ -162,6 +164,21 @@ func renderProjectWith(t *testing.T, apps []store.App, extra viewData) string {
 		"ServiceDomains": map[int64][]store.ServiceDomain{},
 		"ProxyEnabled":   true, "HTTPSPort": 443,
 	}
+	// The same maps the handler builds, so the template sees real values rather
+	// than a nil map that would only fail at render time.
+	reach := apps2.Reach{ProxyEnabled: true, HTTPSPort: 443}
+	if extra["Reach"] != nil {
+		reach = extra["Reach"].(apps2.Reach)
+	}
+	addresses, portURLs := map[int64]string{}, map[int64]string{}
+	for _, a := range apps {
+		addresses[a.ID] = reach.Address(a)
+		portURLs[a.ID] = reach.PortAddress(a.Port)
+	}
+	data["Addresses"] = addresses
+	data["PortURLs"] = portURLs
+	data["PortOnly"] = reach.PortOnly()
+	data["PublicHost"] = reach.Host()
 	for k, v := range extra {
 		data[k] = v
 	}

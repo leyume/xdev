@@ -900,6 +900,44 @@ service is gone from the compose file neither `down` nor `up` knows the
 container belongs to the stack. Best-effort — a stopped stack has nothing to
 remove, and a leftover container is not a reason to refuse the setting.
 
+### 9.12 Port-only installs (`internal/apps/address.go`)
+
+Some servers have no domain — a bare IP, or a box already running another web
+server on 80/443 that should keep them. `XDEV_PUBLIC_HOST` says how the machine
+is reached; setting it is what makes the mode exist. Empty (every normal
+install) changes nothing at all.
+
+`apps.Reach` holds the three facts an address needs — public host, whether the
+proxy is live, the HTTPS port — and `Address(app)` is the only thing that
+answers where an app is. A routed hostname wins; otherwise the published port;
+otherwise "" (a serve-mode static app with no domain genuinely has nowhere to be
+reached). `PortAddress` is the port answer alone, shown beside a hostname so a
+stack that is up but not yet routed can still be opened.
+
+Two copies exist by design: the apps service's (`SetReach`, from config, with
+`ProxyEnabled: true` — a hostname only exists when xdev means to route it) and
+the server's (`s.reach()`, with the *live* proxy state, because the UI also has
+to describe an install whose Caddy is not answering).
+
+`PortOnly()` is what makes the Domain field optional in `Create` and `Update`:
+with a public host, blank is a decision, and inventing `<slug>.<base-domain>`
+would produce a dead link, a route Caddy cannot serve, and a wrong `APP_URL`.
+Without one, blank still defaults from the project's base domain exactly as
+before.
+
+Limits, all deliberate and tested:
+
+- **Serve-mode static apps** publish no port, so they still need a domain
+  (`TestServeModeStaticHasNoPortToBeReachedBy`).
+- **A compose stack's extra slots** still need hostnames: the slot's port is
+  stored on its domain row (`domains.hostname` is `NOT NULL UNIQUE`), so a
+  nameless slot has nowhere to keep its port. Lifting this needs a ports table,
+  i.e. a migration.
+- **Deploy endpoints** are path-scoped routes on the app's hostname, so a
+  port-only app has none. The app's own port reaches the *app*, not the control
+  plane, so the settings page shows the path and the loopback URL rather than
+  inventing a public one (`deployInfo.Unrouted`).
+
 ---
 
 ## 10. Conventions & invariants
@@ -948,6 +986,13 @@ remove, and a leftover container is not a reason to refuse the setting.
   truncation underneath a live writer leaves an empty file rather than a hole of
   NULs (`TestClearLogsWhileRunning`). A container app's output belongs to the
   engine's logging driver, so there is no button for it.
+- **One place answers "where is this app".** `apps.Reach.Address` — a routed
+  hostname if there is one, else the published port, else "". It was assumed in
+  three places at once (the card's link, the deploy endpoints, and a Laravel
+  app's `APP_URL`), and on a domainless install all three were wrong. Only the
+  last one fails quietly, which is why it is the one that mattered: Laravel
+  builds signed URLs and reset links from `APP_URL`. Anything that needs to
+  render an app's address asks `Reach`, never `app.Domain` plus a scheme.
 - **DB is source of truth**; Caddy config + hosts file are always rebuilt from it.
 - **Never touch the `bizepp` containers** (`be_*`) during testing.
 - **Created projects are off-limits.** Do not edit, regenerate, or run lifecycle
@@ -976,6 +1021,7 @@ table and the installer.
 | `-caddy-admin` | `XDEV_CADDY_ADMIN` | `127.0.0.1:2019` | Caddy admin API address |
 | `-https-port` | `XDEV_HTTPS_PORT` | `443` | public HTTPS port |
 | `-http-port` | `XDEV_HTTP_PORT` | `80` | public HTTP port |
+| `-public-host` | `XDEV_PUBLIC_HOST` | "" | address this server is reached at when an app has no domain; enables port-only apps (§9.12) |
 | `-hosts-file` | `XDEV_HOSTS_FILE` | `/etc/hosts` | hosts file to manage |
 | `-manage-hosts` | `XDEV_MANAGE_HOSTS` | `true` | auto-write local domains to the hosts file |
 | `-acme-email` | `XDEV_ACME_EMAIL` | "" | Let's Encrypt contact (prod) |

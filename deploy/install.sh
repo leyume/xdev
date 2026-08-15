@@ -99,6 +99,63 @@ prior_install() {
   [ -f "${HOME:-/nonexistent}/Library/Application Support/xdev/xdev.env" ] && return 0
   return 1
 }
+# port_busy reports (exit 0) whether something is already listening on a port.
+port_busy() {
+  if have ss; then
+    ss -tlnH "sport = :$1" 2>/dev/null | grep -q . && return 0
+  elif have netstat; then
+    netstat -tln 2>/dev/null | grep -qE "[:.]$1[[:space:]]" && return 0
+  elif have lsof; then
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1 && return 0
+  fi
+  return 1
+}
+
+# prior_env_file prints the xdev.env of an existing install, or nothing.
+# XDEV_ENV_FILE overrides, the same way config.EnvFilePath honours it, so an
+# install in a non-standard place is still recognised as one.
+prior_env_file() {
+  if [ -n "${XDEV_ENV_FILE:-}" ] && [ -f "$XDEV_ENV_FILE" ]; then
+    printf '%s' "$XDEV_ENV_FILE"; return 0
+  fi
+  for f in /etc/xdev/xdev.env /usr/local/etc/xdev/xdev.env \
+           "${HOME:-/nonexistent}/Library/Application Support/xdev/xdev.env"; do
+    [ -f "$f" ] && { printf '%s' "$f"; return 0; }
+  done
+  return 1
+}
+prior_env_get() { # key -> value from the existing env file (read, never sourced)
+  local f; f="$(prior_env_file)" || return 1
+  sed -n "s/^$1=//p" "$f" 2>/dev/null | tail -n1
+}
+
+# xdev_holds_port reports whether the thing already bound to a port is *this
+# install's own* Caddy. A re-run finding its own proxy on :80 is the normal
+# case; refusing it would make every upgrade fail. Both halves matter — that an
+# xdev-managed Caddy exists (supervised binary, or the container stack the
+# installer generated beside xdev.env), and that it was configured for this very
+# port. An install that sat on 8444 does not own :443.
+xdev_holds_port() {
+  local f; f="$(prior_env_file)" || return 1
+  if [ "$(prior_env_get XDEV_CADDY)" != true ] &&
+     [ ! -f "$(dirname "$f")/caddy/docker-compose.yml" ]; then
+    return 1
+  fi
+  [ "$1" = "$(prior_env_get XDEV_HTTP_PORT)" ] && return 0
+  [ "$1" = "$(prior_env_get XDEV_HTTPS_PORT)" ] && return 0
+  return 1
+}
+
+# public_port_conflicts prints the ports xdev would need that somebody else is
+# already using.
+public_port_conflicts() {
+  local out=""
+  for p in "$@"; do
+    port_busy "$p" && ! xdev_holds_port "$p" && out="$out $p"
+  done
+  printf '%s' "${out# }"
+}
+
 sha256_of() { # print the sha256 hex of a file, portably
   if have sha256sum; then sha256sum "$1" | awk '{print $1}';
   elif have shasum; then shasum -a 256 "$1" | awk '{print $1}';
@@ -342,12 +399,48 @@ configure() {
   # Caddy (reverse proxy + TLS). container: we generate + run a Caddy container
   # (host only needs the engine). native: install the Caddy binary + supervise it.
   # self: you already run a proxy / manage Caddy — we touch nothing.
-  ask XDEV_CADDY_MODE "Caddy: container (we set it up) / native binary / self-managed? [container/native/self]" "container"
+  #
+  # If something already holds the ports xdev's Caddy would bind, say so before
+  # asking, and make "self" the default. This is the common case on a server
+  # that already serves something: nginx on 80/443. It matters more than a
+  # clash normally would, because Caddy binds all-or-nothing — a listener it
+  # cannot open makes it drop the *whole* config, so every xdev site goes down
+  # rather than just the ports being fought over.
+  local caddy_default=container
+  local busy_ports; busy_ports="$(public_port_conflicts "${XDEV_HTTP_PORT:-80}" "${XDEV_HTTPS_PORT:-443}")"
+  if [ -n "$busy_ports" ]; then
+    warn "port(s) $busy_ports are already in use on this machine"
+    for p in $busy_ports; do
+      # `have ss && info ...` would abort the script under `set -e` on a box
+      # without ss, which is exactly the box least able to explain itself.
+      if have ss; then
+        info "  holding :$p → $(ss -tlnpH "sport = :$p" 2>/dev/null | head -n1 | sed 's/.*users:(//; s/).*//')"
+      else
+        info "  find what holds :$p with: sudo lsof -nP -iTCP:$p -sTCP:LISTEN"
+      fi
+    done
+    warn "a Caddy that cannot bind a listener drops its entire config, so xdev would"
+    warn "take down every site it serves — not just these ports"
+    info "defaulting to self-managed: xdev will not touch the proxy, and apps are"
+    info "reached by port (see XDEV_PUBLIC_HOST below) or through your own server"
+    caddy_default=self
+  fi
+
+  ask XDEV_CADDY_MODE "Caddy: container (we set it up) / native binary / self-managed? [container/native/self]" "$caddy_default"
   case "$XDEV_CADDY_MODE" in
     native) XDEV_CADDY=true;  RUN_CADDY_CONTAINER=false ;;
     self)   XDEV_CADDY=false; RUN_CADDY_CONTAINER=false ;;
     *)      XDEV_CADDY_MODE=container; XDEV_CADDY=false; RUN_CADDY_CONTAINER=true ;;
   esac
+  # Chose to bind them anyway. Non-interactive has nobody to warn, and a silent
+  # cutover that takes every site down is the worst outcome here, so it stops.
+  if [ -n "$busy_ports" ] && [ "$XDEV_CADDY_MODE" != self ]; then
+    if [ "${XDEV_NONINTERACTIVE:-0}" = "1" ] || [ ! -r /dev/tty ]; then
+      die "port(s) $busy_ports are in use and XDEV_CADDY_MODE=$XDEV_CADDY_MODE would bind them — stop what is holding them, choose XDEV_CADDY_MODE=self, or set XDEV_HTTP_PORT/XDEV_HTTPS_PORT to free ones"
+    fi
+    warn "continuing with $XDEV_CADDY_MODE while $busy_ports are held — Caddy will fail to bind"
+    warn "unless you stop the other server first"
+  fi
   MANAGE_CADDY="$XDEV_CADDY"   # install_caddy installs the native binary only when true
   yesno XDEV_NODE "Install Node for static apps (host Node, no container)?" "Y"; MANAGE_NODE="$XDEV_NODE"
   yesno XDEV_GO "Install Go for Go apps (host toolchain, no container)?" "Y"; MANAGE_GO="$XDEV_GO"
@@ -406,6 +499,13 @@ configure() {
       warn "remember to set XDEV_DISABLE_HTTPS_REDIRECT=false when you move to 80/443 — it disables the HTTPS redirect"
   else
     : "${XDEV_DISABLE_HTTPS_REDIRECT:=false}"
+  fi
+
+  # A box with no DNS, or one already running another web server on 80/443, can
+  # address apps by port instead. Only worth asking when Caddy is somebody
+  # else's problem — with xdev's own Caddy there are domains to use.
+  if [ "$XDEV_CADDY_MODE" = self ]; then
+    ask XDEV_PUBLIC_HOST "Reach apps by port at which address? (IP or name; blank = apps need domains)" "${XDEV_PUBLIC_HOST:-}"
   fi
 
   ask XDEV_ADDR "Admin UI address" "127.0.0.1:7331"
@@ -509,6 +609,7 @@ XDEV_DISABLE_HTTPS_REDIRECT=${XDEV_DISABLE_HTTPS_REDIRECT:-false}
 XDEV_ACME_EMAIL=${XDEV_ACME_EMAIL:-}
 XDEV_LOCAL_CERT_LIFETIME=${XDEV_LOCAL_CERT_LIFETIME:-2160h}
 # --- hosts ---
+XDEV_PUBLIC_HOST=${XDEV_PUBLIC_HOST:-}
 XDEV_HOSTS_FILE=${XDEV_HOSTS_FILE:-/etc/hosts}
 XDEV_MANAGE_HOSTS=${XDEV_MANAGE_HOSTS}
 EOF

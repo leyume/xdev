@@ -124,7 +124,26 @@
 
   {{/* --- pull: a webhook, xdev does the build ------------------------- */}}
   <div class="tab-panel" x-show="tab==='hook'">
-    {{if .HookURL}}
+    {{if .HookPath}}
+    {{if .Unrouted}}
+    {{/* No hostname, so no public URL — and deliberately not the app's own port,
+         which reaches the app's container rather than xdev. What exists is the
+         path and the endpoint on xdev's own listener; publishing it is the
+         operator's call. */}}
+    <p class="muted small">
+      This app has no hostname, so xdev cannot publish a payload URL for it: its
+      published port goes to the app, not to the control plane. The webhook works —
+      it just needs an address you provide. Either forward this <em>path</em> from
+      whatever web server fronts this machine, or trigger it from the machine
+      itself (<code>deploy/xdev-deploy.sh</code> over ssh, which needs nothing
+      exposed at all).
+    </p>
+    {{template "copy_field" dict "Label" "Path to publish" "Value" .HookPath}}
+    {{template "copy_field" dict "Label" "On this machine" "Value" .LocalHookURL}}
+    {{template "copy_field" dict "Label" "Secret" "Value" .HookSecret}}
+    <p class="muted small">Deliveries that arrive without a matching signature are refused and logged.
+      The build runs on this server, so it needs whatever the repository needs to build.</p>
+    {{else}}
     <p class="muted small">
       Every push to <code>{{.Ref}}</code> deploys this app. Add these to
       {{if $.Git}}<a href="{{.RepoHooksURL}}" target="_blank" rel="noopener">the repository's webhooks</a>{{else}}the repository's webhooks{{end}}
@@ -134,6 +153,7 @@
     {{template "copy_field" dict "Label" "Secret" "Value" .HookSecret}}
     <p class="muted small">Deliveries that arrive without a matching signature are refused and logged.
       The build runs on this server, so it needs whatever the repository needs to build.</p>
+    {{end}}
     <div class="form-actions" style="justify-content:flex-start">
       <form class="inline" method="post" action="/apps/{{$app.ID}}/webhook"
             data-confirm="Generate a new URL and secret? The current webhook stops working immediately.">
@@ -357,9 +377,19 @@ jobs:
   <section class="card form-card">
     <h3>Domains</h3>
     <label>Domain <span class="muted">(the hostnames this app is served at — comma-separated for more than one, e.g. <code>test.com, www.test.com</code>. The first is its address; removing one stops it routing)</span>
-      <input type="text" name="domain" value="{{$form.Domain}}" spellcheck="false" required
-             placeholder="{{.Project.BaseDomain}}">
+      {{/* Required only where a hostname is how an app is reached. On an install
+           with a public host, emptying this field is how a hostname is removed —
+           the app keeps answering on its port — and there is no other way to
+           undo one. */}}
+      <input type="text" name="domain" value="{{$form.Domain}}" spellcheck="false"{{if not .PortOnly}} required{{end}}
+             placeholder="{{if .PortOnly}}blank = reached at its port only{{else}}{{.Project.BaseDomain}}{{end}}">
     </label>
+    {{if .PortAddress}}
+    <p class="muted small" style="margin:-4px 0 10px">
+      Also reachable directly at <a href="{{.PortAddress}}" target="_blank" rel="noopener">{{trimPrefix .PortAddress "http://"}}</a>,
+      which does not go through the proxy and needs no certificate.
+    </p>
+    {{end}}
 
     {{if and .ServiceLabel .ServicePort}}
     <label>{{.ServiceLabel}} domain <span class="muted">(bundled UI on port {{.ServicePort}})</span>

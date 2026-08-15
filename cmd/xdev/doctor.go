@@ -31,7 +31,7 @@ func runDoctor(args []string) error {
 		return err
 	}
 
-	cfg, err := config.Load(o.dataDir, o.projectsDir, o.addr)
+	cfg, err := config.Load(o.dataDir, o.projectsDir, o.addr, o.publicHost)
 	if err != nil {
 		return err
 	}

@@ -19,6 +19,9 @@ func tmplFuncs() template.FuncMap {
 		"gib": func(b uint64) string { return fmt.Sprintf("%.1f", float64(b)/1073741824) },
 		// hasPrefix drives active-nav-link highlighting from the request path.
 		"hasPrefix": strings.HasPrefix,
+		// trimPrefix shortens a URL for display (the link still carries the
+		// scheme; "http://" in the visible text is noise beside a host:port).
+		"trimPrefix": strings.TrimPrefix,
 		// dict builds a map from alternating key/value pairs, for passing named
 		// args to a shared sub-template ({{template "x" dict "K" v ...}}).
 		"dict": func(kv ...any) (map[string]any, error) {

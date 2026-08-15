@@ -259,6 +259,18 @@ func (s *Server) proxyEnabled() bool {
 	return s.reconciler != nil && s.reconciler.Enabled()
 }
 
+// reach answers "where is an app reachable" for the pages that show it. Unlike
+// the apps service's copy, this one carries the *live* proxy state: a hostname
+// with nothing routing behind it is not an address the UI should be linking to,
+// and on a domainless install there is nothing routing at all.
+func (s *Server) reach() apps.Reach {
+	return apps.Reach{
+		PublicHost:   s.cfg.PublicHost,
+		ProxyEnabled: s.proxyEnabled(),
+		HTTPSPort:    s.httpsPort,
+	}
+}
+
 // reconcile re-syncs Caddy + the hosts file with the database after a mutation.
 // Best-effort: failures are logged, not surfaced to the user.
 //

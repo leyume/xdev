@@ -148,10 +148,14 @@ func (s *Server) renderAppSettingsWith(w http.ResponseWriter, r *http.Request, a
 		"AdminerOn":        len(svc) > 0,
 		"Error":            errMsg,
 		"Cleared":          clearedCount(r),
-		"Saved":            r.URL.Query().Get("saved") != "",
-		"JustStarted":      r.URL.Query().Get("deploying") != "",
-		"Rotated":          r.URL.Query().Get("rotated") != "",
-		"HookState":        r.URL.Query().Get("hook"),
+		// Where this app answers besides its hostname, and whether a hostname is
+		// required at all on this install (see apps.Reach).
+		"PortAddress": s.reach().PortAddress(app.Port),
+		"PortOnly":    s.reach().PortOnly(),
+		"Saved":       r.URL.Query().Get("saved") != "",
+		"JustStarted": r.URL.Query().Get("deploying") != "",
+		"Rotated":     r.URL.Query().Get("rotated") != "",
+		"HookState":   r.URL.Query().Get("hook"),
 	})
 }
 
