@@ -449,3 +449,29 @@ func TestActionURLIsReadFromTheAttribute(t *testing.T) {
 		}
 	}
 }
+
+// The status dot is styled for a block: top-aligned with a margin above, so it
+// lines up with the first line of a two-line entry. A single-line row has to
+// undo both, and undoing only the margin leaves the dot floating above the word
+// it labels. One rule covers every such row, including the command output's.
+func TestStatusDotIsCentredOnSingleLineRows(t *testing.T) {
+	out := renderSettings(t, gitApp(), appSettingsForm{Name: "web"}, actionsViewData(nil))
+
+	rule := regexp.MustCompile(`(?s)([-.\w\s,]*?\.action-out-head \.status)\s*\{([^}]*)\}`).FindStringSubmatch(out)
+	if rule == nil {
+		t.Fatal("nothing resets the status dot inside a command's output header")
+	}
+	if !strings.Contains(rule[2], "align-self: center") {
+		t.Errorf("the reset does not re-centre the dot: %q", rule[2])
+	}
+	if !strings.Contains(rule[2], "margin: 0") {
+		t.Errorf("the reset does not drop the block margin: %q", rule[2])
+	}
+	// And it is shared rather than copied per row — the copies are how one gets
+	// missed.
+	for _, also := range []string{".deploy-head .status", ".app-card-head .status", ".status-label .status"} {
+		if !strings.Contains(rule[1], also) {
+			t.Errorf("%s is not covered by the shared reset", also)
+		}
+	}
+}
