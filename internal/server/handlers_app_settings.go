@@ -147,11 +147,21 @@ func (s *Server) renderAppSettingsWith(w http.ResponseWriter, r *http.Request, a
 		"CanToggleAdminer": apps.CanToggleAdminer(app),
 		"AdminerOn":        len(svc) > 0,
 		"Error":            errMsg,
+		"Cleared":          clearedCount(r),
 		"Saved":            r.URL.Query().Get("saved") != "",
 		"JustStarted":      r.URL.Query().Get("deploying") != "",
 		"Rotated":          r.URL.Query().Get("rotated") != "",
 		"HookState":        r.URL.Query().Get("hook"),
 	})
+}
+
+// clearedCount reads the "how many rows did Clear delete" hint a redirect
+// carries. Zero — absent, unparsable, or a genuine nothing-to-delete — renders
+// no banner at all, which is right: a page that says "cleared 0 entries" is
+// reporting an event that did not happen.
+func clearedCount(r *http.Request) int {
+	n, _ := strconv.Atoi(r.URL.Query().Get("cleared"))
+	return n
 }
 
 // settingsFormFor fills the form from an app's current state (the compose file

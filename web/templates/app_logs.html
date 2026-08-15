@@ -11,8 +11,20 @@
   </div>
   <div class="form-actions">
     <a class="btn" href="/apps/{{.App.ID}}/logs">↻ Refresh</a>
+    {{/* Only where the log file is xdev's own. A container app's output belongs
+         to the engine's logging driver, so there is nothing here to clear —
+         better no button than one that explains itself by failing. */}}
+    {{if .CanClear}}
+    <form method="post" action="/apps/{{.App.ID}}/logs/clear" style="display:inline"
+          data-confirm="Clear this app's log?">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="danger" type="submit">Clear log</button>
+    </form>
+    {{end}}
     <a class="btn" href="/projects/{{.Project.Slug}}">← Back</a>
   </div>
 </section>
+{{if .Error}}<div class="alert form-error">{{.Error}}</div>{{end}}
+{{if .Cleared}}<div class="alert ok">Log cleared.</div>{{end}}
 <pre class="logs">{{.Logs}}</pre>
 {{end}}

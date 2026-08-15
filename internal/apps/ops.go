@@ -71,6 +71,33 @@ func (s *Service) Logs(id int64, tail int) (string, error) {
 	return runtime.Logs(ctx, engine, workdir, pname, file, tail)
 }
 
+// CanClearLogs reports whether an app's log is xdev's to empty. Only host
+// processes qualify: xdev opened that file and writes to it, so truncating it
+// is bookkeeping on its own data.
+//
+// A container app's output belongs to the engine's logging driver. Shortening
+// it means truncating a file the engine holds open, behind its back — the path
+// differs per engine, some drivers (journald, syslog) have no file at all, and
+// on a rootless install it is not even readable. That is not something a button
+// in a web UI should be doing, so there is no button.
+func CanClearLogs(app store.App) bool { return app.IsHostProc() }
+
+// ClearLogs empties a host-process app's log.
+func (s *Service) ClearLogs(id int64) error {
+	app, err := s.store.AppByID(id)
+	if err != nil {
+		return err
+	}
+	if !CanClearLogs(app) {
+		return errors.New("these logs come from the container engine, not from xdev — there is nothing here to clear")
+	}
+	proj, err := s.store.ProjectByID(app.ProjectID)
+	if err != nil {
+		return err
+	}
+	return s.sup.ClearLogs(proj.Slug + "_" + app.Slug)
+}
+
 // envPath is the app's editable .env file. Static apps keep it at the app root
 // (no app/ subdir); compose apps keep it next to their compose file, which is
 // the copy the engine actually reads (${VAR} substitution and env_file); other

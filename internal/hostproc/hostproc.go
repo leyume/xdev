@@ -56,7 +56,12 @@ func (s *Supervisor) Start(id int64, name, dir, command string, env []string) er
 	if err := os.MkdirAll(s.runDir, 0o755); err != nil {
 		return err
 	}
-	logf, err := os.Create(s.logPath(name))
+	// O_TRUNC because each start begins a fresh log, and O_APPEND because the
+	// file can be truncated *underneath* this process later (ClearLogs). Without
+	// O_APPEND the writer keeps the offset it had reached, so the next line after
+	// a clear lands at that offset and the file gets a hole of NUL bytes exactly
+	// as long as the output that was cleared.
+	logf, err := os.OpenFile(s.logPath(name), os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_APPEND, 0o644)
 	if err != nil {
 		return err
 	}
@@ -175,6 +180,16 @@ func (s *Supervisor) Logs(name string, tail int) (string, error) {
 		lines = lines[len(lines)-tail:]
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+// ClearLogs empties an app's log file, and is safe while the app is running —
+// see the O_APPEND note in Start. A log that was never written is already
+// clear, so a missing file is success rather than an error.
+func (s *Supervisor) ClearLogs(name string) error {
+	if err := os.Truncate(s.logPath(name), 0); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // StopAll terminates every supervised process (used on xdev shutdown).
