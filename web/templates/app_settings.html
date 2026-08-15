@@ -685,10 +685,15 @@ function runAction(form) {
       // in place — reloading is exactly what this control exists to avoid, and
       // it would throw away the rest of the form as well.
       done();
-      show('error', 'failed', r.status === 403 || r.status === 401
-        ? 'your session or CSRF token expired — reload this page, sign in, and try again'
-        : 'xdev answered with a page rather than JSON (HTTP ' + r.status + '). '
-          + 'If this keeps happening the server may be older than this page — reload it.');
+      var why = 'HTTP ' + r.status + ' from POST ' + form.getAttribute('action');
+      if (r.status === 401 || r.status === 403) {
+        show('error', 'failed', 'your session or CSRF token expired (' + why + ') — reload this page, sign in, and try again');
+      } else if (r.status === 404) {
+        show('error', 'failed', 'xdev has no such app or endpoint (' + why + '). The app may have been '
+          + 'deleted, or this server is older than this page — reload it.');
+      } else {
+        show('error', 'failed', 'xdev answered with a page rather than JSON (' + why + ')');
+      }
       return;
     }
     return r.json().then(function (d) {

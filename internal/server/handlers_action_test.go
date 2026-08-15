@@ -156,3 +156,46 @@ func firstN(s string, n int) string {
 	}
 	return s
 }
+
+// The two 404s a running command can hit must both be readable by the page that
+// asked. Plain text reaches it only as "that was not JSON", which hides the one
+// useful fact — whether the app is gone or the endpoint does not exist.
+func TestNotFoundAnswersJSONWhenAsked(t *testing.T) {
+	srv, _ := actionFixture(t)
+
+	// An app id that is not there (deleted while the page was open).
+	w := postAction(t, srv, 9999, "migrate-status", "application/json")
+	if w.Code != 404 {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Errorf("content-type = %q, want JSON so the page can read it", ct)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("not JSON: %v (%s)", err, w.Body.String())
+	}
+	if !strings.Contains(got["error"], "9999") {
+		t.Errorf("error = %q, want it to name the missing app", got["error"])
+	}
+
+	// A path this build does not serve at all.
+	r := httptest.NewRequest("POST", "/apps/1/no-such-thing", nil)
+	r.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, r)
+	if rec.Code != 404 {
+		t.Fatalf("unknown path status = %d, want 404", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Errorf("unknown path content-type = %q, want JSON", ct)
+	}
+
+	// A browser navigating there still gets plain text, not a JSON blob.
+	r = httptest.NewRequest("GET", "/nope", nil)
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, r)
+	if ct := rec.Header().Get("Content-Type"); strings.Contains(ct, "application/json") {
+		t.Errorf("a plain browser request got JSON (%q)", ct)
+	}
+}

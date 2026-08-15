@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -62,23 +63,41 @@ func humanizeSince(t time.Time) string {
 }
 
 // appAndProject loads an app and its project, or writes a 404/500.
+//
+// The failures answer JSON to a caller that asked for it. Pages on this site
+// run actions with fetch, and a plain-text 404 from here reaches them as "the
+// answer was not JSON" — which the page can only report as something generic,
+// hiding the one useful fact: that this app id no longer exists.
 func (s *Server) appAndProject(w http.ResponseWriter, r *http.Request) (store.App, store.Project, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		http.Error(w, "bad app id", http.StatusBadRequest)
+		writeProblem(w, r, "bad app id", http.StatusBadRequest)
 		return store.App{}, store.Project{}, false
 	}
 	app, err := s.store.AppByID(id)
 	if err != nil {
-		http.NotFound(w, r)
+		writeProblem(w, r, fmt.Sprintf("no app with id %d — it may have been deleted; reload the page", id),
+			http.StatusNotFound)
 		return store.App{}, store.Project{}, false
 	}
 	proj, err := s.store.ProjectByID(app.ProjectID)
 	if err != nil {
-		http.Error(w, "project not found", http.StatusInternalServerError)
+		writeProblem(w, r, "project not found", http.StatusInternalServerError)
 		return store.App{}, store.Project{}, false
 	}
 	return app, proj, true
+}
+
+// writeProblem reports a request-level failure in whichever form the caller can
+// read: JSON for the pages that use fetch, plain text for a browser navigation.
+func writeProblem(w http.ResponseWriter, r *http.Request, msg string, status int) {
+	if wantsJSON(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		json.NewEncoder(w).Encode(map[string]string{"error": msg})
+		return
+	}
+	http.Error(w, msg, status)
 }
 
 // handleAppLogs shows the tail of an app's container logs.
