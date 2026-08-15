@@ -7,6 +7,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Config is the fully-resolved runtime configuration.
@@ -20,6 +21,14 @@ type Config struct {
 	ProjectsDir string
 	// Addr is the host:port the web UI listens on.
 	Addr string
+	// PublicHost is how this server is reached from outside when an app has no
+	// hostname — an IP or a bare name, from XDEV_PUBLIC_HOST. Empty is the
+	// normal, domain-having install: xdev never guesses an address.
+	//
+	// Setting it switches on port-only working: the domain field becomes
+	// optional, and an app created without one is addressed as
+	// http://<public host>:<its port>.
+	PublicHost string
 }
 
 // EnvFilePath locates the xdev.env the installer wrote — the file a service
@@ -53,7 +62,7 @@ func EnvFilePath() string {
 // Load builds a Config from explicit values, falling back to sensible
 // defaults. Empty arguments mean "use the default". Flag parsing happens in
 // main; this keeps the defaulting logic in one place.
-func Load(dataDir, projectsDir, addr string) (Config, error) {
+func Load(dataDir, projectsDir, addr, publicHost string) (Config, error) {
 	if dataDir == "" {
 		dataDir = "./data"
 	}
@@ -78,6 +87,7 @@ func Load(dataDir, projectsDir, addr string) (Config, error) {
 		DBPath:      filepath.Join(dataDir, "xdev.db"),
 		ProjectsDir: projectsDir,
 		Addr:        addr,
+		PublicHost:  strings.TrimSpace(publicHost),
 	}
 
 	// Ensure the directories exist up front so later code can assume them.

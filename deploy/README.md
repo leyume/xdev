@@ -183,6 +183,39 @@ not that the two report the same version: builds from a dirty working tree all
 carry the same `git describe` string, so comparing versions would skip every
 rebuild between commits.
 
+## A server with no domain (or one already running nginx)
+
+Two settings, and xdev stays off 80/443 entirely while apps are reached by port:
+
+```bash
+XDEV_CADDY_MODE=self        # the installer touches Caddy not at all
+XDEV_PUBLIC_HOST=203.0.113.10   # how this server is reached
+```
+
+`XDEV_CADDY_MODE=self` means nothing xdev owns binds the public ports, so an
+existing nginx/Apache keeps them. `XDEV_PUBLIC_HOST` makes the **Domain field
+optional**: an app created without one gets no hostname and no Caddy route, and
+is addressed as `http://203.0.113.10:<its host port>` — the address the UI links
+to, and the one written into a Laravel app's `APP_URL`. Open those ports in your
+firewall; they come from the range 20000–29999 and each app's is on its card.
+
+Keep projects on **dev**, not prod: prod hands every hostname to Let's Encrypt,
+and a domainless install has none to give it.
+
+Three things this mode does not cover, by design:
+
+- **Serve-mode static apps** publish no port at all — Caddy serves their files,
+  keyed by hostname — so they still need a domain. Anything that runs a process
+  (command-mode static, Go, and every container type) is fine.
+- **A compose stack's extra domains** still need hostnames: a slot's port is
+  recorded on its domain row, so a slot with no name has nowhere to keep its
+  port. The stack's first port (`${PORT}`) works normally.
+- **The deploy endpoints** are published per hostname, so a port-only app has no
+  public URL for them — the app's own port reaches the app, not the control
+  plane. Forward `/_xdev/hook/` from whatever fronts the machine, or use the ssh
+  route below, which needs nothing exposed. The app's settings page shows the
+  path and the on-this-machine URL instead of a payload URL.
+
 ### Triggering a deploy from CI, over SSH
 
 The deploy endpoints are normally published on the app's own hostname, which

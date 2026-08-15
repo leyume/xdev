@@ -75,6 +75,10 @@ type Service struct {
 	// deploying is the set of apps with a deploy running, so a second trigger
 	// is refused rather than allowed to build over the first.
 	deploying inflight
+	// reach is how this install is reached from outside — see address.go. The
+	// zero value is the old behaviour exactly: no public host, so every app is
+	// given a hostname and port URLs fall back to loopback.
+	reach Reach
 }
 
 // New creates an app Service. wpDir is the absolute data/wp directory used by
@@ -87,6 +91,13 @@ func New(st *store.Store, sel *runtime.Selector, sup *hostproc.Supervisor, wpDir
 // Secrets exposes the seal used for deploy keys, so the handler that generates
 // one before an app exists can store it the same way.
 func (s *Service) Secrets() *secrets.Box { return s.keys }
+
+// SetReach tells the service how this install is reached from outside, so a
+// Laravel app's APP_URL is written to match. Set once at startup from config.
+func (s *Service) SetReach(r Reach) { s.reach = r }
+
+// Reach returns it, for the handlers that render the same address in the UI.
+func (s *Service) Reach() Reach { return s.reach }
 
 // SetBackupsRoot tells the service where backup archives live, so a deploy can
 // put its pre-migration database dump beside them and the existing
@@ -208,11 +219,18 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 	// all serve this app. If left blank, default to the project's base domain
 	// directly (so the first app is served at the bare domain); if that's
 	// already taken, fall back to <app-slug>.<base-domain>.
+	//
+	// Unless this install has no domains at all. With a public host configured
+	// (XDEV_PUBLIC_HOST — a server reached by IP), a blank domain field is a
+	// decision rather than an omission: the app is reached at its published
+	// port, and inventing a hostname for it would only produce a dead link, a
+	// route Caddy cannot serve, and — for Laravel — an APP_URL pointing at a
+	// name that resolves nowhere.
 	hosts, err := parseHosts(opts.Domain)
 	if err != nil {
 		return store.App{}, err
 	}
-	if len(hosts) == 0 {
+	if len(hosts) == 0 && !s.reach.PortOnly() {
 		fallback := proj.BaseDomain
 		if s.store.DomainOwner(fallback) != 0 {
 			fallback = slug + "." + proj.BaseDomain
@@ -225,8 +243,11 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 		}
 	}
 	// The first name is the app's own: what the UI links to, and what the other
-	// hostnames are checked against for collisions.
-	domain := hosts[0]
+	// hostnames are checked against for collisions. "" is a port-only app.
+	domain := ""
+	if len(hosts) > 0 {
+		domain = hosts[0]
+	}
 
 	// Build the app row + on-disk layout, branching on execution model.
 	appDir := filepath.Join(proj.Dir, slug)
@@ -331,12 +352,22 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 
 	// Resolve the Adminer hostname up front so a collision fails before we
 	// persist anything.
+	//
+	// A port-only app gets no Adminer hostname — but it does keep the port, so
+	// Adminer is still reachable at http://<public host>:<adminer port>. The
+	// service exists either way; only the route does not.
 	var adminerDomain string
 	if adminerPort > 0 {
 		adminerDomain = normalizeHost(opts.AdminerDomain)
-		if adminerDomain == "" {
+		// Derived from the app's own hostname, when it has one. A port-only app
+		// has none to derive from, and gets none — but it keeps the port, so
+		// Adminer is still reachable at http://<public host>:<adminer port>.
+		// The service exists either way; only the route does not.
+		if adminerDomain == "" && domain != "" {
 			adminerDomain = secondaryPrefix(opts.Type) + "." + domain
 		}
+	}
+	if adminerDomain != "" {
 		if err := validHost(adminerDomain); err != nil {
 			discard()
 			return store.App{}, err
@@ -564,7 +595,7 @@ func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.P
 	// The .env the container sees, written outside app/ so a deploy cannot
 	// delete the app key with the checkout.
 	if opts.Type == "laravel" {
-		if err := writeLaravelEnv(underscore, app.Name, app.Domain, shared, dbName, dbPass); err != nil {
+		if err := writeLaravelEnv(underscore, app.Name, s.reach.Address(*app), shared, dbName, dbPass); err != nil {
 			os.RemoveAll(appDir)
 			return 0, err
 		}

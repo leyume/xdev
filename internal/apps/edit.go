@@ -83,7 +83,12 @@ func (s *Service) Update(id int64, opts EditOpts) (store.App, error) {
 	if err != nil {
 		return app, err
 	}
-	if len(hosts) == 0 {
+	//
+	// On an install with a public host (no domains at all) an empty field is the
+	// normal state, not a mistake: the app is reached at its port. Clearing the
+	// field there is how a hostname is *removed*, which is the only way to undo
+	// one, so it has to be allowed.
+	if len(hosts) == 0 && !s.reach.PortOnly() {
 		return app, errors.New("domain is required")
 	}
 	for _, h := range hosts {
@@ -91,7 +96,10 @@ func (s *Service) Update(id int64, opts EditOpts) (store.App, error) {
 			return app, fmt.Errorf("domain %q is already in use", h)
 		}
 	}
-	domain := hosts[0]
+	domain := ""
+	if len(hosts) > 0 {
+		domain = hosts[0]
+	}
 
 	svc, err := s.editServiceDomains(app, opts, hosts)
 	if err != nil {

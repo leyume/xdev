@@ -54,7 +54,7 @@ func runCreateAdmin(args []string) error {
 	}
 
 	// Only the data dir matters here; projects dir / addr default harmlessly.
-	cfg, err := config.Load(*dataDir, "", "")
+	cfg, err := config.Load(*dataDir, "", "", "")
 	if err != nil {
 		return err
 	}

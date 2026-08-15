@@ -114,6 +114,7 @@ type options struct {
 	acmeEmail    string
 	engine       string
 	localCertTTL string
+	publicHost   string
 }
 
 // serverFlags builds the flag set shared by the server and `xdev doctor`, with
@@ -136,6 +137,8 @@ func serverFlags() (*flag.FlagSet, *options) {
 	fs.IntVar(&o.httpPort, "http-port", envIntOr("XDEV_HTTP_PORT", 80), "public HTTP port for proxied sites")
 	fs.StringVar(&o.acmeEmail, "acme-email", envOr("XDEV_ACME_EMAIL", ""), "contact email for Let's Encrypt (production domains)")
 	fs.StringVar(&o.localCertTTL, "local-cert-lifetime", envOr("XDEV_LOCAL_CERT_LIFETIME", "2160h"), "validity of locally-issued (.test/.localhost) TLS certs; keep under ~8000h")
+
+	fs.StringVar(&o.publicHost, "public-host", envOr("XDEV_PUBLIC_HOST", ""), "address this server is reached at when an app has no domain (IP or name); enables port-only apps")
 
 	fs.StringVar(&o.hostsFile, "hosts-file", envOr("XDEV_HOSTS_FILE", "/etc/hosts"), "hosts file to manage local domains in")
 	fs.BoolVar(&o.manageHosts, "manage-hosts", envBoolOr("XDEV_MANAGE_HOSTS", true), "write local domains into the hosts file")
@@ -160,7 +163,7 @@ func pinCaddyDataDir(dataDir string) {
 }
 
 func runServer(o *options) error {
-	cfg, err := config.Load(o.dataDir, o.projectsDir, o.addr)
+	cfg, err := config.Load(o.dataDir, o.projectsDir, o.addr, o.publicHost)
 	if err != nil {
 		return err
 	}
@@ -199,6 +202,14 @@ func runServer(o *options) error {
 	// Where a container deploy writes its pre-migration database dump — the
 	// same directory the backups UI already lists and serves.
 	appSvc.SetBackupsRoot(filepath.Join(cfg.DataDir, "backups"))
+	// How apps are addressed. ProxyEnabled is true from the service's point of
+	// view because a hostname only exists when xdev means to route it — an app
+	// with no domain (port-only) falls through to its published port either way.
+	// The UI builds its own Reach with the *live* proxy state, since it also has
+	// to describe an install whose Caddy is not answering.
+	appSvc.SetReach(apps.Reach{
+		PublicHost: cfg.PublicHost, ProxyEnabled: true, HTTPSPort: o.httpsPort,
+	})
 	// Deploy keys generated for an add-app dialog nobody submitted.
 	if err := st.PruneUnboundDeployKeys(); err != nil {
 		log.Printf("prune unbound deploy keys: %v", err)

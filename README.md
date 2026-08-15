@@ -73,6 +73,13 @@ in [`deploy/README.md`](deploy/README.md).
   `test.com, www.test.com, test.com.ng`. Every name serves the same app and gets
   its own certificate; the first is the app's address. Add or remove one any time
   from the app's settings.
+- **No domain? Work by port.** Set `XDEV_PUBLIC_HOST` to the server's IP and the
+  Domain field becomes optional: an app created without one gets no hostname and
+  no route, and is addressed as `http://<ip>:<its port>` — which is what the UI
+  links to and what a Laravel app's `APP_URL` is written as. For a box with no
+  DNS, or one already running nginx on 80/443 (pair it with the installer's
+  `self` Caddy mode, and xdev never goes near those ports). Apps that do have a
+  domain are unaffected.
 - **Automatic HTTPS** — Caddy obtains/renews certs; local domains use an
   internal CA. Trust its root once for green locks — Caddy mints it when the
   first `.test`/`.localhost` site is served, and `xdev doctor` then prints the

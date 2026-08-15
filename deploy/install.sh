@@ -408,6 +408,13 @@ configure() {
     : "${XDEV_DISABLE_HTTPS_REDIRECT:=false}"
   fi
 
+  # A box with no DNS, or one already running another web server on 80/443, can
+  # address apps by port instead. Only worth asking when Caddy is somebody
+  # else's problem — with xdev's own Caddy there are domains to use.
+  if [ "$XDEV_CADDY_MODE" = self ]; then
+    ask XDEV_PUBLIC_HOST "Reach apps by port at which address? (IP or name; blank = apps need domains)" "${XDEV_PUBLIC_HOST:-}"
+  fi
+
   ask XDEV_ADDR "Admin UI address" "127.0.0.1:7331"
   # Admin account: only prompt on a fresh install. On a re-run the existing admin
   # is kept (create-admin is idempotent anyway). Setting XDEV_ADMIN_EMAIL+PASSWORD
@@ -509,6 +516,7 @@ XDEV_DISABLE_HTTPS_REDIRECT=${XDEV_DISABLE_HTTPS_REDIRECT:-false}
 XDEV_ACME_EMAIL=${XDEV_ACME_EMAIL:-}
 XDEV_LOCAL_CERT_LIFETIME=${XDEV_LOCAL_CERT_LIFETIME:-2160h}
 # --- hosts ---
+XDEV_PUBLIC_HOST=${XDEV_PUBLIC_HOST:-}
 XDEV_HOSTS_FILE=${XDEV_HOSTS_FILE:-/etc/hosts}
 XDEV_MANAGE_HOSTS=${XDEV_MANAGE_HOSTS}
 EOF

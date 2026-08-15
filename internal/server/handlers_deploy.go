@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -398,6 +399,35 @@ type deployInfo struct {
 	PushBlocked  string // why this app cannot take an upload ("" = it can)
 	NewToken     string // shown once, straight after being issued
 	Repo         string // owner/name, for the sample workflow
+
+	// Unrouted is set when this app has no hostname Caddy serves — a port-only
+	// install. The endpoints still exist and still work; what does not exist is
+	// a public URL for them, because the app's own published port goes to the
+	// app's container, not to xdev. Publishing them is then the operator's job
+	// (a location block in whatever fronts the server), or they can be driven
+	// from the machine itself over ssh. HookPath/LocalHookURL are what to use.
+	Unrouted     bool
+	HookPath     string // "/_xdev/hook/<id>" — the path, whoever publishes it
+	LocalHookURL string // the same endpoint on the control plane's own listener
+}
+
+// localAddr turns the control plane's listen address into one that can be
+// dialled from the machine itself. A wildcard bind ("", "0.0.0.0", "[::]")
+// listens everywhere but is not an address to connect to, so it becomes
+// loopback — which is what the ssh-triggered deploy path uses.
+func localAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		if addr == "" {
+			return "127.0.0.1:7331"
+		}
+		return addr
+	}
+	switch host {
+	case "", "0.0.0.0", "::", "[::]":
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
 }
 
 // newPushToken pulls a just-issued deploy token out of the redirect that
@@ -424,17 +454,30 @@ func (s *Server) appDeploys(app store.App, newToken string) *deployInfo {
 	if info.Ref == "" {
 		info.Ref = "the default branch"
 	}
-	base := "https://" + app.Domain
-	if s.httpsPort != 443 {
-		base += ":" + strconv.Itoa(s.httpsPort)
+	// The endpoints are published by Caddy on this app's own hostname, so a full
+	// URL exists only when it has one. Without it, say so rather than inventing
+	// an address: the app's published port reaches the app, not the control
+	// plane, so a port URL here would be confidently wrong and fail as a 404
+	// from the wrong server.
+	base := ""
+	if app.Domain != "" {
+		base = "https://" + app.Domain
+		if s.httpsPort != 443 {
+			base += ":" + strconv.Itoa(s.httpsPort)
+		}
 	}
+	info.Unrouted = base == ""
 	if app.HookID != "" {
-		info.HookURL = base + app.HookPath()
+		info.HookPath = app.HookPath()
+		info.LocalHookURL = "http://" + localAddr(s.cfg.Addr) + app.HookPath()
+		if base != "" {
+			info.HookURL = base + app.HookPath()
+		}
 		if secret, err := s.hookSecret(app); err == nil {
 			info.HookSecret = secret
 		}
 	}
-	if app.PushTokenHash != "" {
+	if app.PushTokenHash != "" && base != "" {
 		info.PushURL = base + store.PushPath
 	}
 	if repo, err := gitsrc.ParseRepo(app.GitURL); err == nil {
