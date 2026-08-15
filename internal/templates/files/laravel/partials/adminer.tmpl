@@ -1,0 +1,33 @@
+{{/* The bundled Adminer DB UI, as one compose service.
+
+     It lives in a partial rather than inline in the two compose files because
+     it is the one service an app can gain or lose after it is created: turning
+     Adminer off has to remove exactly this block from a file the user may have
+     edited, and turning it back on has to put exactly this block back. A single
+     definition is what keeps "the block xdev removes" and "the block xdev
+     writes" the same text — and keeps the local and prod stacks from drifting
+     apart, which they already had started to do.
+
+     Rendered on its own by templates.RenderPartial; included by both compose
+     templates behind {{if .AdminerPort}}, since port 0 means "no Adminer". */}}
+{{define "adminer_service"}}
+  adminer:
+    image: docker.io/library/adminer
+    container_name: {{.ProjectSlug}}_{{.AppSlug}}_adminer
+    restart: unless-stopped
+{{- if not .SharedDB}}
+    depends_on:
+      - db
+{{- end}}
+    environment:
+      ADMINER_DEFAULT_SERVER: {{if .SharedDB}}xdev-db{{else}}db{{end}}
+    volumes:
+      - ./db/adminer.css:/var/www/html/adminer.css:ro
+    ports:
+      - "{{.AdminerPort}}:8080"
+    networks:
+      - internal
+{{- if .SharedDB}}
+      - shareddb
+{{- end}}
+{{end}}

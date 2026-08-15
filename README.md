@@ -36,8 +36,9 @@ in [`deploy/README.md`](deploy/README.md).
   a dedicated container network.
 - **App templates** — Static (runs on your system Node, no container — serve a
   folder or run a build/dev command), WordPress, Laravel (auto-installs a fresh
-  Laravel + Octane/Swoole with MariaDB + Redis + Adminer); add your own by
-  dropping in a Compose template.
+  Laravel + Octane/Swoole with MariaDB + Redis, and an optional Adminer you can
+  switch off once the app is live); add your own by dropping in a Compose
+  template.
 - **Bring your own Compose** — pick the **Compose** type and upload or paste a
   `docker-compose.yml` / `compose.yml`: xdev runs your stack as-is. Say how many
   domains the stack needs and name them; xdev allocates a host port per domain

@@ -113,6 +113,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /jobs/{id}", s.auth.RequireAuth(s.handleJob))
 	mux.HandleFunc("POST /apps/{id}/action", s.auth.RequireAuth(s.handleAppAction))
 	mux.HandleFunc("POST /apps/{id}/db-dump", s.auth.RequireAuth(s.handleAppDumpToggle))
+	mux.HandleFunc("POST /apps/{id}/adminer", s.auth.RequireAuth(s.handleAppAdminerToggle))
 	mux.HandleFunc("GET /apps/{id}/deploys/partial", s.auth.RequireAuth(s.handleAppDeploysPartial))
 
 	// The two endpoints reachable from the internet. No session, no CSRF: they

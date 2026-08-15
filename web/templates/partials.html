@@ -84,6 +84,26 @@
 </div>
 {{end}}
 
+{{/* copy_field — a value xdev generated that has to be pasted somewhere else,
+     with the button that copies it. Used for the webhook URL and secret, the
+     deploy key, the push endpoint, and the deploy token shown once.
+
+     dict "Label" … "Value" … ["Hint" …] ["Rows" 3] ["Warn" true]
+     Rows > 0 renders a textarea (a key or a workflow file); anything else an
+     input. The click handler lives in layout.html, so this stays plain markup
+     and works the same in a fragment the page swaps in later. */}}
+{{define "copy_field"}}
+<label>{{.Label}}{{with .Hint}} <span class="muted">{{.}}</span>{{end}}</label>
+<div class="copy-row">
+  {{if .Rows}}
+  <textarea class="mono" readonly rows="{{.Rows}}" spellcheck="false" onfocus="this.select()">{{.Value}}</textarea>
+  {{else}}
+  <input type="text" class="mono" readonly value="{{.Value}}" spellcheck="false" onfocus="this.select()">
+  {{end}}
+  <button type="button" class="copybtn" data-copy>Copy</button>
+</div>
+{{end}}
+
 {{define "engine_card"}}
 <section class="card">
   <h3>Container engine</h3>

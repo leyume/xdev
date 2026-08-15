@@ -145,6 +145,13 @@ type CreateOpts struct {
 	// Laravel-only: hostname for the Adminer DB UI (blank = adminer.<app-domain>).
 	AdminerDomain string
 
+	// NoAdminer leaves the bundled Adminer out of a Laravel app: no container,
+	// no host port, no hostname. Negative because Adminer is the default — an
+	// app is easier to work on with a database client than without one, and a
+	// caller that has never heard of this field should get the same app it
+	// always got. Switchable afterwards either way (see SetAdminer).
+	NoAdminer bool
+
 	// Database mode for wordpress/laravel: "shared" (default — one platform
 	// xdev-db MariaDB) or "dedicated" (per-app db service).
 	DBMode string
@@ -447,7 +454,12 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 // for Adminer — returned so the caller can attach its route.
 func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.Project, appDir string) (adminerPort int, err error) {
 	ports := 1
-	if secondaryPrefix(opts.Type) != "" {
+	// The secondary UI is optional only where it is a convenience. Laravel's
+	// Adminer can be left out — an app that talks to its database perfectly well
+	// without a database client on a public hostname — while the mail server's
+	// admin console cannot, since there would then be no way to administer the
+	// server at all.
+	if secondaryPrefix(opts.Type) != "" && !(opts.NoAdminer && opts.Type == "laravel") {
 		ports = 2
 	}
 	alloc, err := s.allocPorts(ports)
@@ -1109,9 +1121,20 @@ func (s *Service) composeCtx(id int64) (store.App, runtime.Engine, string, strin
 	if err != nil {
 		return store.App{}, "", "", "", "", err
 	}
-	engine := s.sel.Current()
-	if app.Runtime != "" {
-		engine = runtime.Engine(app.Runtime)
+	// The app's own engine wins; the global default is only the fallback for a
+	// row created before projects pinned one. Asked in that order so an app that
+	// knows its engine never touches the selector — which is also what lets a
+	// compose stack be reasoned about without one.
+	engine := runtime.Engine(app.Runtime)
+	if engine == "" && s.sel != nil {
+		engine = s.sel.Current()
+	}
+	// No engine at all is a real state (neither docker nor podman detected), and
+	// this is reached from background goroutines — WriteEnv clears a Laravel
+	// config cache from one. Saying so beats execing "" and beats a panic that
+	// would take the whole control plane down with it.
+	if engine == "" {
+		return store.App{}, "", "", "", "", errors.New("no container engine is available — install docker or podman")
 	}
 	workdir := filepath.Dir(app.ComposePath)
 	pname := proj.Slug + "_" + app.Slug
