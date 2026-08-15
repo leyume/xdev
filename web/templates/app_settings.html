@@ -298,10 +298,9 @@ jobs:
            nothing about the others. The form still has a real action and method:
            run() only takes over when JS is there, and without it this posts and
            the server renders the output the old way. */}}
-      <div class="action-item" x-data="actionRow()">
+      <div class="action-item">
         <form class="action-row" method="post" action="/apps/{{$app.ID}}/action"
-              {{if .Destroy}}data-confirm="Run {{.Label}}? This changes the database."{{end}}
-              @submit="run($event)">
+              {{if .Destroy}}data-confirm="Run {{.Label}}? This changes the database."{{end}}>
           <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
           <input type="hidden" name="action" value="{{.Key}}">
           <div class="grow">
@@ -309,21 +308,21 @@ jobs:
             <p class="muted small action-help">{{.Help}}</p>
           </div>
           <button class="iconbtn tip{{if .Destroy}} danger{{end}}" type="submit"
-                  :class="{'is-busy': busy}" :disabled="busy"
                   data-tip="Run" aria-label="Run {{.Label}}">{{template "icon_play" .}}</button>
         </form>
         {{/* The output opens under the row it belongs to, not at the top of the
              card: on a list this long, output shown elsewhere means scrolling
-             away from the thing you just pressed. */}}
-        <div class="action-out" x-show="shown" x-cloak :class="{'is-failed': failed}">
+             away from the thing you just pressed. Filled in by the handler in
+             the script below; hidden until there is something in it. */}}
+        <div class="action-out" hidden>
           <div class="action-out-head">
-            <span class="status" :class="busy ? 'running' : (failed ? 'error' : 'ok')"></span>
-            <span class="small" x-text="busy ? 'running…' : (failed ? 'failed' : 'done')"></span>
+            <span class="status"></span>
+            <span class="small action-out-state"></span>
             <span class="spacer"></span>
-            <button class="iconbtn tip" type="button" data-tip="Hide" aria-label="Hide output"
-                    @click="shown = false">✕</button>
+            <button class="iconbtn tip" type="button" data-action-hide
+                    data-tip="Hide" aria-label="Hide output">✕</button>
           </div>
-          <pre class="logs" x-text="output"></pre>
+          <pre class="logs"></pre>
         </div>
       </div>
       {{end}}
@@ -625,64 +624,84 @@ jobs:
 // learn it finished is to ask. Polling stops as soon as no row is running,
 // which the fragment marks with data-running — the client should not have to
 // read status text to know whether to keep asking.
-// One maintenance command, run without leaving the page. The output belongs
-// under the row that was pressed: on a list this long, showing it at the top of
-// the card means scrolling away from the thing you just clicked.
+// Maintenance commands, run without leaving the page.
 //
-// A *failed* command is a normal answer, not a transport error — the server
-// says so with {failed:true} and a 200, because the output is the whole point
-// and an error status would send us down a path with no body to show. Only a
-// request that never arrived is handled as a failure of the page itself.
-function actionRow() {
-  return {
-    busy: false, shown: false, failed: false, output: '',
-    async run(e) {
-      // The confirmation for a destructive command runs first, in the capture
-      // phase, and prevents the event when it is declined. Alpine's own
-      // .prevent modifier would not notice, so this checks before acting.
-      if (e.defaultPrevented) return;
-      e.preventDefault();
-      if (this.busy) return;
-      this.busy = true;
-      this.shown = true;
-      this.failed = false;
-      this.output = '';
-      const form = e.target;
-      let r;
-      try {
-        r = await fetch(form.action, {
-          method: 'POST',
-          headers: { 'Accept': 'application/json' },
-          body: new FormData(form),
-          credentials: 'same-origin',
-        });
-      } catch (err) {
-        // Nothing answered at all. This is the only case that is really "we
-        // could not reach xdev" — everything below did get a reply.
-        this.busy = false;
-        this.failed = true;
-        this.output = 'no answer from xdev — check that it is still running, then try again';
-        return;
-      }
-      // An answer that is not JSON came from something that renders pages: a
-      // CSRF rejection, a session that expired into a login redirect, or an
-      // older xdev that predates this endpoint. Submitting the form for real
-      // shows whichever it is, instead of this row inventing a reason.
-      if (!(r.headers.get('content-type') || '').includes('application/json')) {
-        form.submit();
-        return;
-      }
-      const d = await r.json().catch(() => null);
-      this.busy = false;
-      if (!d) {
-        this.failed = true;
-        this.output = 'xdev answered with something this page could not read (HTTP ' + r.status + ')';
-        return;
-      }
-      this.failed = !r.ok || !!d.failed;
-      this.output = d.output || d.error || (this.failed ? 'the command failed with no output' : 'done — no output');
-    },
+// Delegated from the document in plain JS rather than wired per row with
+// Alpine, for the same reason start/stop/delete are: this is the one control on
+// the page whose whole job is to not reload it, so it should not stop working
+// if a component fails to initialise. The form keeps a real method and action,
+// so with no JS at all it posts and the server renders the output as before.
+document.addEventListener('submit', function (e) {
+  var form = e.target;
+  if (!form.classList || !form.classList.contains('action-row')) return;
+  // A declined confirmation for a destructive command has already prevented the
+  // event, in the capture phase. Do not run it anyway.
+  if (e.defaultPrevented) return;
+  e.preventDefault();
+  runAction(form);
+});
+
+// Hide an output panel again.
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest && e.target.closest('[data-action-hide]');
+  if (!btn) return;
+  var box = btn.closest('.action-out');
+  if (box) box.hidden = true;
+});
+
+function runAction(form) {
+  var item = form.closest('.action-item');
+  var box = item.querySelector('.action-out');
+  var dot = box.querySelector('.status');
+  var state = box.querySelector('.action-out-state');
+  var pre = box.querySelector('pre');
+  var btn = form.querySelector('button[type=submit]');
+  if (btn && btn.disabled) return; // already running
+
+  var show = function (cls, label, text) {
+    dot.className = 'status ' + cls;
+    state.textContent = label;
+    pre.textContent = text;
+    box.hidden = false;
+    box.classList.toggle('is-failed', cls === 'error');
   };
+  var done = function () {
+    if (btn) { btn.disabled = false; btn.classList.remove('is-busy'); }
+  };
+
+  if (btn) { btn.disabled = true; btn.classList.add('is-busy'); }
+  show('running', 'running…', '');
+
+  fetch(form.action, {
+    method: 'POST',
+    headers: { 'Accept': 'application/json' },
+    body: new FormData(form),
+    credentials: 'same-origin',
+  }).then(function (r) {
+    var ct = r.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      // Something that renders pages answered: a CSRF rejection, a session that
+      // expired into a login redirect, or an xdev older than this page. Say so
+      // in place — reloading is exactly what this control exists to avoid, and
+      // it would throw away the rest of the form as well.
+      done();
+      show('error', 'failed', r.status === 403 || r.status === 401
+        ? 'your session or CSRF token expired — reload this page, sign in, and try again'
+        : 'xdev answered with a page rather than JSON (HTTP ' + r.status + '). '
+          + 'If this keeps happening the server may be older than this page — reload it.');
+      return;
+    }
+    return r.json().then(function (d) {
+      done();
+      var failed = !r.ok || !!d.failed;
+      show(failed ? 'error' : 'ok', failed ? 'failed' : 'done',
+        d.output || d.error || (failed ? 'the command failed with no output' : 'done — no output'));
+    });
+  }).catch(function () {
+    // Nothing answered at all — the only case that is really unreachable.
+    done();
+    show('error', 'failed', 'no answer from xdev — check that it is still running, then try again');
+  });
 }
 
 function deployWatch(appID, running) {

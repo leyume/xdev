@@ -336,19 +336,25 @@ func TestActionRowsAreLabelledWithARunIcon(t *testing.T) {
 func TestActionsRunInPlace(t *testing.T) {
 	out := renderSettings(t, gitApp(), appSettingsForm{Name: "web"}, actionsViewData(nil))
 
-	if !strings.Contains(out, `x-data="actionRow()"`) {
-		t.Fatal("command rows have no per-row state, so one running would speak for all of them")
+	// Delegated plain JS, not a per-row component: this is the one control whose
+	// whole job is to not reload the page, so it must not depend on a component
+	// initialising.
+	if !strings.Contains(out, `if (!form.classList || !form.classList.contains('action-row')) return;`) {
+		t.Fatal("no delegated submit handler for the command rows")
 	}
-	if !strings.Contains(out, `@submit="run($event)"`) {
-		t.Error("the form still submits normally — the page would reload")
+	if strings.Contains(out, "actionRow()") {
+		t.Error("the rows still carry per-row Alpine state")
 	}
-	// A declined confirmation must not run the command. Alpine's .prevent
-	// modifier does not check defaultPrevented, so run() has to.
+	// Nothing anywhere in this path may navigate.
+	if strings.Contains(out, "form.submit();") {
+		t.Error("a fallback still submits the form, which reloads the page — the one thing this must not do")
+	}
+	// A declined confirmation must not run the command.
 	if !strings.Contains(out, "if (e.defaultPrevented) return;") {
-		t.Error("run() ignores a declined confirmation and would go ahead anyway")
+		t.Error("the handler ignores a declined confirmation and would go ahead anyway")
 	}
 	// The output element lives inside the row's own container.
-	item := regexp.MustCompile(`(?s)<div class="action-item".*?</div>\s*</div>`).FindString(out)
+	item := regexp.MustCompile(`(?s)<div class="action-item">.*?</div>\s*</div>`).FindString(out)
 	if item == "" || !strings.Contains(item, `class="action-out"`) {
 		t.Error("the output panel is not inside the row it belongs to")
 	}
@@ -396,19 +402,22 @@ func mergeViewData(vds ...viewData) viewData {
 	return out
 }
 
-// A non-JSON answer is not a network failure. An older server, a CSRF
-// rejection and an expired session all reply with a page — the row used to
-// report every one of them as "could not reach xdev", which sent people
-// checking a service that was running fine.
-func TestActionFallsBackWhenTheAnswerIsNotJSON(t *testing.T) {
+// A non-JSON answer is not a network failure, and it is not a reason to
+// navigate either. An older server, a CSRF rejection and an expired session all
+// reply with a page; the row used to call every one of them "could not reach
+// xdev", and then briefly to reload — which threw away the rest of the form.
+func TestActionExplainsANonJSONAnswerInPlace(t *testing.T) {
 	out := renderSettings(t, gitApp(), appSettingsForm{Name: "web"}, actionsViewData(nil))
 
-	if !strings.Contains(out, "form.submit();") {
-		t.Error("a non-JSON answer no longer falls back to a real submit, so the reason stays hidden")
+	if !strings.Contains(out, "your session or CSRF token expired") {
+		t.Error("a 401/403 is not explained as the expired session it is")
+	}
+	if !strings.Contains(out, "answered with a page rather than JSON") {
+		t.Error("an unexpected page answer is not reported as such")
 	}
 	// The "no answer" wording is reserved for a fetch that actually threw.
 	i := strings.Index(out, "no answer from xdev")
-	j := strings.Index(out, "} catch (err) {")
+	j := strings.Index(out, ".catch(function () {")
 	if i < 0 || j < 0 || i < j {
 		t.Error("the unreachable message is not confined to the catch block")
 	}
