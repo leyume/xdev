@@ -183,6 +183,43 @@ not that the two report the same version: builds from a dirty working tree all
 carry the same `git describe` string, so comparing versions would skip every
 rebuild between commits.
 
+### Triggering a deploy from CI, over SSH
+
+The deploy endpoints are normally published on the app's own hostname, which
+needs a domain and a working proxy. `xdev-deploy.sh` is the alternative for a
+server that has neither: it runs **on the server** and posts a signed webhook
+request to the control plane's own listener over loopback, so CI needs no
+inbound port, no proxy rule, and no certificate.
+
+```bash
+sudo install -m 0755 deploy/xdev-deploy.sh /usr/local/bin/xdev-deploy
+sudo install -d -m 0750 -o deploy -g deploy /etc/xdev/deploy
+# HOOK_ID / HOOK_SECRET come from the app's settings page, after you turn its
+# webhook on. REF is the branch the app tracks.
+sudo -u deploy tee /etc/xdev/deploy/myapp.conf >/dev/null <<'EOF'
+HOOK_ID=...
+HOOK_SECRET=...
+REF=main
+EOF
+sudo chmod 0600 /etc/xdev/deploy/myapp.conf
+```
+
+Then give CI an ssh key pinned to that one command, in the deploy account's
+`authorized_keys`:
+
+```
+command="/usr/local/bin/xdev-deploy myapp",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAA... ci@github
+```
+
+A forced command replaces whatever the client asks to run, so the workflow step
+is just `ssh deploy@your-server` with no arguments — and a leaked CI key can
+deploy that one app and do nothing else. The webhook secret never leaves the
+server.
+
+This works for any git-backed app, including Laravel: the deploy is a **pull**,
+so the server needs outbound access to the repository (and the app's deploy key
+for a private one), while CI only presses the button.
+
 ## Uninstall
 
 ```bash
