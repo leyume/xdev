@@ -201,6 +201,11 @@ func (s *Server) handleAppAction(w http.ResponseWriter, r *http.Request) {
 	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/settings"
 	action, out, err := s.apps.RunContainerAction(app.ID, r.FormValue("action"))
 	if err != nil && action.Key == "" {
+		// An unknown action key: nothing ran, so there is no output to show.
+		if wantsJSON(r) {
+			writeJSONError(w, err, http.StatusBadRequest)
+			return
+		}
 		redirectWithError(w, r, target, err)
 		return
 	}
@@ -215,6 +220,17 @@ func (s *Server) handleAppAction(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.AddEvent(proj.ID, app.ID, level, msg)
 
+	// The page runs these with fetch and opens the output under the row that was
+	// clicked, so nothing else on a long settings form is lost or scrolled away.
+	// A failed command still answers 200: the request succeeded, the *command*
+	// failed, and its output is the point — an error status would send the
+	// client down a path that has no body to show.
+	if wantsJSON(r) {
+		writeJSON(w, map[string]any{
+			"label": action.Label, "output": out, "failed": err != nil,
+		})
+		return
+	}
 	s.renderAppSettingsWith(w, r, app, proj, s.settingsFormFor(app), "", &actionResult{
 		Label:  action.Label,
 		Output: out,

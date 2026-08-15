@@ -693,6 +693,49 @@ button.iconbtn.danger:hover { color: var(--danger); background: rgba(245, 140, 1
   transition: opacity 0.12s ease, transform 0.12s ease;
 }
 .tip:hover::after, .tip:focus-visible::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* Label underneath instead. For a control at the top of a scrolling container —
+   the Deploys card heads the sticky side column, which is overflow-y: auto — a
+   label placed above is clipped by that container and simply never appears. */
+.tip.tip-below::after { bottom: auto; top: calc(100% + 8px); transform: translateX(-50%) translateY(-3px); }
+.tip.tip-below:hover::after, .tip.tip-below:focus-visible::after { transform: translateX(-50%) translateY(0); }
+
+/* Maintenance commands. The card collapses to its heading; each command is a
+   row of name + explanation with the run button always in the same place at the
+   right, rather than a column of buttons whose widths follow their labels. */
+.action-summary {
+  display: flex; align-items: center; gap: 12px;
+  cursor: pointer; list-style: none;
+}
+.action-summary::-webkit-details-marker { display: none; }
+.action-summary::before { content: "▸"; opacity: .5; font-size: 11px; }
+.action-box[open] > .action-summary::before { content: "▾"; }
+.action-list { margin-top: 12px; }
+.action-row {
+  display: flex; align-items: center; gap: var(--gap-sm);
+  padding: 10px 0;
+}
+.action-row .grow { min-width: 0; }
+.action-name { font-size: 13.5px; font-weight: 600; }
+.action-help { margin: 2px 0 0; }
+.chip.warn { color: var(--warn); border-color: rgba(240, 200, 120, 0.35); }
+
+/* A command's output, opened under its own row. */
+.action-out {
+  margin: 0 0 10px;
+  border: 1px solid var(--border-card);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.action-out.is-failed { border-color: rgba(245, 140, 140, 0.45); }
+.action-out-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border-card);
+}
+.action-out-head .status { margin: 0; }
+.action-out > pre.logs { border: 0; border-radius: 0; margin: 0; max-height: 24em; }
+.action-item + .action-item > .action-row { border-top: 1px solid var(--border-soft); }
 
 /* Native select options render with OS colors; force dark-theme-readable ones. */
 option { background: var(--bg); color: var(--text); }

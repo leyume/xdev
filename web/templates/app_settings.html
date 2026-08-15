@@ -265,32 +265,69 @@ jobs:
      code change in internal/apps/actions.go. */}}
 {{with .Actions}}
 <section class="card form-card">
-  <h3>Run a command</h3>
-  <p class="muted small">These run inside <code>{{$app.Slug}}</code>'s container, as the app.
-    The app has to be running.</p>
+  {{/* Collapsed by default: eleven maintenance commands are a reference, not
+       something anyone is part-way through, and open they pushed the settings
+       form off the screen. Forced open when an action has just run — the output
+       is the only thing the button was pressed for. */}}
+  <details class="action-box"{{if $.ActionResult}} open{{end}}>
+    <summary class="action-summary">
+      <h3 style="margin:0">Run a command</h3>
+      <span class="chip">{{len .}}</span>
+      <span class="spacer"></span>
+      <span class="muted small nowrap">inside {{$app.Slug}}</span>
+    </summary>
 
-  {{with $.ActionResult}}
-  <div class="{{if .Failed}}alert{{else}}note{{end}}" style="margin:8px 0">
-    <strong>{{.Label}}{{if .Failed}} — failed{{end}}</strong>
-    <pre class="mono small" style="white-space:pre-wrap;margin:6px 0 0;max-height:24em;overflow:auto">{{.Output}}</pre>
-  </div>
-  {{end}}
+    <p class="muted small">These run inside <code>{{$app.Slug}}</code>'s container, as the app.
+      The app has to be running.</p>
 
-  <table class="rows">
-    {{range .}}
-    <tr>
-      <td style="width:14em">
-        <form method="post" action="/apps/{{$app.ID}}/action"
-              {{if .Destroy}}data-confirm="Run {{.Label}}? This changes the database."{{end}}>
+    {{with $.ActionResult}}
+    <div class="{{if .Failed}}alert{{else}}note{{end}}" style="margin:8px 0">
+      <strong>{{.Label}}{{if .Failed}} — failed{{end}}</strong>
+      <pre class="mono small" style="white-space:pre-wrap;margin:6px 0 0;max-height:24em;overflow:auto">{{.Output}}</pre>
+    </div>
+    {{end}}
+
+    {{/* One row per command: what it is called, what it does underneath, and the
+         run button at the far right — the same shape every row, so the control
+         is always in the same place and the list reads top-to-bottom instead of
+         as a column of buttons whose widths differ. */}}
+    <div class="action-list">
+      {{range .}}
+      {{/* Each row owns its own state, so one command running (or failing) says
+           nothing about the others. The form still has a real action and method:
+           run() only takes over when JS is there, and without it this posts and
+           the server renders the output the old way. */}}
+      <div class="action-item" x-data="actionRow()">
+        <form class="action-row" method="post" action="/apps/{{$app.ID}}/action"
+              {{if .Destroy}}data-confirm="Run {{.Label}}? This changes the database."{{end}}
+              @submit="run($event)">
           <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
           <input type="hidden" name="action" value="{{.Key}}">
-          <button type="submit" {{if .Destroy}}class="danger"{{end}}>{{.Label}}</button>
+          <div class="grow">
+            <div class="action-name">{{.Label}}{{if .Destroy}} <span class="chip warn">changes data</span>{{end}}</div>
+            <p class="muted small action-help">{{.Help}}</p>
+          </div>
+          <button class="iconbtn tip{{if .Destroy}} danger{{end}}" type="submit"
+                  :class="{'is-busy': busy}" :disabled="busy"
+                  data-tip="Run" aria-label="Run {{.Label}}">{{template "icon_play" .}}</button>
         </form>
-      </td>
-      <td class="muted small">{{.Help}}</td>
-    </tr>
-    {{end}}
-  </table>
+        {{/* The output opens under the row it belongs to, not at the top of the
+             card: on a list this long, output shown elsewhere means scrolling
+             away from the thing you just pressed. */}}
+        <div class="action-out" x-show="shown" x-cloak :class="{'is-failed': failed}">
+          <div class="action-out-head">
+            <span class="status" :class="busy ? 'running' : (failed ? 'error' : 'ok')"></span>
+            <span class="small" x-text="busy ? 'running…' : (failed ? 'failed' : 'done')"></span>
+            <span class="spacer"></span>
+            <button class="iconbtn tip" type="button" data-tip="Hide" aria-label="Hide output"
+                    @click="shown = false">✕</button>
+          </div>
+          <pre class="logs" x-text="output"></pre>
+        </div>
+      </div>
+      {{end}}
+    </div>
+  </details>
 
   {{/* The dump is the only way back from a migration that fails halfway, so
        turning it off is a decision the page states plainly rather than hides
@@ -561,15 +598,17 @@ jobs:
     <div class="title-row">
       <h3 style="margin:0">Deploys</h3>
       <span class="spacer"></span>
-      <button type="button" @click="refresh()">Refresh</button>
+      <button class="iconbtn tip tip-below" type="button" data-tip="Refresh" aria-label="Refresh"
+              @click="refresh()">{{template "icon_refresh" .}}</button>
       {{/* Clear is a form rather than a fetch so it goes through the same CSRF
            check as every other mutation, and so it still works with no JS. It
            only appears when there is something to clear. */}}
       {{if $.Deploys}}
-      <form method="post" action="/apps/{{$app.ID}}/deploys/clear" style="display:inline"
+      <form class="inline" method="post" action="/apps/{{$app.ID}}/deploys/clear"
             data-confirm="Clear this app's deploy history? A deploy that is still running is kept.">
         <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-        <button class="danger" type="submit">Clear</button>
+        <button class="iconbtn tip tip-below danger" type="submit"
+                data-tip="Clear history" aria-label="Clear deploy history">{{template "icon_trash" .}}</button>
       </form>
       {{end}}
     </div>
@@ -585,6 +624,48 @@ jobs:
 // learn it finished is to ask. Polling stops as soon as no row is running,
 // which the fragment marks with data-running — the client should not have to
 // read status text to know whether to keep asking.
+// One maintenance command, run without leaving the page. The output belongs
+// under the row that was pressed: on a list this long, showing it at the top of
+// the card means scrolling away from the thing you just clicked.
+//
+// A *failed* command is a normal answer, not a transport error — the server
+// says so with {failed:true} and a 200, because the output is the whole point
+// and an error status would send us down a path with no body to show. Only a
+// request that never arrived is handled as a failure of the page itself.
+function actionRow() {
+  return {
+    busy: false, shown: false, failed: false, output: '',
+    async run(e) {
+      // The confirmation for a destructive command runs first, in the capture
+      // phase, and prevents the event when it is declined. Alpine's own
+      // .prevent modifier would not notice, so this checks before acting.
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      if (this.busy) return;
+      this.busy = true;
+      this.shown = true;
+      this.failed = false;
+      this.output = '';
+      try {
+        const r = await fetch(e.target.action, {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' },
+          body: new FormData(e.target),
+          credentials: 'same-origin',
+        });
+        const d = await r.json().catch(() => null);
+        if (!d) throw 0;
+        this.failed = !r.ok || !!d.failed;
+        this.output = d.output || d.error || (this.failed ? 'the command failed with no output' : 'done — no output');
+      } catch (err) {
+        this.failed = true;
+        this.output = 'could not reach xdev — check that it is still running, then try again';
+      }
+      this.busy = false;
+    },
+  };
+}
+
 function deployWatch(appID, running) {
   return {
     busy: running,

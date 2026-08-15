@@ -221,11 +221,12 @@
         {{/* Scoped to this project — the same handler clears everything when no
              project id is sent, which is what the Activity page does. */}}
         {{if .Activity}}
-        <form method="post" action="/events/clear" style="display:inline"
+        <form class="inline" method="post" action="/events/clear"
               data-confirm="Clear the activity log for this project?">
           <input type="hidden" name="csrf_token" value="{{.CSRF}}">
           <input type="hidden" name="project_id" value="{{.Project.ID}}">
-          <button class="danger" type="submit">Clear</button>
+          <button class="iconbtn tip danger" type="submit"
+                  data-tip="Clear activity" aria-label="Clear this project's activity">{{template "icon_trash" .}}</button>
         </form>
         {{end}}
       </div>
