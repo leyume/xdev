@@ -597,6 +597,15 @@ Invariants worth keeping:
   install (idempotent, `--dry-run`, `--revert`); new installs get it from
   `install.sh`. It exits without changing anything when Caddy isn't
   containerized, since a prefix would break paths that already work.
+- **`deploy/caddy-public-ports.sh`** moves an install from the preview ports
+  (8081/8444) onto 80/443 by rewriting three settings in `xdev.env` and
+  restarting — the Caddy container is host-networked, so it rebinds from the
+  pushed config and is never touched. It refuses to run while either port is
+  occupied: a Caddy that cannot bind a listener drops the *whole* config, so a
+  conflict costs every site, not the two ports being moved. Up on high ports
+  Caddy could not answer ACME HTTP-01, so it holds almost no certificates; the
+  script waits and reports each hostname as its certificate lands. Do not
+  iterate on it — Let's Encrypt allows 5 certificates per name per week.
 - **`XDEV_CADDY_ROOT_PREFIX` (`Manager.hostPath`)** — a containerized Caddy only
   opens what is bind-mounted into it, so a static root that is a real host path
   (`/home/li/ui/xyz`, or anything under `projects/`) resolves to nothing inside
