@@ -100,11 +100,27 @@ body="$(printf '{"ref":"refs/heads/%s","deleted":false,"after":"%s"}' "$REF" "$s
 # own, and the secret never crosses the network).
 sig="$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$HOOK_SECRET" | awk '{print $NF}')"
 
-# --fail-with-body so a rejection prints xdev's reason and still exits non-zero,
-# which is what makes the CI step go red with something readable in the log.
-curl --fail-with-body -sS -X POST "http://$ADDR/_xdev/hook/$HOOK_ID" \
+# Print the answer either way, and exit non-zero on an error status — that is
+# what makes a CI step go red with something readable rather than silently
+# "succeeding" on a 401.
+#
+# Done by hand rather than with --fail-with-body: curl only grew that in 7.76,
+# and Ubuntu 20.04 ships 7.68, where it is a hard "option is unknown" error.
+# Plain --fail is no substitute — it discards the body, which is the only place
+# xdev says *why* it refused.
+resp="$(mktemp)"
+trap 'rm -f "$resp"' EXIT
+
+code="$(curl -sS -o "$resp" -w '%{http_code}' -X POST "http://$ADDR/_xdev/hook/$HOOK_ID" \
   -H "X-GitHub-Event: push" \
   -H "X-Hub-Signature-256: sha256=$sig" \
   -H "Content-Type: application/json" \
-  --data "$body"
-echo
+  --data "$body")" || die "could not reach xdev at $ADDR — is the service running?"
+
+cat "$resp"; echo
+case "$code" in
+  2*) ;;
+  404) die "HTTP 404 — no app has that HOOK_ID, or its webhook is switched off" ;;
+  401) die "HTTP 401 — HOOK_SECRET does not match the one on the app's settings page" ;;
+  *)   die "xdev refused the request (HTTP $code)" ;;
+esac
