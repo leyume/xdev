@@ -23,6 +23,11 @@ type Reconciler struct {
 	store     *store.Store
 	proxy     *proxy.Manager
 	hostsPath string
+	// selfAddr is xdev's own listen address, the upstream for the per-app deploy
+	// endpoints published under /_xdev/ on each app's hostname. Empty disables
+	// them — with nowhere to send a webhook, publishing the path would only
+	// produce a 502.
+	selfAddr string
 
 	// syncMu serializes Sync so a background retry and a handler mutation can't
 	// interleave two pushes (and two enabled writes) for the same state.
@@ -42,6 +47,11 @@ type Reconciler struct {
 func NewReconciler(st *store.Store, pm *proxy.Manager, hostsPath string, manageHosts bool) *Reconciler {
 	return &Reconciler{store: st, proxy: pm, hostsPath: hostsPath, ManageHosts: manageHosts}
 }
+
+// SetSelfAddr tells the reconciler where xdev itself listens, so it can publish
+// the deploy endpoints (/_xdev/hook/…, /_xdev/deploy) on the hostnames of the
+// apps that have them switched on.
+func (r *Reconciler) SetSelfAddr(addr string) { r.selfAddr = addr }
 
 // Enabled reports whether Caddy routing is live (the last push succeeded).
 func (r *Reconciler) Enabled() bool { return r.enabled.Load() }
@@ -67,7 +77,10 @@ func (r *Reconciler) Sync() error {
 	if err != nil {
 		return err
 	}
-	routes := make([]proxy.Route, 0, len(infos))
+	// Deploy endpoints go in first: they are path-scoped, and Caddy takes the
+	// first matching route, so an app's own (host-wide) route has to come after
+	// or it would swallow /_xdev/ too.
+	routes := r.endpointRoutes()
 	hostnames := make([]string, 0, len(infos))
 	for _, in := range infos {
 		route := proxy.Route{Host: in.Host, Internal: in.Local}
@@ -101,6 +114,38 @@ func (r *Reconciler) Sync() error {
 		}
 	}
 	return nil
+}
+
+// endpointRoutes publishes the deploy endpoints of every app that has one, on
+// that app's own hostname. Each is a path-scoped route to xdev itself.
+//
+// Only the paths an app actually enabled are routed: an app with a webhook and
+// no push token exposes the webhook path alone. An app with neither gets no
+// route at all, so the control plane is reachable from the internet only where
+// somebody deliberately switched it on — and then only at a path that answers
+// nothing without a signature or a token.
+func (r *Reconciler) endpointRoutes() []proxy.Route {
+	if r.selfAddr == "" {
+		return nil
+	}
+	apps, err := r.store.AppsWithEndpoints()
+	if err != nil {
+		log.Printf("deploy endpoints: %v", err)
+		return nil
+	}
+	routes := make([]proxy.Route, 0, len(apps))
+	for _, a := range apps {
+		paths := a.EndpointPaths()
+		if len(paths) == 0 || a.Domain == "" {
+			continue
+		}
+		routes = append(routes, proxy.Route{
+			Host:     a.Domain,
+			Paths:    paths,
+			Upstream: r.selfAddr,
+		})
+	}
+	return routes
 }
 
 // RetryUntilLive re-attempts Sync every interval until routing goes live, then

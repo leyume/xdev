@@ -13,6 +13,7 @@ package apps
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -35,6 +36,10 @@ type EditOpts struct {
 	// SourceDir re-points the app at a different directory on the host; blank
 	// puts it back on the managed <project.dir>/<slug>.
 	SourceDir string
+	// Git changes which repository, branch, or subdirectory a git-backed app
+	// deploys from. A blank URL disconnects it: the files stay exactly as they
+	// are, the app just stops being deployable.
+	Git GitOpts
 
 	// Proxy apps.
 	Upstream string
@@ -133,6 +138,15 @@ func (s *Service) Update(id int64, opts EditOpts) (store.App, error) {
 	}
 	if err := s.store.UpdateApp(updated); err != nil {
 		return app, err
+	}
+	// A key generated against this app's form binds here, the same way Create
+	// binds one. Non-fatal: the settings are saved either way, and an unbound
+	// key is pruned on its own — losing the binding costs a regenerate, while
+	// failing the save would lose everything else the user just typed.
+	if updated.IsGit() && opts.Git.KeyID > 0 {
+		if err := s.store.BindDeployKey(opts.Git.KeyID, app.ID); err != nil {
+			log.Printf("bind deploy key %d to app %d: %v", opts.Git.KeyID, app.ID, err)
+		}
 	}
 	sslMode, isLocal := "internal", true
 	if proj.Environment == "prod" {
@@ -241,7 +255,21 @@ func (s *Service) editHostApp(app *store.App, opts EditOpts) error {
 	if err != nil {
 		return err
 	}
+	gitURL, gitRef, gitSubdir, err := resolveGit(opts.Git)
+	if err != nil {
+		return err
+	}
+	// Attaching a repository to an app that has files already would mean
+	// clearing them to make room for a clone. That is a new app, not an edit —
+	// and the settings page is not where anything gets deleted.
+	if gitURL != "" && !app.IsGit() {
+		return errors.New("this app was not created from a repository — add a new app to deploy from git, so nothing here is overwritten")
+	}
+	if gitURL != "" && src != "" {
+		return errors.New("a git-backed app builds in the folder xdev cloned into — clear the app folder, or clear the repository")
+	}
 	app.SourceDir = src
+	app.GitURL, app.GitRef, app.GitSubdir = gitURL, gitRef, gitSubdir
 
 	mode := opts.ServeMode
 	if mode != store.ServeCommand {

@@ -393,6 +393,21 @@ code {
 /* uPlot charts adopt the dark theme */
 .uplot, .u-legend { color: var(--muted); font-size: 12px; }
 
+/* Deploy steps — one collapsed row per command a deploy ran, so a build reads
+   as a list rather than a wall of output. */
+.steps { margin-top: 6px; border: 1px solid var(--border-card); border-radius: var(--radius-sm); overflow: hidden; }
+.steps .step + .step { border-top: 1px solid var(--border-card); }
+.steps .step > summary {
+  cursor: pointer; padding: 6px 10px; display: flex; align-items: center; gap: 8px;
+  list-style: none;
+}
+.steps .step > summary::-webkit-details-marker { display: none; }
+.steps .step > summary::before { content: "▸"; opacity: .5; font-size: 11px; }
+.steps .step[open] > summary::before { content: "▾"; }
+.steps .step > summary:hover { background: var(--code-bg); }
+.steps .step-failed > summary { color: var(--danger, #ff6b6b); }
+.steps .step > pre.logs { border: 0; border-radius: 0; max-height: 40vh; margin: 0; }
+
 /* Logs + code editor */
 pre.logs {
   background: var(--code-bg);

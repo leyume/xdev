@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -40,6 +41,7 @@ import (
 	"xdev/internal/projects"
 	"xdev/internal/proxy"
 	"xdev/internal/runtime"
+	"xdev/internal/secrets"
 	"xdev/internal/server"
 	"xdev/internal/store"
 )
@@ -186,11 +188,35 @@ func runServer(o *options) error {
 	// Supervisor for static (host) apps; their log files live under the data dir.
 	sup := hostproc.NewSupervisor(filepath.Join(cfg.DataDir, "run"))
 	defer sup.StopAll()
-	appSvc := apps.New(st, engine, sup, filepath.Join(cfg.DataDir, "wp"))
+	// Encrypts the deploy keys of git-backed apps. Created on first use beside
+	// the database; a failure here is fatal because starting without it would
+	// mean every existing key silently stops decrypting.
+	keys, err := secrets.New(filepath.Join(cfg.DataDir, "secret.key"))
+	if err != nil {
+		return fmt.Errorf("secret key: %w", err)
+	}
+	appSvc := apps.New(st, engine, sup, filepath.Join(cfg.DataDir, "wp"), keys)
+	// Where a container deploy writes its pre-migration database dump — the
+	// same directory the backups UI already lists and serves.
+	appSvc.SetBackupsRoot(filepath.Join(cfg.DataDir, "backups"))
+	// Deploy keys generated for an add-app dialog nobody submitted.
+	if err := st.PruneUnboundDeployKeys(); err != nil {
+		log.Printf("prune unbound deploy keys: %v", err)
+	}
+	// Deploys run in goroutines, so any that were in flight died with the last
+	// process. Close them out, or they claim to be running forever — and a
+	// running deploy is how the next one is refused.
+	if err := st.ReapRunningDeployments(); err != nil {
+		log.Printf("reap interrupted deployments: %v", err)
+	}
 
 	// --- reverse proxy (Caddy) ----------------------------------------------
 	pm := proxy.NewManager(o.caddyAdmin, o.httpsPort, o.httpPort, o.acmeEmail, o.localCertTTL)
 	recon := platform.NewReconciler(st, pm, o.hostsFile, o.manageHosts)
+	// Where Caddy sends the per-app deploy endpoints (/_xdev/…). A wildcard or
+	// blank host in the listen address means "every interface"; Caddy has to dial
+	// something specific, and loopback is the one that is always right.
+	recon.SetSelfAddr(loopbackAddr(cfg.Addr))
 	if o.caddyManage {
 		// Refresh the local CA intermediate when it has less than one full leaf
 		// lifetime left, so newly-issued local certs always get their full
@@ -283,6 +309,22 @@ func runServer(o *options) error {
 		defer cancel()
 		return httpServer.Shutdown(ctx)
 	}
+}
+
+// loopbackAddr turns xdev's listen address into one Caddy can dial. A listen
+// address may name every interface (":7331", "0.0.0.0:7331") — fine to bind,
+// useless to connect to — so the host half is replaced with loopback, which is
+// reachable whatever xdev bound. A specific address (127.0.0.1:7331, or an
+// interface IP) is kept as it is.
+func loopbackAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
 }
 
 // engineOverride maps the -engine flag/env value to a runtime.Engine, or "" for

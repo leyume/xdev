@@ -57,6 +57,25 @@ type App struct {
 	// the one xdev would create at <project.dir>/<slug> ("" = managed; see
 	// migration 0010). Absolute path, validated on the way in.
 	SourceDir string
+	// Git source (migration 0011): a host app whose code is a clone of a
+	// repository rather than a scaffold or a folder the user points at. Mutually
+	// exclusive with SourceDir — a deploy resets the working tree hard.
+	GitURL      string // canonical https://host/owner/name ("" = not a git app)
+	GitRef      string // branch or tag ("" = the remote's default branch)
+	GitSubdir   string // build from this subdirectory ("" = the repo root)
+	DeployedSHA string // commit currently built and served ("" = never deployed)
+	DeployedAt  string
+	// Deploy endpoints served on this app's own hostname under /_xdev/
+	// (migration 0012). Both are off until switched on from the settings page.
+	HookID        string // webhook path segment ("" = no webhook)
+	HookSecret    string // HMAC secret shared with GitHub, encrypted at rest
+	PushTokenHash string // sha256 of the CI deploy token ("" = push disabled)
+	PushTokenHint string // its first few characters, for the UI
+	// SkipDBDump opts a container app out of the database dump a deploy takes
+	// before applying pending migrations (migration 0013). Off by default: the
+	// dump is the only way back from a migration that fails halfway, since
+	// files roll back with a rename and a schema does not.
+	SkipDBDump bool
 	// Proxy-app config (see migration 0007).
 	Upstream  string // URL the domain forwards to (http(s)://host[:port])
 	DBMode    string // "shared" = uses xdev-db; "" = dedicated / n/a (migration 0008)
@@ -74,6 +93,14 @@ func (a App) IsHostProc() bool { return a.Type == TypeStatic || a.Type == TypeGo
 // scaffolded into and never deleted with the app — xdev is a tenant there, not
 // its owner.
 func (a App) IsExternalDir() bool { return a.SourceDir != "" }
+
+// IsGit reports whether the app's code comes from a repository xdev clones and
+// keeps up to date, rather than files somebody puts there.
+func (a App) IsGit() bool { return a.GitURL != "" }
+
+// HasEndpoints reports whether this app publishes any /_xdev/ deploy endpoint,
+// which is what decides whether Caddy routes those paths for its hostname.
+func (a App) HasEndpoints() bool { return a.HookID != "" || a.PushTokenHash != "" }
 
 // IsProxy reports whether the app is only a route to another server.
 func (a App) IsProxy() bool { return a.Type == TypeProxy }
@@ -94,12 +121,12 @@ func (s *Store) CreateApp(a App) (App, error) {
 		`INSERT INTO apps (project_id, name, slug, type, runtime, status, subdomain,
 		                   cpu_limit, mem_limit, port, compose_path,
 		                   serve_mode, root_dir, build_cmd, start_cmd, upstream, db_mode, wp_mode,
-		                   source_dir)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   source_dir, git_url, git_ref, git_subdir)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ProjectID, a.Name, a.Slug, a.Type, a.Runtime, statusOr(a.Status),
 		a.Domain, a.CPULimit, a.MemLimit, a.Port, a.ComposePath,
 		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd, a.Upstream, a.DBMode, a.WPMode,
-		a.SourceDir,
+		a.SourceDir, a.GitURL, a.GitRef, a.GitSubdir,
 	)
 	if err != nil {
 		return App{}, err
@@ -151,10 +178,12 @@ func (s *Store) UpdateApp(a App) error {
 	_, err := s.db.Exec(
 		`UPDATE apps SET name = ?, subdomain = ?, cpu_limit = ?, mem_limit = ?, port = ?,
 		                 serve_mode = ?, root_dir = ?, build_cmd = ?, start_cmd = ?, upstream = ?,
-		                 source_dir = ?, updated_at = datetime('now')
+		                 source_dir = ?, git_url = ?, git_ref = ?, git_subdir = ?,
+		                 updated_at = datetime('now')
 		 WHERE id = ?`,
 		a.Name, a.Domain, a.CPULimit, a.MemLimit, a.Port,
-		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd, a.Upstream, a.SourceDir, a.ID,
+		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd, a.Upstream, a.SourceDir,
+		a.GitURL, a.GitRef, a.GitSubdir, a.ID,
 	)
 	return err
 }
@@ -227,9 +256,21 @@ func (s *Store) ResumableStaticApps() ([]App, error) {
 	return out, rows.Err()
 }
 
+// SetDeployed records the commit an app is now built from. Written by a deploy
+// (and by the first clone), separately from UpdateApp: it is observed state,
+// not something the settings form can set.
+func (s *Store) SetDeployed(id int64, sha string) error {
+	_, err := s.db.Exec(
+		`UPDATE apps SET deployed_sha = ?, deployed_at = datetime('now'),
+		                 updated_at = datetime('now') WHERE id = ?`, sha, id)
+	return err
+}
+
 const appSelect = `SELECT id, project_id, name, slug, type, runtime, status, subdomain,
 	cpu_limit, mem_limit, port, compose_path,
 	serve_mode, root_dir, build_cmd, start_cmd, upstream, db_mode, wp_mode, source_dir,
+	git_url, git_ref, git_subdir, deployed_sha, deployed_at,
+	hook_id, hook_secret, push_token_hash, push_token_hint, skip_db_dump,
 	created_at, updated_at FROM apps`
 
 func (s *Store) scanApp(row *sql.Row) (App, error) {
@@ -237,7 +278,9 @@ func (s *Store) scanApp(row *sql.Row) (App, error) {
 	err := row.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Slug, &a.Type, &a.Runtime,
 		&a.Status, &a.Domain, &a.CPULimit, &a.MemLimit, &a.Port, &a.ComposePath,
 		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.DBMode, &a.WPMode,
-		&a.SourceDir, &a.CreatedAt, &a.UpdatedAt)
+		&a.SourceDir, &a.GitURL, &a.GitRef, &a.GitSubdir, &a.DeployedSHA, &a.DeployedAt,
+		&a.HookID, &a.HookSecret, &a.PushTokenHash, &a.PushTokenHint, &a.SkipDBDump,
+		&a.CreatedAt, &a.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return App{}, ErrNotFound
 	}
@@ -249,7 +292,9 @@ func scanAppRows(rows *sql.Rows) (App, error) {
 	err := rows.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Slug, &a.Type, &a.Runtime,
 		&a.Status, &a.Domain, &a.CPULimit, &a.MemLimit, &a.Port, &a.ComposePath,
 		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.DBMode, &a.WPMode,
-		&a.SourceDir, &a.CreatedAt, &a.UpdatedAt)
+		&a.SourceDir, &a.GitURL, &a.GitRef, &a.GitSubdir, &a.DeployedSHA, &a.DeployedAt,
+		&a.HookID, &a.HookSecret, &a.PushTokenHash, &a.PushTokenHint, &a.SkipDBDump,
+		&a.CreatedAt, &a.UpdatedAt)
 	return a, err
 }
 

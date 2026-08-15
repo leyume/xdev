@@ -21,6 +21,282 @@
 
 {{if .Error}}<div class="alert form-error">{{.Error}}</div>{{end}}
 {{if .Saved}}<div class="alert ok">Saved{{if eq $app.Status "running"}} and restarted{{end}}.</div>{{end}}
+{{if .JustStarted}}<div class="alert ok">Deploy started — it runs in the background; watch it below.</div>{{end}}
+{{if eq .HookState "on"}}<div class="alert ok">Webhook enabled. Add the URL and secret below to the repository.</div>{{end}}
+{{if eq .HookState "off"}}<div class="alert warn-banner">Webhook disabled — that URL now answers nothing. Remove it from the repository too.</div>{{end}}
+{{if .Rotated}}<div class="alert warn-banner">New deploy key generated — the old one no longer works.
+  Add the new public key below to the repository, or deploys will fail.</div>{{end}}
+
+{{/* The repository a git-backed app deploys from. It sits outside the settings
+     form because deploying and rotating a key are actions, not edits — and a
+     form cannot be nested inside another. What *is* editable (which repo, which
+     branch) lives in the settings form further down. */}}
+{{with .Git}}
+<section class="card form-card">
+  <div class="title-row">
+    <h3 style="margin:0">Repository</h3>
+    <span class="spacer"></span>
+    <form class="inline" method="post" action="/apps/{{$app.ID}}/deploy">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <button class="primary" type="submit">Deploy latest</button>
+    </form>
+  </div>
+  <p class="muted small" style="margin:6px 0 10px">
+    Pulls <code>{{if .Ref}}{{.Ref}}{{else}}the default branch{{end}}</code> from
+    <a href="{{.URL}}" target="_blank" rel="noopener">{{.Repo.Owner}}/{{.Repo.Name}}</a>,
+    runs the build command, and — if this app runs a command and is running — restarts it.
+    Local changes under the app folder are discarded: the repository is what this app is.
+  </p>
+  <div class="muted small">
+    {{if .SHA}}Deployed <code>{{.SHA}}</code>{{if .DeployedAt}} · {{.DeployedAt}}{{end}}
+    {{else}}Nothing deployed yet.{{end}}
+    {{if .Subdir}} · builds from <code>{{.Subdir}}/</code>{{end}}
+  </div>
+
+  {{if .PublicKey}}
+  <details style="margin-top:12px">
+    <summary class="small">Deploy key <span class="muted">— <code>{{.Fingerprint}}</code></span></summary>
+    <p class="muted small" style="margin:8px 0 6px">
+      This app reads the repository with its own key. Add the public half at
+      <a href="{{.KeysURL}}" target="_blank" rel="noopener">the repository's deploy keys</a>
+      (read access is enough). xdev keeps the private half encrypted and never shows it.
+    </p>
+    <textarea readonly rows="3" class="mono" onfocus="this.select()">{{.PublicKey}}</textarea>
+    <form class="inline" method="post" action="/apps/{{$app.ID}}/deploy-key" style="margin-top:8px"
+          data-confirm="Replace this deploy key? Deploys will fail until the new one is added to the repository.">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <button type="submit">Generate a new key</button>
+    </form>
+  </details>
+  {{else}}
+  {{/* No key is the right state for a public repository, but it is also the
+       state an app lands in when it is re-pointed at a private one — and the
+       clone that would have caught that at create never runs again. So this is
+       an offer, not just a statement. */}}
+  <details style="margin-top:12px">
+    <summary class="small">Deploy key <span class="muted">— none; read anonymously over HTTPS</span></summary>
+    <p class="muted small" style="margin:8px 0 6px">
+      Anonymous access is all a public repository needs. If this one is private — or you point
+      this app at a private one — generate a key here and add its public half at
+      <a href="{{.KeysURL}}" target="_blank" rel="noopener">the repository's deploy keys</a>
+      (read access is enough). xdev keeps the private half encrypted and never shows it.
+    </p>
+    <form class="inline" method="post" action="/apps/{{$app.ID}}/deploy-key">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <button type="submit">Generate a deploy key</button>
+    </form>
+  </details>
+  {{end}}
+</section>
+{{end}}
+
+{{/* Maintenance commands, run inside the app's own container. A fixed list of
+     named actions rather than a command box: this page is reachable from the
+     internet behind a session cookie, and "run whatever you type as root next
+     to the database" is not a thing a cookie should buy. Adding an action is a
+     code change in internal/apps/actions.go. */}}
+{{with .Actions}}
+<section class="card form-card">
+  <h3>Run a command</h3>
+  <p class="muted small">These run inside <code>{{$app.Slug}}</code>'s container, as the app.
+    The app has to be running.</p>
+
+  {{with $.ActionResult}}
+  <div class="{{if .Failed}}alert{{else}}note{{end}}" style="margin:8px 0">
+    <strong>{{.Label}}{{if .Failed}} — failed{{end}}</strong>
+    <pre class="mono small" style="white-space:pre-wrap;margin:6px 0 0;max-height:24em;overflow:auto">{{.Output}}</pre>
+  </div>
+  {{end}}
+
+  <table class="rows">
+    {{range .}}
+    <tr>
+      <td style="width:14em">
+        <form method="post" action="/apps/{{$app.ID}}/action"
+              {{if .Destroy}}data-confirm="Run {{.Label}}? This changes the database."{{end}}>
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+          <input type="hidden" name="action" value="{{.Key}}">
+          <button type="submit" {{if .Destroy}}class="danger"{{end}}>{{.Label}}</button>
+        </form>
+      </td>
+      <td class="muted small">{{.Help}}</td>
+    </tr>
+    {{end}}
+  </table>
+
+  {{/* The dump is the only way back from a migration that fails halfway, so
+       turning it off is a decision the page states plainly rather than hides
+       in a checkbox nobody reads. */}}
+  <form method="post" action="/apps/{{$app.ID}}/db-dump" style="margin-top:12px"
+        {{if not $app.SkipDBDump}}data-confirm="Turn off pre-migration dumps? A migration that fails halfway will have no snapshot to restore."{{end}}>
+    <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+    {{if $app.SkipDBDump}}
+      <p class="muted small" style="margin:0 0 6px">⚠ Pre-migration database dumps are <strong>off</strong>.
+        A migration that fails partway through has no snapshot to go back to.</p>
+      <button type="submit">Turn dumps back on</button>
+    {{else}}
+      <p class="muted small" style="margin:0 0 6px">Before applying any pending migration, a deploy dumps
+        this app's database into its backups. Turn this off only if the database is too large to snapshot
+        on every deploy.</p>
+      <input type="hidden" name="skip" value="1">
+      <button type="submit">Turn off pre-migration dumps</button>
+    {{end}}
+  </form>
+</section>
+{{end}}
+
+{{/* Deploying without opening this page: GitHub tells xdev to pull, or CI hands
+     xdev a build it already made. Both endpoints live on this app's own
+     hostname under /_xdev/, so there is no second domain to point anywhere —
+     and Caddy routes only those paths, so nothing else of xdev is published by
+     switching one on. */}}
+{{with .Deploy}}
+<section class="card form-card" x-data="{ tab: '{{if .PushURL}}{{if not .HookURL}}push{{else}}hook{{end}}{{else}}hook{{end}}' }">
+  <h3>Deploy from GitHub</h3>
+
+  {{if .NewToken}}
+  <div class="alert warn-banner">
+    <strong>Copy this deploy token now — it is not shown again.</strong>
+    <textarea readonly rows="2" class="mono" onfocus="this.select()">{{.NewToken}}</textarea>
+    <p class="muted small" style="margin:6px 0 0">xdev stores only its hash, so it cannot show it to you twice.
+      Lost it? Issue another; the old one stops working.</p>
+  </div>
+  {{end}}
+
+  <div class="tabs">
+    <span class="tab" :class="{active: tab==='hook'}" @click="tab='hook'">Push to GitHub → xdev builds</span>
+    <span class="tab" :class="{active: tab==='push'}" @click="tab='push'">GitHub Actions builds → uploads</span>
+  </div>
+
+  {{/* --- pull: a webhook, xdev does the build ------------------------- */}}
+  <div class="tab-panel" x-show="tab==='hook'">
+    {{if .HookURL}}
+    <p class="muted small">
+      Every push to <code>{{.Ref}}</code> deploys this app. Add these to
+      {{if $.Git}}<a href="{{.RepoHooksURL}}" target="_blank" rel="noopener">the repository's webhooks</a>{{else}}the repository's webhooks{{end}}
+      — content type <code>application/json</code>, the "just the push event" trigger.
+    </p>
+    <label>Payload URL
+      <input type="text" class="mono" readonly value="{{.HookURL}}" onfocus="this.select()">
+    </label>
+    <label>Secret
+      <input type="text" class="mono" readonly value="{{.HookSecret}}" onfocus="this.select()">
+    </label>
+    <p class="muted small">Deliveries that arrive without a matching signature are refused and logged.
+      The build runs on this server, so it needs whatever the repository needs to build.</p>
+    <div class="row-actions">
+      <form class="inline" method="post" action="/apps/{{$app.ID}}/webhook"
+            data-confirm="Generate a new URL and secret? The current webhook stops working immediately.">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <button type="submit">Regenerate</button>
+      </form>
+      <form class="inline" method="post" action="/apps/{{$app.ID}}/webhook"
+            data-confirm="Disable the webhook? Pushes will no longer deploy this app.">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <input type="hidden" name="disable" value="1">
+        <button class="danger" type="submit">Disable</button>
+      </form>
+    </div>
+    {{else if $.Git}}
+    <p class="muted small">xdev gives you a URL and a secret to paste into the repository's webhook settings.
+      GitHub then calls it on every push to <code>{{.Ref}}</code>, and xdev pulls and rebuilds — the same
+      thing the Deploy button does, without you being here.</p>
+    <form class="inline" method="post" action="/apps/{{$app.ID}}/webhook">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <button class="primary" type="submit">Enable webhook</button>
+    </form>
+    {{else}}
+    <p class="muted small">A webhook deploys by pulling, so it needs an app created from a repository.
+      This app isn't one — use the upload route instead.</p>
+    {{end}}
+  </div>
+
+  {{/* --- push: CI builds, xdev only receives -------------------------- */}}
+  <div class="tab-panel" x-show="tab==='push'" x-cloak>
+    {{if .PushBlocked}}
+    <p class="muted small">This app can't take an uploaded build: {{.PushBlocked}}</p>
+    {{else}}
+    <p class="muted small">
+      Your workflow builds, tars the output, and POSTs it here. xdev unpacks it into
+      <code>{{.PushTarget}}</code> in one move, so the site is never half-swapped.
+      Use this when the build needs private packages, a big cache, or anything you'd rather not
+      install on this server.
+    </p>
+    {{if .PushURL}}
+    <label>Endpoint
+      <input type="text" class="mono" readonly value="{{.PushURL}}" onfocus="this.select()">
+    </label>
+    <p class="muted small">Token in use: <code>{{.PushHint}}…</code> — only its hash is stored.</p>
+    <details>
+      <summary class="small">GitHub Actions workflow</summary>
+      <p class="muted small" style="margin:8px 0 6px">Save as <code>.github/workflows/deploy.yml</code>, and add the
+        token as a repository secret named <code>XDEV_DEPLOY_TOKEN</code>
+        {{if $.Git}}(<a href="https://github.com/{{.Repo}}/settings/secrets/actions" target="_blank" rel="noopener">Settings → Secrets → Actions</a>){{end}}.</p>
+      <textarea readonly rows="20" class="mono" onfocus="this.select()">name: Deploy to xdev
+on:
+  push:
+    branches: [{{if $.Git}}{{$.Git.Ref}}{{else}}main{{end}}]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      # Tar the *contents* of the build output, not the folder itself:
+      # xdev unpacks the archive as the served directory.
+      - name: Publish to xdev
+        run: |
+          tar -czf build.tar.gz -C dist .
+          curl --fail-with-body -sS -X POST \
+            -H "Authorization: Bearer ${{"{{"}} secrets.XDEV_DEPLOY_TOKEN {{"}}"}}" \
+            --data-binary @build.tar.gz \
+            {{.PushURL}}</textarea>
+    </details>
+    <div class="row-actions">
+      <form class="inline" method="post" action="/apps/{{$app.ID}}/push-token"
+            data-confirm="Issue a new token? The current one stops working immediately.">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <button type="submit">Issue a new token</button>
+      </form>
+      <form class="inline" method="post" action="/apps/{{$app.ID}}/push-token"
+            data-confirm="Revoke the deploy token? Uploads will be refused.">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <input type="hidden" name="disable" value="1">
+        <button class="danger" type="submit">Revoke</button>
+      </form>
+    </div>
+    {{else}}
+    <form class="inline" method="post" action="/apps/{{$app.ID}}/push-token">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <button class="primary" type="submit">Issue a deploy token</button>
+    </form>
+    {{end}}
+    {{end}}
+  </div>
+</section>
+{{end}}
+
+{{/* Recent deploys. Polls while one is running — a deploy is a background job,
+     so the page has to find out it finished by asking. */}}
+{{if or .Deploys .Deploy}}
+<section class="card form-card"
+         x-data="deployWatch({{$app.ID}}, {{if .Deploying}}true{{else}}false{{end}})"
+         x-init="start()">
+  <div class="title-row">
+    <h3 style="margin:0">Deploys</h3>
+    <span class="spacer"></span>
+    <button type="button" @click="refresh()">Refresh</button>
+  </div>
+  <div x-ref="list">{{template "deploy_list" .}}</div>
+</section>
+{{end}}
 
 <form method="post" action="/apps/{{$app.ID}}/settings"
       x-data="appSettings({{json $form.ExtraDomains}}, {{json .SlotPorts}}, {{.MaxDomains}})">
@@ -141,6 +417,27 @@
     {{else}}
     <input type="hidden" name="serve_mode" value="command">
     {{end}}
+    {{if $app.IsGit}}
+    {{/* A git app's folder is the clone, so it is not re-pointable — but which
+         repository, branch and subdirectory it deploys from is. Clearing the
+         repository disconnects the app: its files stay, it just stops being
+         deployable. */}}
+    <label>Repository <span class="muted">(clear it to disconnect this app from git — the files stay)</span>
+      <input type="text" name="git_url" value="{{$form.GitURL}}" spellcheck="false"
+             placeholder="https://github.com/owner/repo">
+    </label>
+    <div class="row2">
+      <label>Branch <span class="muted">(blank = the repository's default)</span>
+        <input type="text" name="git_ref" value="{{$form.GitRef}}" spellcheck="false" placeholder="main">
+      </label>
+      <label>Subdirectory <span class="muted">(where the build runs)</span>
+        <input type="text" name="git_subdir" value="{{$form.GitSubdir}}" spellcheck="false" placeholder="apps/web">
+      </label>
+    </div>
+    <p class="muted small">A change here takes effect on the next deploy — it does not re-clone.
+      The app's folder is <code>{{.Project.Dir}}/{{$app.Slug}}</code> and cannot be moved, because
+      a deploy resets it hard.</p>
+    {{else}}
     <label>App folder <span class="muted">(absolute path to your code — blank = <code>{{.Project.Dir}}/{{$app.Slug}}</code>)</span>
       <input type="text" name="source_dir" value="{{$form.SourceDir}}" spellcheck="false"
              placeholder="{{.Project.Dir}}/{{$app.Slug}}">
@@ -148,6 +445,7 @@
     <p class="muted small">Re-pointing this app changes where its build runs and which folder is served.
       Nothing is copied or deleted — the folder it was on before is left exactly as it is, and a folder
       of your own is never scaffolded into or removed with the app.</p>
+    {{end}}
     <label>Build command <span class="muted">(runs once before start)</span>
       <input type="text" name="build_cmd" value="{{$form.BuildCmd}}" spellcheck="false">
     </label>
@@ -187,6 +485,30 @@
   Changing this app's <strong>type</strong> isn't possible — create a new app and import a backup into it.</p>
 
 <script>
+// Follow a deploy that is running somewhere else. A deploy is a background job:
+// the page that started it has already been re-rendered, so the only way to
+// learn it finished is to ask. Polling stops as soon as no row is running,
+// which the fragment marks with data-running — the client should not have to
+// read status text to know whether to keep asking.
+function deployWatch(appID, running) {
+  return {
+    busy: running,
+    start() { if (this.busy) this.tick(); },
+    tick() { setTimeout(() => this.refresh(), 3000); },
+    async refresh() {
+      try {
+        const r = await fetch(`/apps/${appID}/deploys/partial`, { credentials: 'same-origin' });
+        const html = await r.text();
+        this.$refs.list.innerHTML = html;
+        this.busy = html.includes('data-running');
+      } catch (e) {
+        this.busy = false; // stop polling into a void; the Refresh button still works
+      }
+      if (this.busy) this.tick();
+    },
+  };
+}
+
 // Settings-page state: the compose domain rows (a row's position is its
 // ${PORT_n} slot) and the file loader. Ports come from the server — an existing
 // slot keeps the one it was allocated, a row added here gets its number on save.
@@ -220,4 +542,49 @@ function appSettings(domains, ports, maxDomains) {
   };
 }
 </script>
+{{end}}
+
+{{/* deploy_list — the deploy history, rendered both inside the page and on its
+     own for the poll. data-running="1" on a row is what the page watches to
+     decide whether to keep polling: the client should not have to parse status
+     text to know a build is still going. */}}
+{{define "deploy_list"}}
+{{if .Deploys}}
+<table class="rows">
+  <tbody>
+  {{range .Deploys}}
+  <tr {{if .Running}}data-running="1"{{end}}>
+    <td style="width:1%">
+      {{if .Running}}<span class="status running" title="running"></span>
+      {{else if eq .Status "ok"}}<span class="status ok" title="ok"></span>
+      {{else}}<span class="status error" title="failed"></span>{{end}}
+    </td>
+    <td style="width:1%"><span class="chip">{{.Trigger}}</span></td>
+    <td>
+      {{if .Running}}<em class="muted">deploying…</em>{{else}}{{.Message}}{{end}}
+      {{/* One collapsed block per command the deploy ran, so a build reads as a
+           list of steps rather than a wall of output. The step a failed deploy
+           stopped on starts open — it is the only one anybody wants. */}}
+      {{with .Steps}}
+      <div class="steps">
+        {{range .}}
+        <details class="step{{if .Failed}} step-failed{{end}}"{{if .Failed}} open{{end}}>
+          <summary class="small">
+            {{if .Failed}}<span class="status error"></span>{{else}}<span class="status ok"></span>{{end}}
+            <code>{{if .Name}}{{.Name}}{{else}}output{{end}}</code>
+          </summary>
+          <pre class="logs">{{.Output}}</pre>
+        </details>
+        {{end}}
+      </div>
+      {{end}}
+    </td>
+    <td class="muted small" style="width:1%;white-space:nowrap">{{.CreatedAt}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="muted small">No deploys yet.</p>
+{{end}}
 {{end}}

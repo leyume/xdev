@@ -97,9 +97,15 @@ func TestLaravelProdBootable(t *testing.T) {
 		}
 	}
 	for _, not := range []string{
-		"../app:/var/www/html:ro",             // ro code mount + nested volumes = unstartable
-		"storage:/var/www/html/storage",       //
-		"cache:/var/www/html/bootstrap/cache", //
+		"../app:/var/www/html:ro", // ro code mount + nested volumes = unstartable
+		// The *named* volumes, which is what made the read-only mount
+		// unstartable. Anchored to the leading "- " so this keeps catching
+		// `- storage:` while allowing the bind mount that replaced it
+		// (`- ../_volumes/storage:/var/www/html/storage`), which is a
+		// different thing: state kept outside the checkout, see
+		// TestLaravelKeepsStateOutOfTheCheckout.
+		"- storage:/var/www/html/storage",
+		"- cache:/var/www/html/bootstrap/cache",
 	} {
 		if strings.Contains(out, not) {
 			t.Errorf("prod laravel compose must not contain %q\n%s", not, out)
@@ -346,4 +352,38 @@ func uncomment(script string) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// TestLaravelKeepsStateOutOfTheCheckout pins the split that makes a Laravel app
+// deployable from a repository: app/ holds only code, while storage/ and .env —
+// the two things a `git reset --hard` must never be able to destroy — are
+// mounted in from outside it. Both environments, both database modes, because a
+// mount missing in exactly one of the four is how this regresses.
+func TestLaravelKeepsStateOutOfTheCheckout(t *testing.T) {
+	for _, env := range []string{"local", "prod"} {
+		for _, shared := range []bool{true, false} {
+			out, err := RenderCompose("laravel", Data{
+				ProjectSlug: "demo", NetworkName: "xdev_demo", AppSlug: "shop",
+				AppType: "laravel", Env: env, HostPort: 20001, AdminerPort: 20002,
+				SharedDB: shared, DBName: "demo_shop", DBPass: "pw",
+			})
+			if err != nil {
+				t.Fatalf("env=%s shared=%v: %v", env, shared, err)
+			}
+			for _, want := range []string{
+				"../app:/var/www/html",                      // the checkout, and writable
+				"../_volumes/storage:/var/www/html/storage", // uploads/sessions/logs
+				"./laravel.env:/var/www/html/.env",          // app key + credentials
+			} {
+				if !strings.Contains(out, want) {
+					t.Errorf("env=%s shared=%v: missing mount %q\n%s", env, shared, want, out)
+				}
+			}
+			// A read-only code mount would break `composer install` during a
+			// deploy, which runs inside this container.
+			if strings.Contains(out, "/var/www/html:ro") {
+				t.Errorf("env=%s shared=%v: code mounted read-only — composer cannot write vendor/", env, shared)
+			}
+		}
+	}
 }

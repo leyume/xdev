@@ -201,6 +201,28 @@ func TestStaticSiteFallsBackToIndex(t *testing.T) {
 	}
 }
 
+// TestStaticSiteHidesRepoMetadata: a git-backed app is served out of a
+// checkout, so the repository's own directory sits under the served root. If
+// file_server hands it out, /.git/config is a download and the history — and
+// anything ever committed to it — goes with it.
+func TestStaticSiteHidesRepoMetadata(t *testing.T) {
+	cfg := configJSON(t, []Route{{Host: "site.demo.test", Root: "/srv/site", Internal: true}})
+	for _, want := range []string{
+		`"/.git"`, `"/.git/*"`, `"/*/.git/*"`, // the checkout at the root or in a subdir
+		`"/.env"`, `"/.env.*"`,
+		`"handler":"static_response","status_code":404`,
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("static route does not refuse %s\n%s", want, cfg)
+		}
+	}
+	// The refusal has to come before the try_files rewrite, or the rewrite finds
+	// the real file first and serves it.
+	if deny, files := strings.Index(cfg, "static_response"), strings.Index(cfg, "try_files"); deny > files {
+		t.Errorf("the dotfile refusal is after try_files (%d > %d) — it would never run", deny, files)
+	}
+}
+
 // TestRootPrefixRemapsStaticRoots: a containerized Caddy only sees what is
 // mounted into it, so file_server roots are rewritten under the prefix the host
 // filesystem is mounted at. A shared-WP docroot is deliberately left alone — the
@@ -256,5 +278,32 @@ func TestHTTPSLoopbackSkipsVerify(t *testing.T) {
 	}
 	if !strings.Contains(cfg, `"insecure_skip_verify":true`) {
 		t.Errorf("loopback https must skip TLS verification\n%s", cfg)
+	}
+}
+
+// TestPathScopedRouteComesFirst covers how an app's deploy endpoints are
+// published: on the app's own hostname, at two paths, ahead of the route for
+// the app itself. Caddy takes the first matching route, so the order is the
+// whole mechanism — reversed, the app would swallow /_xdev/ and the webhook
+// would 404 (or worse, hit the site's own catch-all).
+func TestPathScopedRouteComesFirst(t *testing.T) {
+	cfg := configJSON(t, []Route{
+		{Host: "site.demo.test", Paths: []string{"/_xdev/hook/abc", "/_xdev/deploy"}, Upstream: "127.0.0.1:7331"},
+		{Host: "site.demo.test", Root: "/srv/site/dist", Internal: true},
+	})
+	hook := strings.Index(cfg, `"/_xdev/hook/abc"`)
+	if hook < 0 {
+		t.Fatalf("no path matcher for the hook\n%s", cfg)
+	}
+	if site := strings.Index(cfg, "file_server"); hook > site {
+		t.Errorf("the endpoint route (%d) comes after the app's own (%d) — it would never match", hook, site)
+	}
+	if !strings.Contains(cfg, `"path":["/_xdev/hook/abc","/_xdev/deploy"]`) {
+		t.Errorf("the endpoint route is not limited to its paths\n%s", cfg)
+	}
+	// The hostname is registered for a certificate once, by the app's own route.
+	// A path-scoped route sharing the hostname must not add a second subject.
+	if !strings.Contains(cfg, `"subjects":["site.demo.test"]`) {
+		t.Errorf("the hostname is not in the TLS automation policy exactly once\n%s", cfg)
 	}
 }

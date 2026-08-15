@@ -58,6 +58,13 @@
              app shouldn't require expanding it first. Each carries its name as
              a hover label (data-tip) and as aria-label; @click.stop so a click
              acts instead of toggling the card. -->
+        {{if .IsGit}}
+        <form class="inline" method="post" action="/apps/{{.ID}}/deploy" @click.stop>
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+          <button class="iconbtn tip" data-tip="Deploy latest" aria-label="Deploy latest"
+                  type="submit">{{template "icon_deploy" .}}</button>
+        </form>
+        {{end}}
         <a class="iconbtn tip" data-tip="Settings" aria-label="Settings"
            href="/apps/{{.ID}}/settings" @click.stop>{{template "icon_settings" .}}</a>
         <form class="inline act-stop" method="post" action="/apps/{{.ID}}/stop" @click.stop>
@@ -91,6 +98,7 @@
           {{else}}<span class="muted">{{.}}</span>{{end}}
         {{end}}
         {{if .Port}}<span class="muted">·</span><a href="http://127.0.0.1:{{.Port}}" target="_blank" class="muted">:{{.Port}} direct</a>{{end}}
+        {{if .IsGit}}<span class="muted">· {{.GitURL}}{{if .DeployedSHA}} @ <code>{{slice .DeployedSHA 0 7}}</code>{{end}}</span>{{end}}
         {{if .Upstream}}<span class="muted">→ {{.Upstream}}</span>{{end}}
         {{$adm := index $.AdminerDomains .ID}}
         {{$admLabel := "Adminer"}}{{if eq .Type "mail"}}{{$admLabel = "Mail admin"}}{{end}}
@@ -194,7 +202,7 @@
     </div>
     <div class="modal-body">
     <form method="post" action="/projects/{{.Project.Slug}}/apps" enctype="multipart/form-data"
-          x-data="addAppForm('{{.Project.BaseDomain}}', {{.MaxDomains}})"
+          x-data="addAppForm('{{.Project.BaseDomain}}', {{.MaxDomains}}, '{{.CSRF}}')"
           @submit.prevent="submit($event)">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <input type="hidden" name="type" :value="type">
@@ -235,17 +243,11 @@
               <option value="command">Run a command — system Node dev/build server</option>
             </select>
           </label>
-          <label>App folder <span class="muted">(optional — an absolute path to code you already have, e.g. <code>/home/li/ui/xyz</code>; blank = a new folder in this project)</span>
-            <input type="text" name="source_dir" placeholder="/home/li/ui/xyz" spellcheck="false">
-          </label>
-          <p class="muted small" style="margin:-2px 0 10px">
-            The folder must already exist. xdev runs the app from there and never scaffolds into it,
-            moves it, or deletes it — removing the app just unhooks it.
-          </p>
-          <label x-show="serve==='serve'">Folder to serve <span class="muted">(subdir of the above, optional — e.g. <code>dist</code>; blank = the app folder itself)</span>
+          {{template "app_source" dict "Kind" "static"}}
+          <label x-show="serve==='serve'">Folder to serve <span class="muted">(subdir of the app folder, optional — e.g. <code>dist</code>; blank = the app folder itself<span x-show="src==='git'" x-cloak>, or the build output the repository implies</span>)</span>
             <input type="text" name="root_dir" placeholder="dist" spellcheck="false">
           </label>
-          <label>Build command <span class="muted">(optional, runs once with system Node — e.g. <code>npm ci &amp;&amp; npm run build</code>)</span>
+          <label>Build command <span class="muted">(optional, runs once with system Node — e.g. <code>npm ci &amp;&amp; npm run build</code><span x-show="src==='git'" x-cloak>; blank = read from the repository's <code>package.json</code></span>)</span>
             <input type="text" name="build_cmd" placeholder="npm ci &amp;&amp; npm run build" spellcheck="false">
           </label>
           <label x-show="serve==='command'">Start command <span class="muted">(long-running; <code>$PORT</code> is set for you)</span>
@@ -268,13 +270,7 @@
             <code>DB_HOST</code>/<code>DB_PORT</code>/<code>DB_NAME</code>/<code>DB_USER</code>/<code>DB_PASSWORD</code>/<code>DB_DSN</code>
             — xdev loads them into the app's environment on start.
           </p>
-          <label>App folder <span class="muted">(optional — an absolute path to code you already have, e.g. <code>/home/li/src/api</code>; blank = a new folder in this project)</span>
-            <input type="text" name="source_dir" placeholder="/home/li/src/api" spellcheck="false">
-          </label>
-          <p class="muted small" style="margin:-2px 0 10px">
-            The folder must already exist. xdev builds and runs the app there and never scaffolds into it,
-            moves it, or deletes it — removing the app just unhooks it.
-          </p>
+          {{template "app_source" dict "Kind" "go"}}
           <label>Build command <span class="muted">(runs once before start — blank = <code>go build -o app .</code>)</span>
             <input type="text" name="build_cmd" placeholder="go build -o app ." spellcheck="false">
           </label>
@@ -379,6 +375,32 @@
         </label>
       </template>
 
+      <!-- Laravel: a fresh install, or a repository xdev clones and redeploys.
+           Unlike static/go there is no "folder I already have" option: the app
+           directory also holds the generated compose file and the volumes, so
+           it is not somewhere the user can point at code of their own. -->
+      <template x-if="type==='laravel'">
+        <div>
+          <label>Where the code comes from
+            <select x-model="src">
+              <option value="new">A fresh Laravel install — xdev creates it on first start</option>
+              <option value="git">A GitHub repository — cloned, built, and redeployable</option>
+            </select>
+          </label>
+          <template x-if="src==='git'">
+            <div>
+              {{template "git_fields" dict "Kind" "laravel"}}
+              <p class="muted small" style="margin:-2px 0 10px">
+                The repository must be a Laravel app that already requires <code>laravel/octane</code>
+                and has <code>config/octane.php</code> committed — xdev will not add them, because the
+                next deploy would revert the change. <code>.env</code> and <code>storage/</code> are
+                kept outside the checkout, so deploying never touches your app key or uploads.
+              </p>
+            </div>
+          </template>
+        </div>
+      </template>
+
       <!-- Laravel: pick the hostname for the bundled Adminer DB UI. -->
       <template x-if="type==='laravel'">
         <label>Adminer domain <span class="muted">(DB UI — blank = <code>adminer.&lt;app-domain&gt;</code>)</span>
@@ -413,7 +435,26 @@
       <!-- A rejected create is answered in place: the dialog stays open with
            everything still typed in it, and says what was wrong. -->
       <div class="alert form-error" x-show="error" x-cloak x-ref="err" x-text="error"></div>
-      <button class="primary" type="submit" :class="{'is-busy': busy}" :disabled="busy">Create &amp; start app</button>
+
+      <!-- What the create is doing, step by step. The steps arrive from the job
+           the dialog is polling; the one still in flight has no output yet, and
+           the one that failed keeps the panel open so the reason is on screen
+           rather than in a log somebody has to go and find. -->
+      <div class="steps" x-show="steps.length" x-cloak style="margin-bottom:10px">
+        <template x-for="(st, i) in steps" :key="i">
+          <details class="step" :class="{'step-failed': st.failed}" :open="st.failed">
+            <summary class="small">
+              <span class="status"
+                    :class="st.failed ? 'error' : (st.output === '' && running ? 'running' : 'ok')"></span>
+              <code x-text="st.name || 'output'"></code>
+            </summary>
+            <pre class="logs" x-text="st.output || '…'"></pre>
+          </details>
+        </template>
+      </div>
+
+      <button class="primary" type="submit" :class="{'is-busy': busy}" :disabled="busy"
+              x-text="running ? 'Creating…' : 'Create &amp; start app'"></button>
       </div><!-- /revealed once a type is picked -->
     </form>
     </div>
@@ -426,13 +467,60 @@
 // scanned as it is typed/loaded only to name the service behind each slot, so
 // you can see that ${PORT_2} really is the one you meant. The server re-checks
 // all of it on submit — this is convenience, not the source of truth.
-function addAppForm(baseDomain, maxDomains) {
+function addAppForm(baseDomain, maxDomains, csrf) {
   return {
     type: '', serve: 'serve', wp: 'shared', godb: '', domain: '',
+    // Where a host app's code comes from: 'new' (scaffold), 'folder' (one you
+    // already have), 'git' (cloned from a repository).
+    src: 'new', gitUrl: '', gitPrivate: '',
+    deployKey: '', deployKeyId: 0, keyPrint: '', keyErr: '', keyBusy: false,
     // domains holds the *extra* hostnames (slots 2..N); slot 1 is `domain`, the
     // same field every other type fills in.
     composeText: '', domainCount: 1, domains: [], slots: [],
-    maxDomains: maxDomains, error: '', busy: false,
+    maxDomains: maxDomains, csrf: csrf, error: '', busy: false,
+    running: false, steps: [],
+
+    // Generate the deploy key for a private repository *before* the app is
+    // created: the clone runs during create, and a private repo whose key is
+    // not on GitHub yet is indistinguishable from one that does not exist. The
+    // server returns only the public half — the private one is encrypted and
+    // stays there.
+    async makeKey() {
+      if (this.keyBusy) return;
+      this.keyBusy = true; this.keyErr = '';
+      try {
+        const body = new FormData();
+        body.append('csrf_token', this.csrf);
+        body.append('label', this.repoName());
+        const r = await fetch('/deploy-keys', {
+          method: 'POST', headers: { 'Accept': 'application/json' },
+          body, credentials: 'same-origin',
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { this.keyErr = d.error || 'Could not generate a key.'; return; }
+        this.deployKey = d.public_key; this.deployKeyId = d.id; this.keyPrint = d.fingerprint;
+      } catch (e) {
+        this.keyErr = 'Could not reach xdev to generate a key.';
+      } finally {
+        this.keyBusy = false;
+      }
+    },
+
+    // owner/name out of whatever was typed — a URL, an SSH remote, or the
+    // shorthand — for the link to the repository's deploy-keys page. The server
+    // parses this properly; here it only has to build a link.
+    repoPath() {
+      let s = (this.gitUrl || '').trim()
+        .replace(/^git@[^:]+:/, '').replace(/^[a-z+]+:\/\//, '')
+        .replace(/\.git$/, '').replace(/^[^/]*github\.com\//, '');
+      const parts = s.split('/').filter(Boolean);
+      return parts.length >= 2 ? parts[0] + '/' + parts[1] : '';
+    },
+    repoName() { const p = this.repoPath(); return p ? p.split('/')[1] : ''; },
+    keysUrl() {
+      const p = this.repoPath();
+      return p ? 'https://github.com/' + p + '/settings/keys' : 'https://github.com';
+    },
 
     // Submit without leaving the page, so a rejected form keeps its contents —
     // re-typing a pasted compose file because a hostname was taken is the kind
@@ -453,6 +541,10 @@ function addAppForm(baseDomain, maxDomains) {
           credentials: 'same-origin',
         });
         const data = await r.json().catch(() => ({}));
+        // A create runs in the background and answers with a job to poll: a
+        // clone plus composer is minutes, and a spinner for minutes is
+        // indistinguishable from a hang.
+        if (r.ok && data.job) { await this.follow(data.job); return; }
         if (r.ok && data.redirect) { window.location = data.redirect; return; }
         if (r.ok) { window.location.reload(); return; }
         if (!data.error) { form.submit(); return; } // not our JSON (auth, proxy) — let the browser have it
@@ -463,6 +555,46 @@ function addAppForm(baseDomain, maxDomains) {
         this.busy = false;
         form.submit();
       }
+    },
+
+    // Poll a create job and show its steps as they finish. Stops on done, on a
+    // 404 (the job expired, or the server restarted mid-create — either way
+    // there is nothing left to follow), or after enough consecutive transport
+    // failures that the connection is clearly gone rather than blipping.
+    async follow(id) {
+      this.steps = [];
+      this.running = true;
+      let misses = 0;
+      for (;;) {
+        await new Promise(r => setTimeout(r, 900));
+        let res;
+        try {
+          res = await fetch('/jobs/' + id, { credentials: 'same-origin' });
+        } catch (e) {
+          if (++misses > 5) { this.fail('lost contact with the server while the app was being created — check the project page before retrying'); return; }
+          continue;
+        }
+        if (res.status === 404) { this.fail('the server stopped tracking this create — check the project page before retrying'); return; }
+        if (!res.ok) { if (++misses > 5) { this.fail('the server stopped answering'); return; } continue; }
+        misses = 0;
+        const j = await res.json().catch(() => null);
+        if (!j) continue;
+        this.steps = j.steps || [];
+        if (!j.done) continue;
+        if (j.error) { this.fail(j.error); return; }
+        window.location = j.redirect || window.location.pathname;
+        return;
+      }
+    },
+
+    // A failed create keeps the dialog open with its steps: the failing one is
+    // the last, and re-typing the whole form to try again is exactly what the
+    // JSON path exists to avoid.
+    fail(msg) {
+      this.error = msg;
+      this.running = false;
+      this.busy = false;
+      this.$nextTick(() => this.$refs.err && this.$refs.err.scrollIntoView({ block: 'nearest' }));
     },
 
     // Read a chosen compose file into the textarea (and clear the file input, so
@@ -625,4 +757,95 @@ function detectComposePorts(text, maxSlots) {
 })();
 </script>
 </div>
+{{end}}
+
+{{/* app_source — where a host app's code comes from: a folder xdev creates, a
+     folder you already have, or a repository xdev clones and can redeploy.
+     Shared by the static and go blocks of the add-app form; the three choices
+     are mutually exclusive, so each is a <template x-if> and only the chosen
+     one's fields exist in the DOM to be submitted. Kind is "static" or "go" and
+     only changes the example paths. */}}
+{{define "app_source"}}
+<label>Where the code comes from
+  <select x-model="src">
+    <option value="new">A new folder in this project{{if eq .Kind "static"}} — with a starter app{{end}}</option>
+    <option value="folder">A folder I already have on this host</option>
+    <option value="git">A GitHub repository — cloned, built, and redeployable</option>
+  </select>
+</label>
+
+<template x-if="src==='folder'">
+  <div>
+    <label>App folder <span class="muted">(an absolute path to code you already have)</span>
+      <input type="text" name="source_dir" required
+             placeholder="{{if eq .Kind "go"}}/home/li/src/api{{else}}/home/li/ui/xyz{{end}}" spellcheck="false">
+    </label>
+    <p class="muted small" style="margin:-2px 0 10px">
+      The folder must already exist. xdev {{if eq .Kind "go"}}builds and runs{{else}}runs{{end}} the app
+      from there and never scaffolds into it, moves it, or deletes it — removing the app just unhooks it.
+    </p>
+  </div>
+</template>
+
+<template x-if="src==='git'">
+  {{template "git_fields" .}}
+</template>
+{{end}}
+
+{{/* git_fields — the repository half of the add-app form: which repo, which
+     branch, and (for a private one) the deploy key that has to be on GitHub
+     before the clone runs. Shared by app_source and the Laravel picker, so the
+     key-generation flow exists in exactly one place. Kind only changes the
+     subdirectory example. */}}
+{{define "git_fields"}}
+  <div>
+    <label>Repository
+      <input type="text" name="git_url" x-model="gitUrl" required
+             placeholder="owner/repo  ·  or  https://github.com/owner/repo" spellcheck="false">
+    </label>
+    <div class="row2">
+      <label>Branch <span class="muted">(blank = the repository's default)</span>
+        <input type="text" name="git_ref" placeholder="main" spellcheck="false">
+      </label>
+      <label>Subdirectory <span class="muted">(optional — a monorepo's app)</span>
+        <input type="text" name="git_subdir" placeholder="apps/web" spellcheck="false">
+      </label>
+    </div>
+    <label>Access
+      <select x-model="gitPrivate">
+        <option value="">Public — anyone can clone it</option>
+        <option value="1">Private — xdev needs a deploy key</option>
+      </select>
+    </label>
+
+    <template x-if="gitPrivate">
+      <div class="keybox">
+        <template x-if="!deployKey">
+          <div>
+            <button type="button" class="btn" @click="makeKey()" :disabled="keyBusy"
+                    x-text="keyBusy ? 'Generating…' : 'Generate a deploy key'"></button>
+            <p class="muted small" style="margin:6px 0 0">
+              A keypair for this app alone. xdev keeps the private half encrypted and shows you
+              the public half to add to the repository — read access is all it needs.
+            </p>
+          </div>
+        </template>
+        <template x-if="deployKey">
+          <div>
+            <p class="small" style="margin:0 0 6px">
+              Add this key to
+              <a :href="keysUrl()" target="_blank" rel="noopener">the repository's deploy keys</a>
+              <strong>before</strong> creating the app — the clone happens now, and a private repo
+              without its key just looks missing. <em>Allow write access</em> is not needed.
+            </p>
+            <textarea readonly rows="3" class="mono" x-text="deployKey"
+                      @focus="$event.target.select()"></textarea>
+            <p class="muted small" style="margin:6px 0 0">Fingerprint <code x-text="keyPrint"></code></p>
+            <input type="hidden" name="deploy_key_id" :value="deployKeyId">
+          </div>
+        </template>
+        <p class="alert small" x-show="keyErr" x-text="keyErr" x-cloak style="margin:8px 0 0"></p>
+      </div>
+    </template>
+  </div>
 {{end}}

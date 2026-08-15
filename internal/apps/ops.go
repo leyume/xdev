@@ -7,10 +7,12 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"xdev/internal/runtime"
@@ -69,10 +71,16 @@ func (s *Service) Logs(id int64, tail int) (string, error) {
 	return runtime.Logs(ctx, engine, workdir, pname, file, tail)
 }
 
-// envPath is the app's editable .env file. Container apps keep it in the
-// bind-mounted app/ dir; static apps keep it at the app root (no app/ subdir);
-// compose apps keep it next to their compose file, which is the copy the engine
-// actually reads (${VAR} substitution and env_file).
+// envPath is the app's editable .env file. Static apps keep it at the app root
+// (no app/ subdir); compose apps keep it next to their compose file, which is
+// the copy the engine actually reads (${VAR} substitution and env_file); other
+// container apps keep it in the bind-mounted app/ dir.
+//
+// Laravel is the exception, and it matters: since the checkout became something
+// a deploy resets hard, its .env is _/laravel.env, mounted over
+// /var/www/html/.env. Editing app/.env there would write to a file the mount
+// shadows — saved, never read, no error. The file's presence is the test rather
+// than the app type, so apps created before that change keep using app/.env.
 func (s *Service) envPath(id int64) (string, error) {
 	app, err := s.store.AppByID(id)
 	if err != nil {
@@ -83,6 +91,9 @@ func (s *Service) envPath(id int64) (string, error) {
 	}
 	if app.IsCompose() {
 		return filepath.Join(s.appDir(app), "_", ".env"), nil
+	}
+	if mounted := filepath.Join(s.appDir(app), "_", "laravel.env"); exists(mounted) {
+		return mounted, nil
 	}
 	return filepath.Join(s.appDir(app), "app", ".env"), nil
 }
@@ -99,6 +110,9 @@ func (s *Service) EnvLocation(id int64) string {
 		return ".env"
 	case app.IsCompose():
 		return "_/.env"
+	}
+	if exists(filepath.Join(s.appDir(app), "_", "laravel.env")) {
+		return "_/laravel.env"
 	}
 	return "app/.env"
 }
@@ -128,7 +142,48 @@ func (s *Service) WriteEnv(id int64, content string) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(p, []byte(content), 0o644)
+	// 0600 for the mounted Laravel .env — it holds the app key and the database
+	// password, and unlike the others it is chowned to the container's user
+	// rather than read by root. Everything else keeps the mode it always had.
+	mode := os.FileMode(0o644)
+	if filepath.Base(p) == "laravel.env" {
+		mode = 0o600
+	}
+	if err := writePreservingOwner(p, []byte(content), mode); err != nil {
+		return err
+	}
+	// A Laravel deploy caches the config, so a freshly edited .env changes
+	// nothing until that cache is dropped — the edit appears to have been
+	// ignored. Best-effort: the app may be stopped, which is fine, since a
+	// stopped app rebuilds its caches when it next deploys.
+	if app, err := s.store.AppByID(id); err == nil && app.Type == "laravel" {
+		go func() {
+			if _, _, err := s.RunContainerAction(id, "config-clear"); err != nil {
+				log.Printf("clear config cache for app %d after .env change: %v", id, err)
+			}
+		}()
+	}
+	return nil
+}
+
+// writePreservingOwner writes a file, keeping the uid/gid it already had.
+//
+// os.WriteFile on an existing file leaves ownership alone, but a file that has
+// to be *created* here would end up owned by root — and for the Laravel .env
+// that is the difference between the app reading its configuration and dying at
+// boot. Rewriting in place keeps whatever grantContainerUser set.
+func writePreservingOwner(path string, data []byte, mode os.FileMode) error {
+	st, statErr := os.Stat(path)
+	if err := os.WriteFile(path, data, mode); err != nil {
+		return err
+	}
+	if statErr != nil {
+		return nil // newly created; nothing to preserve
+	}
+	if sys, ok := st.Sys().(*syscall.Stat_t); ok {
+		return os.Chown(path, int(sys.Uid), int(sys.Gid))
+	}
+	return nil
 }
 
 // backupsDirFor returns the per-app backups directory under backupsRoot.

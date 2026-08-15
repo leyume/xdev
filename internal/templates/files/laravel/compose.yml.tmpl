@@ -49,6 +49,11 @@ services:
       REDIS_HOST: redis
     volumes:
       - ../app:/var/www/html
+      # storage/ and .env are state, not code: they are mounted from outside
+      # app/ so a git deploy (which resets the checkout hard) cannot take user
+      # uploads, sessions, logs or the app key with it.
+      - ../_volumes/storage:/var/www/html/storage
+      - ./laravel.env:/var/www/html/.env
       - ./init.sh:/init.sh:ro
     ports:
       - "{{.HostPort}}:8000"
