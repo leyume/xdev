@@ -183,6 +183,21 @@ not that the two report the same version: builds from a dirty working tree all
 carry the same `git describe` string, so comparing versions would skip every
 rebuild between commits.
 
+## A server that already runs something on 80/443
+
+The installer checks those ports before it asks about Caddy. If another server
+holds them it says which process, defaults the Caddy question to **self**, and —
+in a non-interactive install — refuses rather than binding them.
+
+That is stricter than it looks for a reason: Caddy binds all-or-nothing, so a
+listener it cannot open makes it drop its *entire* config. Losing the fight for
+:80 would take down every site xdev serves, not just that port.
+
+An upgrade is never blocked by its own proxy: a port held by this install's
+Caddy — the supervised binary, or the container stack the installer generated —
+is recognised as ours and ignored, provided it was already configured for that
+port.
+
 ## A server with no domain (or one already running nginx)
 
 Two settings, and xdev stays off 80/443 entirely while apps are reached by port:
