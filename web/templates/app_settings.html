@@ -672,7 +672,13 @@ function runAction(form) {
   if (btn) { btn.disabled = true; btn.classList.add('is-busy'); }
   show('running', 'running…', '');
 
-  fetch(form.action, {
+  // getAttribute, never form.action: this form carries <input name="action">,
+  // and a control named "action" shadows the form's own property — form.action
+  // returns that input element, which stringifies into the URL as
+  // "[object HTMLInputElement]". The same reason layout.html reads it this way.
+  var url = form.getAttribute('action');
+
+  fetch(url, {
     method: 'POST',
     headers: { 'Accept': 'application/json' },
     body: new FormData(form),
@@ -685,7 +691,7 @@ function runAction(form) {
       // in place — reloading is exactly what this control exists to avoid, and
       // it would throw away the rest of the form as well.
       done();
-      var why = 'HTTP ' + r.status + ' from POST ' + form.getAttribute('action');
+      var why = 'HTTP ' + r.status + ' from POST ' + url;
       if (r.status === 401 || r.status === 403) {
         show('error', 'failed', 'your session or CSRF token expired (' + why + ') — reload this page, sign in, and try again');
       } else if (r.status === 404) {

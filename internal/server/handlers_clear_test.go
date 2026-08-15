@@ -425,3 +425,27 @@ func TestActionExplainsANonJSONAnswerInPlace(t *testing.T) {
 		t.Error("the old blanket message is still there")
 	}
 }
+
+// This form carries <input name="action">, and a named control shadows the
+// form's own property: form.action is that input element, which stringifies
+// into a URL as "[object HTMLInputElement]". Every request went to
+// /apps/<id>/[object HTMLInputElement] and came back 404. The attribute has to
+// be read explicitly — the same reason layout.html has always done so.
+func TestActionURLIsReadFromTheAttribute(t *testing.T) {
+	out := renderSettings(t, gitApp(), appSettingsForm{Name: "web"}, actionsViewData(nil))
+
+	// The shadowing input is what makes this necessary; if it is ever renamed,
+	// this test should be revisited rather than silently kept.
+	if !strings.Contains(out, `<input type="hidden" name="action" value="migrate-status">`) {
+		t.Fatal("the action field is no longer named \"action\" — re-check whether the shadowing still applies")
+	}
+	if !strings.Contains(out, `var url = form.getAttribute('action');`) {
+		t.Error("the request URL is not read from the attribute")
+	}
+	// Nothing may read the property instead.
+	for _, bad := range []string{"fetch(form.action", "e.target.action", "form.action,"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("%q reads the shadowed property and would post to [object HTMLInputElement]", bad)
+		}
+	}
+}
