@@ -83,41 +83,84 @@
       </div>
 
       <div class="app-card-body" x-show="!collapsed">
+      {{/* What this app is reachable at, one labelled entry per fact rather than
+           a single dot-separated run. The old row put a hostname, a port, a
+           repository URL and a resource limit side by side in the same grey,
+           and reading it meant knowing in advance which was which. */}}
       <div class="app-card-meta">
-        {{$host := .Domain}}
-        {{if $.ProxyEnabled}}
-          {{if eq $.HTTPSPort 443}}<a href="https://{{$host}}" target="_blank">https://{{$host}}</a>
-          {{else}}<a href="https://{{$host}}:{{$.HTTPSPort}}" target="_blank">https://{{$host}}:{{$.HTTPSPort}}</a>{{end}}
-        {{else}}{{$host}}{{end}}
-        {{/* The app's other hostnames — same app, same content, own certificate. */}}
-        {{range index $.ExtraHosts .ID}}
-          <span class="muted">·</span>
-          {{if $.ProxyEnabled}}
-            {{if eq $.HTTPSPort 443}}<a href="https://{{.}}" target="_blank">{{.}}</a>
-            {{else}}<a href="https://{{.}}:{{$.HTTPSPort}}" target="_blank">{{.}}</a>{{end}}
-          {{else}}<span class="muted">{{.}}</span>{{end}}
+        <div class="meta">
+          <span class="meta-k">Address</span>
+          <span class="meta-v">
+            {{$host := .Domain}}
+            {{if $.ProxyEnabled}}
+              {{if eq $.HTTPSPort 443}}<a href="https://{{$host}}" target="_blank">{{$host}}</a>
+              {{else}}<a href="https://{{$host}}:{{$.HTTPSPort}}" target="_blank">{{$host}}:{{$.HTTPSPort}}</a>{{end}}
+            {{else}}{{$host}}{{end}}
+            {{/* The app's other hostnames — same app, same content, own certificate. */}}
+            {{range index $.ExtraHosts .ID}}
+              <span class="muted">·</span>
+              {{if $.ProxyEnabled}}
+                {{if eq $.HTTPSPort 443}}<a href="https://{{.}}" target="_blank">{{.}}</a>
+                {{else}}<a href="https://{{.}}:{{$.HTTPSPort}}" target="_blank">{{.}}</a>{{end}}
+              {{else}}<span class="muted">{{.}}</span>{{end}}
+            {{end}}
+          </span>
+        </div>
+        {{if .Port}}
+        <div class="meta">
+          <span class="meta-k">Host port</span>
+          <span class="meta-v"><a href="http://127.0.0.1:{{.Port}}" target="_blank">127.0.0.1:{{.Port}}</a></span>
+        </div>
         {{end}}
-        {{if .Port}}<span class="muted">·</span><a href="http://127.0.0.1:{{.Port}}" target="_blank" class="muted">:{{.Port}} direct</a>{{end}}
-        {{if .IsGit}}<span class="muted">· {{.GitURL}}{{if .DeployedSHA}} @ <code>{{slice .DeployedSHA 0 7}}</code>{{end}}</span>{{end}}
-        {{if .Upstream}}<span class="muted">→ {{.Upstream}}</span>{{end}}
+        {{if .IsGit}}
+        <div class="meta">
+          <span class="meta-k">Repository</span>
+          <span class="meta-v">{{.GitURL}}{{if .DeployedSHA}} @ <code>{{slice .DeployedSHA 0 7}}</code>{{end}}</span>
+        </div>
+        {{end}}
+        {{if .Upstream}}
+        <div class="meta">
+          <span class="meta-k">Forwards to</span>
+          <span class="meta-v">{{.Upstream}}</span>
+        </div>
+        {{end}}
         {{$adm := index $.AdminerDomains .ID}}
         {{$admLabel := "Adminer"}}{{if eq .Type "mail"}}{{$admLabel = "Mail admin"}}{{end}}
-        {{if $adm}}<span class="muted">·</span>
-          {{if $.ProxyEnabled}}
-            {{if eq $.HTTPSPort 443}}<a href="https://{{$adm}}" target="_blank">{{$admLabel}}</a>
-            {{else}}<a href="https://{{$adm}}:{{$.HTTPSPort}}" target="_blank">{{$admLabel}}</a>{{end}}
-          {{else}}<span class="muted">{{$admLabel}}: {{$adm}}</span>{{end}}
+        {{if $adm}}
+        <div class="meta">
+          <span class="meta-k">{{$admLabel}}</span>
+          <span class="meta-v">
+            {{if $.ProxyEnabled}}
+              {{if eq $.HTTPSPort 443}}<a href="https://{{$adm}}" target="_blank">{{$adm}}</a>
+              {{else}}<a href="https://{{$adm}}:{{$.HTTPSPort}}" target="_blank">{{$adm}}:{{$.HTTPSPort}}</a>{{end}}
+            {{else}}{{$adm}}{{end}}
+          </span>
+        </div>
         {{end}}
         {{/* Compose apps route one hostname per published port; list them all. */}}
         {{range index $.ServiceDomains .ID}}
-          <span class="muted">·</span>
-          {{if $.ProxyEnabled}}
-            {{if eq $.HTTPSPort 443}}<a href="https://{{.Host}}" target="_blank" title="port {{.Port}}">{{.Host}}</a>
-            {{else}}<a href="https://{{.Host}}:{{$.HTTPSPort}}" target="_blank" title="port {{.Port}}">{{.Host}}</a>{{end}}
-          {{else}}<span class="muted">{{.Host}} → :{{.Port}}</span>{{end}}
+        <div class="meta">
+          <span class="meta-k">Port {{.Port}}</span>
+          <span class="meta-v">
+            {{if $.ProxyEnabled}}
+              {{if eq $.HTTPSPort 443}}<a href="https://{{.Host}}" target="_blank">{{.Host}}</a>
+              {{else}}<a href="https://{{.Host}}:{{$.HTTPSPort}}" target="_blank">{{.Host}}</a>{{end}}
+            {{else}}{{.Host}}{{end}}
+          </span>
+        </div>
         {{end}}
-        {{if or (eq .DBMode "shared") (eq .WPMode "shared")}}<span class="muted">·</span><a href="/database" title="Manage the shared database & Adminer">Shared DB ↗</a>{{end}}
-        {{if or .CPULimit .MemLimit}}<span class="muted">· {{if .CPULimit}}{{f1 .CPULimit}} CPU{{end}}{{if .MemLimit}} {{mib .MemLimit}}MB{{end}}</span>{{end}}
+        {{if or (eq .DBMode "shared") (eq .WPMode "shared")}}
+        <div class="meta">
+          <span class="meta-k">Database</span>
+          <span class="meta-v"><a href="/database" title="Manage the shared database &amp; Adminer">Shared xdev MariaDB ↗</a></span>
+        </div>
+        {{end}}
+        {{if or .CPULimit .MemLimit}}
+        <div class="meta">
+          <span class="meta-k">Limits</span>
+          <span class="meta-v">{{if .CPULimit}}{{f1 .CPULimit}} CPU{{end}}{{if .MemLimit}}{{if .CPULimit}} · {{end}}{{mib .MemLimit}} MB{{end}}</span>
+        </div>
+        {{end}}
       </div>
 
       <div class="tabs">
@@ -192,8 +235,14 @@
 </div>
 
 <!-- Add-app modal (triggered by the header button; Alpine scope wraps the page).
-     The type picker comes first: nothing else is shown until a type is chosen,
-     and the dialog scrolls inside itself rather than moving the page. -->
+     Three steps rather than one long form: choose a type, fill in what that
+     type needs, then the options every type shares. The whole form asks for up
+     to a dozen things and most of them do not apply to any one type — shown at
+     once that reads as a wall, and the fields that matter get lost in it.
+     Steps are x-show, not x-if, so nothing typed on an earlier one is lost by
+     looking at a later one; `required` is bound to the step being shown,
+     because a browser refuses to submit a form holding a required field it
+     cannot focus. The dialog scrolls inside itself rather than moving the page. -->
 <div class="modal-overlay" x-show="addOpen" x-cloak @click.self="addOpen = false">
   <div class="modal card form-card modal-wide" role="dialog" aria-modal="true" aria-label="Add app">
     <div class="modal-head">
@@ -207,22 +256,47 @@
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <input type="hidden" name="type" :value="type">
 
-      <div class="type-grid">
-        {{range .Catalog}}
-        <button type="button" class="type-card" data-type="{{.Type}}" title="{{.Description}}"
-                :class="{active: type==='{{.Type}}'}" @click="type='{{.Type}}'"
-                {{if not .Available}}disabled{{end}}>
-          <span class="type-ico">{{template "type_icon" .Type}}</span>
-          <span class="type-name">{{.Name}}{{if not .Available}} — soon{{end}}</span>
-          <span class="type-tag">{{.Tagline}}</span>
-        </button>
-        {{end}}
+      <!-- Where you are, and how much is left. A finished step is clickable so
+           a wrong answer is one click away, not a Back-Back-Back. -->
+      <div class="steps-bar">
+        <span class="step-pip" :class="{active: step===1, done: step>1}" @click="goto(1)"
+              :tabindex="step>1 ? 0 : -1" :role="step>1 ? 'button' : null"
+              @keydown.enter.prevent="goto(1)" @keydown.space.prevent="goto(1)">
+          <span class="num" x-text="step>1 ? '✓' : '1'"></span> Type
+        </span>
+        <span class="step-sep"></span>
+        <span class="step-pip" :class="{active: step===2, done: step>2}" @click="goto(2)"
+              :tabindex="step>2 ? 0 : -1" :role="step>2 ? 'button' : null"
+              @keydown.enter.prevent="goto(2)" @keydown.space.prevent="goto(2)">
+          <span class="num" x-text="step>2 ? '✓' : '2'"></span> Setup
+        </span>
+        <span class="step-sep"></span>
+        <span class="step-pip" :class="{active: step===3}">
+          <span class="num">3</span> Options
+        </span>
       </div>
-      <p class="muted small" x-show="!type" style="margin:12px 0 2px">Choose what you're deploying to continue.</p>
 
-      <div x-show="type" x-cloak>
+      <!-- ---- Step 1: what are you deploying? ---- -->
+      <div x-show="step===1">
+        <div class="type-grid">
+          {{range .Catalog}}
+          <button type="button" class="type-card" data-type="{{.Type}}" title="{{.Description}}"
+                  :class="{active: type==='{{.Type}}'}" @click="pick('{{.Type}}')"
+                  {{if not .Available}}disabled{{end}}>
+            <span class="type-ico">{{template "type_icon" .Type}}</span>
+            <span class="type-name">{{.Name}}{{if not .Available}} — soon{{end}}</span>
+            <span class="type-tag">{{.Tagline}}</span>
+          </button>
+          {{end}}
+        </div>
+        <p class="muted small" style="margin-top:12px">Only what this type needs is asked for next.
+          Click a chosen type again to go straight on.</p>
+      </div>
+
+      <!-- ---- Step 2: everything this type needs ---- -->
+      <div x-show="step===2" x-cloak>
       <label>App name
-        <input type="text" name="name" x-bind:required="!!type" placeholder="e.g. frontend">
+        <input type="text" name="name" x-model="name" :required="step===2" placeholder="e.g. frontend">
       </label>
       <!-- Every type is served at a hostname, so the field is the same one in the
            same place for all of them. A compose stack's *extra* domains — one per
@@ -283,7 +357,7 @@
       <!-- Proxy: just a Caddy route forwarding the domain to another server. -->
       <template x-if="type==='proxy'">
         <label>Upstream URL <span class="muted">(the server to forward to — e.g. <code>http://10.0.0.5:3000</code>. Add a path if the app sits under one there, like <code>https://mail.example.com/webmail</code>)</span>
-          <input type="text" name="upstream" required placeholder="https://other-server.example" spellcheck="false">
+          <input type="text" name="upstream" :required="step===2" placeholder="https://other-server.example" spellcheck="false">
         </label>
       </template>
 
@@ -335,7 +409,7 @@
                 </div>
                 <div class="port-dest">
                   <span class="muted small nowrap" x-text="'Domain ' + (i+2)"></span>
-                  <input type="text" name="extra_domain" spellcheck="false" required
+                  <input type="text" name="extra_domain" spellcheck="false" :required="step===2"
                          x-model="domains[i]"
                          :placeholder="'e.g. api.' + primaryDomain()">
                 </div>
@@ -401,11 +475,25 @@
         </div>
       </template>
 
-      <!-- Laravel: pick the hostname for the bundled Adminer DB UI. -->
+      <!-- Laravel: the bundled Adminer, and where it is served. Adminer is a
+           database client on a public hostname, so whether to have one at all
+           is asked here rather than assumed — and it can be switched either way
+           later from the app's settings page. -->
       <template x-if="type==='laravel'">
-        <label>Adminer domain <span class="muted">(DB UI — blank = <code>adminer.&lt;app-domain&gt;</code>)</span>
-          <input type="text" name="adminer_domain" placeholder="adminer.{{.Project.BaseDomain}}" spellcheck="false">
-        </label>
+        <div class="field-group">
+          <h4>Database UI</h4>
+          <label>Adminer
+            <select name="adminer" x-model="adminer">
+              <option value="1">Include Adminer — a database client served at its own hostname</option>
+              <option value="0">Leave it out — nothing extra is published</option>
+            </select>
+          </label>
+          <label x-show="adminer==='1'">Adminer domain <span class="muted">(blank = <code>adminer.&lt;app-domain&gt;</code>)</span>
+            <input type="text" name="adminer_domain" placeholder="adminer.{{.Project.BaseDomain}}" spellcheck="false">
+          </label>
+          <p class="muted small" x-show="adminer==='0'" x-cloak>No container, no host port, no hostname.
+            You can add it later from the app's settings page.</p>
+        </div>
       </template>
 
       <!-- Mail: pick the hostname for the Stalwart admin UI. -->
@@ -414,24 +502,37 @@
           <input type="text" name="adminer_domain" placeholder="admin.mail.{{.Project.BaseDomain}}" spellcheck="false">
         </label>
       </template>
+      </div><!-- /step 2 -->
 
-      <!-- Import: start this app from a backup archive instead of a fresh scaffold. -->
-      <template x-if="type!=='proxy'">
-        <label>Import <span class="muted">(optional — a <code>.tar.gz</code> backup to start this app from)</span>
-          <input type="file" name="archive" accept=".tar.gz,.tgz,application/gzip">
-        </label>
-      </template>
+      <!-- ---- Step 3: the options every type shares ---- -->
+      <div x-show="step===3" x-cloak>
+        <div class="fact-grid">
+          <div><span class="muted small">Type</span><div x-text="type"></div></div>
+          <div><span class="muted small">Name</span><div x-text="name || '—'"></div></div>
+          <div><span class="muted small">Domain</span><div x-text="primaryDomain()"></div></div>
+        </div>
 
-      <!-- Container apps: resource limits apply (not host processes, routes, shared-host sites,
-           or compose apps — those declare their own limits in the file you supply). -->
-      <div class="row2" x-show="type && type!=='static' && type!=='go' && type!=='proxy' && type!=='compose' && !(type==='wordpress' && wp==='shared')">
-        <label>CPU limit <span class="muted">(cores, optional)</span>
-          <input type="number" name="cpu_cores" step="0.25" min="0" placeholder="e.g. 1.0">
-        </label>
-        <label>Memory limit <span class="muted">(MB, optional)</span>
-          <input type="number" name="memory_mb" step="64" min="0" placeholder="e.g. 512">
-        </label>
-      </div>
+        <!-- Import: start this app from a backup archive instead of a fresh scaffold. -->
+        <template x-if="type!=='proxy'">
+          <label>Import <span class="muted">(optional — a <code>.tar.gz</code> backup to start this app from)</span>
+            <input type="file" name="archive" accept=".tar.gz,.tgz,application/gzip">
+          </label>
+        </template>
+
+        <!-- Container apps: resource limits apply (not host processes, routes, shared-host sites,
+             or compose apps — those declare their own limits in the file you supply). -->
+        <div class="row2" x-show="type && type!=='static' && type!=='go' && type!=='proxy' && type!=='compose' && !(type==='wordpress' && wp==='shared')">
+          <label>CPU limit <span class="muted">(cores, optional)</span>
+            <input type="number" name="cpu_cores" step="0.25" min="0" placeholder="e.g. 1.0">
+          </label>
+          <label>Memory limit <span class="muted">(MB, optional)</span>
+            <input type="number" name="memory_mb" step="64" min="0" placeholder="e.g. 512">
+          </label>
+        </div>
+        <p class="muted small" x-show="type==='proxy'" x-cloak>A proxy app is only a route, so there is
+          nothing here to import or to limit — go ahead and create it.</p>
+      </div><!-- /step 3 -->
+
       <!-- A rejected create is answered in place: the dialog stays open with
            everything still typed in it, and says what was wrong. -->
       <div class="alert form-error" x-show="error" x-cloak x-ref="err" x-text="error"></div>
@@ -453,23 +554,36 @@
         </template>
       </div>
 
-      <button class="primary" type="submit" :class="{'is-busy': busy}" :disabled="busy"
-              x-text="running ? 'Creating…' : 'Create &amp; start app'"></button>
-      </div><!-- /revealed once a type is picked -->
+      <!-- One footer for all three steps, so the button you want is always in
+           the same place. Back is hidden rather than disabled on step 1: a
+           control that cannot do anything should not be there to be aimed at. -->
+      <div class="wizard-foot">
+        <button type="button" x-show="step>1 && !running" @click="back()">← Back</button>
+        <span class="spacer"></span>
+        <span class="muted small" x-show="step===1 && !type">Choose a type to continue</span>
+        <button type="button" class="primary" x-show="step<3" :disabled="!type" @click="next()">Continue →</button>
+        <button class="primary" type="submit" x-show="step===3" :class="{'is-busy': busy}" :disabled="busy"
+                x-text="running ? 'Creating…' : 'Create &amp; start app'"></button>
+      </div>
     </form>
     </div>
   </div>
 </div>
 
 <script>
-// Add-app form state. The type picker gates the rest of the form. A compose app
-// asks how many domains it needs and takes a hostname for each; the file is
-// scanned as it is typed/loaded only to name the service behind each slot, so
-// you can see that ${PORT_2} really is the one you meant. The server re-checks
-// all of it on submit — this is convenience, not the source of truth.
+// Add-app form state. Three steps — type, setup, options — with the type
+// deciding which fields step 2 shows at all. A compose app asks how many domains
+// it needs and takes a hostname for each; the file is scanned as it is
+// typed/loaded only to name the service behind each slot, so you can see that
+// ${PORT_2} really is the one you meant. The server re-checks all of it on
+// submit — this is convenience, not the source of truth.
 function addAppForm(baseDomain, maxDomains, csrf) {
   return {
-    type: '', serve: 'serve', wp: 'shared', godb: '', domain: '',
+    step: 1,
+    type: '', serve: 'serve', wp: 'shared', godb: '', domain: '', name: '',
+    // Adminer ships with a Laravel app unless it is turned off here. A string,
+    // not a boolean: it is a <select> whose value is posted as-is.
+    adminer: '1',
     // Where a host app's code comes from: 'new' (scaffold), 'folder' (one you
     // already have), 'git' (cloned from a repository).
     src: 'new', gitUrl: '', gitPrivate: '',
@@ -479,6 +593,26 @@ function addAppForm(baseDomain, maxDomains, csrf) {
     composeText: '', domainCount: 1, domains: [], slots: [],
     maxDomains: maxDomains, csrf: csrf, error: '', busy: false,
     running: false, steps: [],
+
+    // --- stepping ---------------------------------------------------------
+    // Picking the type you already picked is a second way to say "yes, that
+    // one" — so it moves on, and a decisive double-click does the obvious thing
+    // instead of nothing.
+    pick(t) {
+      if (this.type === t) { this.next(); return; }
+      this.type = t;
+    },
+    // Leaving step 2 runs the browser's own validation on the fields it is
+    // showing. `required` is bound to the current step, so this checks exactly
+    // what is on screen — and reportValidity focuses and explains the first
+    // problem, which no hand-rolled check does as well.
+    next() {
+      if (!this.type) return;
+      if (this.step === 2 && !this.$root.reportValidity()) return;
+      this.step = Math.min(3, this.step + 1);
+    },
+    back() { this.step = Math.max(1, this.step - 1); },
+    goto(n) { if (n < this.step) this.step = n; },
 
     // Generate the deploy key for a private repository *before* the app is
     // created: the clone runs during create, and a private repo whose key is
@@ -777,7 +911,7 @@ function detectComposePorts(text, maxSlots) {
 <template x-if="src==='folder'">
   <div>
     <label>App folder <span class="muted">(an absolute path to code you already have)</span>
-      <input type="text" name="source_dir" required
+      <input type="text" name="source_dir" :required="step===2"
              placeholder="{{if eq .Kind "go"}}/home/li/src/api{{else}}/home/li/ui/xyz{{end}}" spellcheck="false">
     </label>
     <p class="muted small" style="margin:-2px 0 10px">
@@ -800,7 +934,11 @@ function detectComposePorts(text, maxSlots) {
 {{define "git_fields"}}
   <div>
     <label>Repository
-      <input type="text" name="git_url" x-model="gitUrl" required
+      {{/* :required, not required — every field on the setup step is required
+           only while that step is on screen. A required field inside a hidden
+           step is one a browser cannot focus, and it refuses to submit the form
+           at all rather than say so. */}}
+      <input type="text" name="git_url" x-model="gitUrl" :required="step===2"
              placeholder="owner/repo  ·  or  https://github.com/owner/repo" spellcheck="false">
     </label>
     <div class="row2">
@@ -838,8 +976,11 @@ function detectComposePorts(text, maxSlots) {
               <strong>before</strong> creating the app — the clone happens now, and a private repo
               without its key just looks missing. <em>Allow write access</em> is not needed.
             </p>
-            <textarea readonly rows="3" class="mono" x-text="deployKey"
-                      @focus="$event.target.select()"></textarea>
+            <div class="copy-row">
+              <textarea readonly rows="3" class="mono" x-text="deployKey"
+                        @focus="$event.target.select()"></textarea>
+              <button type="button" class="copybtn" data-copy>Copy</button>
+            </div>
             <p class="muted small" style="margin:6px 0 0">Fingerprint <code x-text="keyPrint"></code></p>
             <input type="hidden" name="deploy_key_id" :value="deployKeyId">
           </div>

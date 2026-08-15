@@ -141,11 +141,16 @@ func (s *Server) renderAppSettingsWith(w http.ResponseWriter, r *http.Request, a
 		"Deploying":    s.apps.Deploying(app.ID),
 		"Actions":      apps.ContainerActions(app),
 		"ActionResult": result,
-		"Error":        errMsg,
-		"Saved":        r.URL.Query().Get("saved") != "",
-		"JustStarted":  r.URL.Query().Get("deploying") != "",
-		"Rotated":      r.URL.Query().Get("rotated") != "",
-		"HookState":    r.URL.Query().Get("hook"),
+		// Whether the bundled Adminer can be switched at all, and whether it is
+		// on now. "On" is the presence of its service-domain row — the same fact
+		// appDB above reads for the hostname, not a second copy of it.
+		"CanToggleAdminer": apps.CanToggleAdminer(app),
+		"AdminerOn":        len(svc) > 0,
+		"Error":            errMsg,
+		"Saved":            r.URL.Query().Get("saved") != "",
+		"JustStarted":      r.URL.Query().Get("deploying") != "",
+		"Rotated":          r.URL.Query().Get("rotated") != "",
+		"HookState":        r.URL.Query().Get("hook"),
 	})
 }
 

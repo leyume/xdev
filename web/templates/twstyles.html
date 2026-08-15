@@ -39,6 +39,14 @@
   --warn: #f2c14e;
   --radius: 10px;
   --radius-sm: 8px;
+  /* Spacing scale. Every gap on a page comes from one of these four, so cards,
+     form rows and stacked sections line up without each template picking its
+     own number — the drift between them was what made dense pages read as
+     cluttered rather than as one layout. */
+  --gap: 18px;      /* between cards, and between the columns of a page grid */
+  --gap-sm: 10px;   /* between controls that belong to one another */
+  --field: 16px;    /* above a form field's label */
+  --pad-card: 22px 24px;
   --ring: 0 0 0 3px rgba(180, 140, 255, 0.25);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px -12px rgba(0, 0, 0, 0.55);
 }
@@ -134,10 +142,15 @@ body {
   border-radius: var(--radius);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  padding: 24px 26px;
-  margin-bottom: 18px;
+  padding: var(--pad-card);
+  margin-bottom: var(--gap);
   box-shadow: var(--shadow);
 }
+/* A card's own padding is its outer spacing — the first and last things inside
+   must not add to it. Without this every card's top gap depends on whether it
+   happens to start with a heading, a label or a paragraph. */
+.card > :first-child { margin-top: 0; }
+.card > :last-child { margin-bottom: 0; }
 
 /* Headings */
 h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
@@ -160,9 +173,14 @@ h3 {
 }
 
 /* Forms */
-label { display: block; margin: 14px 0 6px; font-size: 12.5px; font-weight: 600; }
+label { display: block; margin: var(--field) 0 6px; font-size: 12.5px; font-weight: 600; }
 label .muted { font-weight: 400; }
-input, select, textarea.code {
+/* The hint under a field belongs to the field above it, not to the next one. */
+label + p.muted, input + p.muted, select + p.muted, textarea + p.muted { margin: 6px 0 0; }
+/* Every textarea, not only .code: the read-only ones holding a deploy key or a
+   webhook secret are exactly the ones that must not be a 20-column box you have
+   to scroll sideways to read. */
+input, select, textarea {
   width: 100%;
   padding: 9px 13px;
   background: var(--panel-2);
@@ -176,7 +194,8 @@ input::placeholder { color: #6b6577; }
 /* File inputs size to content so they sit inline with their upload button
    instead of stretching full-width and wrapping the button below. */
 input[type="file"] { width: auto; }
-input:focus, select:focus, textarea.code:focus {
+textarea { font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: var(--ring);
@@ -345,6 +364,9 @@ a.card.project-card:hover {
 
 /* Forms layout */
 .form-card { max-width: 560px; }
+/* Inside a page grid a card is already as wide as its column; the 560px cap is
+   for full-width pages, and applying it in a column would leave a ragged edge. */
+.grid-main .form-card, .side-col .form-card { max-width: none; }
 .form-card button.primary, .form-card a.btn { margin-top: 20px; }
 .form-actions { display: flex; gap: 10px; align-items: center; margin-top: 20px; }
 .form-actions button.primary, .form-actions a.btn { margin-top: 0; }
@@ -688,7 +710,10 @@ option { background: var(--bg); color: var(--text); }
    overlay never scrolls, so the page behind stays put while it is open. */
 .modal-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding: 6vh 20px 4vh; background: rgba(6, 4, 10, 0.6); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); overflow: hidden; }
 .modal { width: 100%; max-width: 560px; margin: 0; display: flex; flex-direction: column; max-height: 100%; overflow: hidden; }
-.modal-wide { max-width: 880px; }
+/* Wider than a plain dialog, but not the full 880px it used to be: with the
+   form split into steps there is never enough on screen at once to need it, and
+   a narrower column is an easier one to read down. */
+.modal-wide { max-width: 720px; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; flex: none; }
 .modal-head .iconbtn { font-size: 15px; }
 /* The scrolling region: everything below the sticky header. overscroll-behavior
@@ -758,9 +783,28 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
 .chart-axis { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); margin-top: 4px; }
 
 /* ---- Two-column main content grid (Dashboard + Project detail) ---- */
-.grid-main { display: grid; grid-template-columns: 2.1fr 1fr; gap: 20px; align-items: start; }
-.side-col { display: flex; flex-direction: column; gap: 18px; }
-@media (max-width: 900px) { .grid-main, .kpi-strip { grid-template-columns: 1fr; } .kpi-cell { border-left: none; border-top: 1px solid var(--border-soft); } .kpi-cell:first-child { border-top: none; } }
+.grid-main { display: grid; grid-template-columns: 2.1fr 1fr; gap: var(--gap); align-items: start; }
+.side-col { display: flex; flex-direction: column; gap: var(--gap); }
+.main-col { min-width: 0; }
+/* A side column that has to stay readable while the main one is scrolled: the
+   settings page's Deploys card, so a build you just started does not scroll out
+   of sight the moment you look at anything else. Height-capped and scrolling
+   inside itself, or a long deploy history would push its own bottom off-screen. */
+.side-col.is-sticky { position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow-y: auto; }
+@media (max-width: 900px) {
+  .grid-main, .kpi-strip { grid-template-columns: 1fr; }
+  .side-col.is-sticky { position: static; max-height: none; overflow: visible; }
+  .kpi-cell { border-left: none; border-top: 1px solid var(--border-soft); }
+  .kpi-cell:first-child { border-top: none; }
+}
+
+/* ---- Deploy history ----
+   Stacked rows rather than a table: this list lives in a column a third of the
+   page wide, where four table cells wrap into an unreadable stack anyway. */
+.deploy-list { display: flex; flex-direction: column; gap: 14px; }
+.deploy-row + .deploy-row { border-top: 1px solid var(--border-soft); padding-top: 14px; }
+.deploy-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.deploy-head .status { margin: 0; align-self: center; }
 
 .apps-table-head { display: flex; align-items: center; margin-bottom: 6px; }
 .apps-table-head h2 { margin: 0; }
@@ -808,8 +852,16 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
 .chevron.is-collapsed { transform: rotate(-90deg); }
 .app-card-head .status { margin: 0; align-self: center; }
 .app-card-name { font-size: 16px; font-weight: 700; }
-.app-card-meta { display: flex; align-items: center; gap: 10px; font-size: 13px; margin: 12px 0; flex-wrap: wrap; }
+/* One labelled entry per fact about where an app lives — its hostnames, its
+   host port, its repository, its limits. As a single dot-separated line these
+   were the same size and colour as each other, so telling a domain from an
+   upstream from a port meant reading all of them. */
+.app-card-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px 24px; font-size: 13px; margin: 14px 0 4px; }
+.meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.meta-k { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+.meta-v { overflow-wrap: anywhere; }
 .app-card-meta a { color: var(--accent); text-decoration: none; }
+.app-card-meta a:hover { text-decoration: underline; }
 
 .tabs { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--border-soft); padding-top: 14px; }
 .tab { font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 6px 14px; border-radius: var(--radius-sm); cursor: pointer; }
@@ -831,4 +883,54 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
 .mono-title { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -0.01em; }
 /* Keep the add-user form tidy instead of stretching across the whole card. */
 .add-user form { max-width: 620px; }
+
+/* ---- Copy-to-clipboard field ----
+   A value xdev generated and you have to paste somewhere else: a webhook URL, a
+   signing secret, a deploy key, a token shown once. Selecting a 3-line base64
+   blob by hand is exactly the step where people get a partial key and then spend
+   an hour on why the clone fails, so every one of them gets a button. */
+.copy-row { display: flex; align-items: flex-start; gap: 8px; }
+.copy-row > input, .copy-row > textarea { flex: 1; min-width: 0; }
+.copy-row + p.muted, .copy-row + .muted { margin-top: 6px; }
+button.copybtn { flex: none; padding: 9px 14px; min-width: 5.6em; }
+/* The confirmation is the button itself changing — no toast to chase, and it
+   sits where the eye already is. Reverted by the same script after a moment. */
+button.copybtn.copied { color: var(--ok); border-color: rgba(140, 232, 184, 0.45); background: rgba(140, 232, 184, 0.08); }
+
+/* ---- Stepped dialog (add-app) ----
+   The add-app form asks for up to a dozen things. Shown at once it reads as a
+   wall; shown three at a time it reads as a decision, then a form. The steps are
+   x-show rather than x-if so nothing typed on an earlier one is lost by looking
+   at a later one — and `required` is bound to the visible step, since the
+   browser refuses to submit a form with a required field it cannot focus. */
+.steps-bar { display: flex; align-items: center; gap: 8px; margin: 2px 0 18px; }
+.step-pip { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.step-pip .num {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%; flex: none;
+  border: 1px solid var(--border); background: var(--panel-2);
+  font-size: 11.5px; font-weight: 700;
+}
+.step-pip.active { color: var(--text); }
+.step-pip.active .num { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.step-pip.done { color: var(--text); cursor: pointer; }
+.step-pip.done .num { color: var(--ok); border-color: rgba(140, 232, 184, 0.5); background: rgba(140, 232, 184, 0.1); }
+.step-sep { flex: 1; height: 1px; background: var(--border); }
+/* The dialog's own footer: back on the left, forward on the right, in the same
+   place on every step so the button you want never moves. */
+.wizard-foot { display: flex; align-items: center; gap: var(--gap-sm); margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-soft); }
+.wizard-foot .spacer { flex: 1; }
+.wizard-foot button.primary { margin-top: 0; }
+
+/* A named group of fields inside a long form or a dialog step. */
+.field-group + .field-group { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border-soft); }
+.field-group > h4 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin: 0 0 2px; }
+.field-group > h4 + p.muted { margin: 0 0 6px; }
+
+/* An on/off setting with its explanation beside it, rather than a checkbox
+   whose meaning is in a paragraph somewhere else. */
+.toggle-row { display: flex; align-items: flex-start; gap: 14px; }
+.toggle-row .grow { flex: 1; min-width: 0; }
+.toggle-row form { flex: none; }
+.toggle-row button { margin-top: 0; }
 </style>{{end}}

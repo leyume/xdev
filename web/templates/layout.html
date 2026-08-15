@@ -56,6 +56,40 @@
         .catch(function () { f.submit(); }); // native POST -> server error banner
     }, true);
 
+    // Copy the value beside any [data-copy] button (see the .copy-row markup in
+    // partials.html). Delegated from the document so it also covers fields that
+    // arrive later — the deploy list re-renders itself while a build runs.
+    //
+    // navigator.clipboard does not exist outside a secure context, and xdev is
+    // routinely reached over plain http on a LAN address, so the old
+    // execCommand path is the fallback rather than a nicety. Failing both, the
+    // text is left selected: the user can still press ctrl-C.
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest && e.target.closest('[data-copy]');
+      if (!btn) return;
+      e.preventDefault();
+      var row = btn.closest('.copy-row');
+      var field = row && row.querySelector('input, textarea');
+      if (!field) return;
+      var done = function (ok) {
+        var was = btn.dataset.label || btn.textContent;
+        btn.dataset.label = was;
+        btn.textContent = ok ? 'Copied' : 'Press ⌘/Ctrl-C';
+        btn.classList.toggle('copied', ok);
+        setTimeout(function () { btn.textContent = was; btn.classList.remove('copied'); }, 1600);
+      };
+      field.focus();
+      field.select();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(field.value).then(function () { done(true); },
+                                                        function () { done(false); });
+        return;
+      }
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      done(ok);
+    });
+
     // Spinner on the clicked button while its form POST is in flight. Bubble
     // phase so a cancelled confirm() (Delete) has already set defaultPrevented.
     document.addEventListener('submit', function (e) {

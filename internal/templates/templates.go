@@ -112,7 +112,7 @@ func RenderCompose(appType string, d Data) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("no compose template for type %q: %w", appType, err)
 	}
-	tmpl, err := template.New(appType).Parse(string(raw))
+	tmpl, err := parseWithPartials(appType, string(raw))
 	if err != nil {
 		return "", err
 	}
@@ -121,6 +121,55 @@ func RenderCompose(appType string, d Data) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// RenderPartial renders one named block from a type's partials on its own —
+// the same text RenderCompose would have inlined for the same Data.
+//
+// It exists so a service that can be switched on and off after an app is
+// created (the Laravel Adminer) is written from the same definition that the
+// compose file was rendered from, rather than from a second copy in Go that
+// would drift the first time either changed.
+func RenderPartial(appType, name string, d Data) (string, error) {
+	tmpl, err := parseWithPartials(appType, "")
+	if err != nil {
+		return "", err
+	}
+	part := tmpl.Lookup(name)
+	if part == nil {
+		return "", fmt.Errorf("no partial %q for type %q", name, appType)
+	}
+	var buf bytes.Buffer
+	if err := part.Execute(&buf, d); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// parseWithPartials parses body as the main template and associates every
+// {{define}} under files/<type>/partials/ with it. A type with no partials
+// directory just gets the body.
+func parseWithPartials(appType, body string) (*template.Template, error) {
+	tmpl, err := template.New(appType).Parse(body)
+	if err != nil {
+		return nil, err
+	}
+	names, err := fs.Glob(filesFS, "files/"+appType+"/partials/*.tmpl")
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range names {
+		raw, err := filesFS.ReadFile(p)
+		if err != nil {
+			return nil, err
+		}
+		// A file of nothing but {{define}} blocks has an empty body, which Parse
+		// leaves the existing one alone for — so this only adds definitions.
+		if tmpl, err = tmpl.Parse(string(raw)); err != nil {
+			return nil, fmt.Errorf("parse partial %s: %w", p, err)
+		}
+	}
+	return tmpl, nil
 }
 
 // AdminerCSS returns the bundled Adminer stylesheet (the Pepa Linha dark theme

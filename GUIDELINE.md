@@ -355,7 +355,11 @@ POST /apps/{id}/deploy            start a deploy (returns at once; it runs in th
 POST /apps/{id}/deploy-key        replace this app's deploy key
 POST /apps/{id}/webhook           enable / rotate / disable the GitHub webhook
 POST /apps/{id}/push-token        issue / revoke the CI deploy token
+POST /apps/{id}/action            run one allowlisted container command (see 9.11)
+POST /apps/{id}/db-dump           switch pre-migration database dumps on/off
+POST /apps/{id}/adminer           add / remove the bundled Adminer (laravel)
 GET  /apps/{id}/deploys/partial   deploy history fragment (polled while one runs)
+GET  /jobs/{id}                   progress of a background create (polled by the dialog)
 
 Public (no session, no CSRF — see §9.10). Caddy publishes these only on the
 hostname of an app that switched them on:
@@ -418,6 +422,12 @@ is bound to each session and validated on unsafe methods by `RequireAuth`.
   (uploaded or pasted on the add-app form) and xdev runs it as-is;
   `files/compose/compose.yml.tmpl` is only the starter written when they supply
   nothing. See `internal/apps/compose.go`.
+- `partials/*.tmpl` — `{{define}}` blocks associated with that type's compose
+  templates by `parseWithPartials`, and renderable on their own with
+  `RenderPartial`. There is exactly one today, `adminer_service`, and it exists
+  because that service can be added or removed after the app is created: a
+  single definition is what keeps the block xdev *writes* identical to the block
+  it *removes*, and keeps the local and prod stacks from drifting apart.
 
 ### 9.4 App lifecycle (`internal/apps`)
 - `Create(projectID, name, type, domain, cpu, mem)`:
@@ -852,6 +862,32 @@ request can name a command that is not in it; adding one is a code change.
 WordPress and bring-your-own compose have no deploy path a repository could
 drive, so attaching one is refused at create rather than cloned and ignored.
 
+**The bundled Adminer is optional and switchable** (`internal/apps/adminer.go`).
+Adminer is a database client on a public hostname: wanted while an app is being
+built, unwanted once it is live. The add-app form asks (`CreateOpts.NoAdminer`,
+default off = include it) and the settings page switches it either way
+afterwards (`SetAdminer`).
+
+There is **no column** for it. "Has Adminer" is already written in the two
+places that must agree for it to work — the `adminer` service in the compose
+file, and the service-domain row routing a hostname to its port — so the domain
+row *is* the answer, and `SetAdminer` keeps the file in step with it. A third
+copy in `apps` could only ever disagree with them.
+
+The compose file is **edited, not re-rendered**. A Laravel stack's file is
+generated, but the settings page also lets it be hand-edited, and re-rendering
+would silently discard those edits on every toggle. `composeRemoveService` /
+`composeAddService` work on lines, not on a parsed document: xdev has no YAML
+library, and round-tripping through one would rewrite comments, quoting and key
+order to change one service. The two directions are tested as exact inverses of
+the rendered file (`adminer_test.go`), and the previous file is kept as
+`compose.yml.bak` the same way a hand edit keeps one.
+
+Turning it off removes the container *before* rewriting the file: once the
+service is gone from the compose file neither `down` nor `up` knows the
+container belongs to the stack. Best-effort — a stopped stack has nothing to
+remove, and a leftover container is not a reason to refuse the setting.
+
 ---
 
 ## 10. Conventions & invariants
@@ -871,6 +907,14 @@ drive, so attaching one is refused at create rather than cloned and ignored.
   point at `127.0.0.1:<port>`.
 - **Reconcile after mutations**: any handler that changes projects/apps/domains
   calls `s.reconcile()` before redirecting.
+- **Domains go on last.** `Create` starts the stack and runs the first build
+  *before* writing any `domains` row. A domain row is live routing: the next
+  reconcile points Caddy at the app and, in a prod project, asks Let's Encrypt
+  for a certificate — so publishing first would leave a failed create with a
+  hostname serving 502 and an ACME issuance spent on it. The app row itself
+  survives a failed start (the UI shows it in an error state); the hostname
+  stays unclaimed. Guarded by
+  `TestCreateDoesNotPublishDomainsWhenStartFails`.
 - **DB is source of truth**; Caddy config + hosts file are always rebuilt from it.
 - **Never touch the `bizepp` containers** (`be_*`) during testing.
 - **Created projects are off-limits.** Do not edit, regenerate, or run lifecycle

@@ -245,3 +245,41 @@ func (s *Server) handleAppDumpToggle(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, target+"?saved=1", http.StatusSeeOther)
 }
+
+// handleAppAdminerToggle adds or removes the Adminer database client bundled
+// with a Laravel app.
+//
+// Turning it off is a security change, not a cosmetic one — Adminer is a
+// database client on a public hostname — so it is recorded, and the hostname is
+// released rather than left pointing at nothing. The stack is restarted here
+// because the compose file it was started from no longer describes it.
+func (s *Server) handleAppAdminerToggle(w http.ResponseWriter, r *http.Request) {
+	app, proj, ok := s.appAndProject(w, r)
+	if !ok {
+		return
+	}
+	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/settings"
+	on := r.FormValue("enable") != ""
+	host, err := s.apps.SetAdminer(app.ID, on)
+	if err != nil {
+		redirectWithError(w, r, target, err)
+		return
+	}
+	if on {
+		s.store.AddEvent(proj.ID, app.ID, "info", "Added Adminer to "+app.Name+" at "+host)
+	} else {
+		s.store.AddEvent(proj.ID, app.ID, "warn", "Removed Adminer from "+app.Name+" — its hostname no longer routes")
+	}
+	// Same restart the settings form does, and for the same reason: a compose
+	// change reaches a running stack only when the stack is recreated from it.
+	if app.Status == store.AppRunning {
+		_ = s.apps.Stop(app.ID)
+		if err := s.apps.Start(app.ID); err != nil {
+			s.reconcile()
+			redirectWithError(w, r, target, err)
+			return
+		}
+	}
+	s.reconcile()
+	http.Redirect(w, r, target+"?saved=1", http.StatusSeeOther)
+}

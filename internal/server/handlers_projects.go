@@ -209,6 +209,7 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		ComposeFile:   composeFile,
 		ExtraDomains:  extraDomains(r),
 		AdminerDomain: r.FormValue("adminer_domain"),
+		NoAdminer:     r.FormValue("adminer") == "0",
 		DBMode:        r.FormValue("db_mode"),
 		WPMode:        r.FormValue("wp_mode"),
 		Archive:       archive,
