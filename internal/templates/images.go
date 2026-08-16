@@ -99,7 +99,7 @@ const laravelFPMImageEnvVar = "XDEV_LARAVEL_FPM_IMAGE"
 // image needs composer in both cases (xdev's deploy runs `composer install`
 // inside it). Published for amd64 and arm64, so unlike the Swoole tags there is
 // no architecture to fall back over.
-const LaravelFPMImage = "docker.io/leyume/php-fpm-alphine:1.0.0"
+const LaravelFPMImage = "docker.io/leyume/php-fpm-alpine:1.0.0"
 
 // ResolveLaravelFPMImage picks the image an fpm-mode laravel app serves from.
 // env is accepted for symmetry with ResolveLaravelImage and to leave room for a

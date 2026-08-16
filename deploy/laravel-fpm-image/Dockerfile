@@ -1,4 +1,4 @@
-# leyume/php-fpm-alphine — the php-fpm counterpart to leyume/swoole, for
+# leyume/php-fpm-alpine — the php-fpm counterpart to leyume/swoole, for
 # Laravel apps xdev creates with the "fpm" server option.
 #
 # Deliberately the same PHP major.minor and the same extension set as the Swoole

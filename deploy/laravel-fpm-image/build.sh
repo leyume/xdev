@@ -14,7 +14,7 @@
 set -e
 cd "$(dirname "$0")"
 
-REPO="${REPO:-leyume/php-fpm-alphine}"
+REPO="${REPO:-leyume/php-fpm-alpine}"
 TAG="${TAG:-1.0.0}"
 PHP_VERSION="${PHP_VERSION:-8.5}"
 PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"

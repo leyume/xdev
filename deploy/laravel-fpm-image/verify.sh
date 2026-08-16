@@ -1,7 +1,7 @@
 #!/bin/sh
 # Check a built image actually has what Laravel needs, before it is pushed.
 #
-#   ./verify.sh [image]     default: leyume/php-fpm-alphine:1.0.0
+#   ./verify.sh [image]     default: leyume/php-fpm-alpine:1.0.0
 #
 # This exists because the image that looked like the obvious choice for this job
 # (serversideup/php:8.5-fpm-nginx-alpine) advertises Laravel support and ships
@@ -9,7 +9,7 @@
 # the image's labels, env or history says so; the extension list is a build ARG.
 # The only way to know is to ask the built image, which is what this does.
 set -e
-IMG="${1:-leyume/php-fpm-alphine:1.0.0}"
+IMG="${1:-leyume/php-fpm-alpine:1.0.0}"
 
 # What the Swoole image ships, minus swoole itself. An fpm app must be able to
 # do everything a Swoole app can, or switching servers silently breaks it.
