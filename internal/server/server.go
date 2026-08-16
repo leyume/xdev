@@ -114,6 +114,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /apps/{id}/action", s.auth.RequireAuth(s.handleAppAction))
 	mux.HandleFunc("POST /apps/{id}/db-dump", s.auth.RequireAuth(s.handleAppDumpToggle))
 	mux.HandleFunc("POST /apps/{id}/adminer", s.auth.RequireAuth(s.handleAppAdminerToggle))
+	mux.HandleFunc("POST /apps/{id}/server", s.auth.RequireAuth(s.handleAppLaravelServer))
 	mux.HandleFunc("GET /apps/{id}/deploys/partial", s.auth.RequireAuth(s.handleAppDeploysPartial))
 	mux.HandleFunc("POST /apps/{id}/deploys/clear", s.auth.RequireAuth(s.handleAppDeploysClear))
 
@@ -183,6 +184,13 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /admins", s.auth.RequireAuth(s.handleAdminCreate))
 	mux.HandleFunc("POST /admins/{id}/password", s.auth.RequireAuth(s.handleAdminPassword))
 	mux.HandleFunc("POST /admins/{id}/delete", s.auth.RequireAuth(s.handleAdminDelete))
+
+	// Everything that matched no route above. Same 404 the mux would produce by
+	// itself, except it answers JSON to a caller that asked for JSON — a page
+	// running an action with fetch would otherwise get plain text and be able to
+	// say only "that was not JSON", which hides the actual problem (a path this
+	// build does not serve).
+	mux.HandleFunc("/", s.handleNotFound)
 
 	s.mux = mux
 }
@@ -255,6 +263,11 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, page string, dat
 
 // proxyEnabled reports whether Caddy routing is active (controls whether the UI
 // shows https site URLs).
+// handleNotFound answers for any path no route claimed.
+func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
+	writeProblem(w, r, "no such endpoint: "+r.Method+" "+r.URL.Path, http.StatusNotFound)
+}
+
 func (s *Server) proxyEnabled() bool {
 	return s.reconciler != nil && s.reconciler.Enabled()
 }

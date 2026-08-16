@@ -10,15 +10,17 @@
     <div class="muted small">last 300 lines</div>
   </div>
   <div class="form-actions">
-    <a class="btn" href="/apps/{{.App.ID}}/logs">↻ Refresh</a>
+    <a class="iconbtn tip" href="/apps/{{.App.ID}}/logs"
+       data-tip="Refresh" aria-label="Refresh">{{template "icon_refresh" .}}</a>
     {{/* Only where the log file is xdev's own. A container app's output belongs
          to the engine's logging driver, so there is nothing here to clear —
          better no button than one that explains itself by failing. */}}
     {{if .CanClear}}
-    <form method="post" action="/apps/{{.App.ID}}/logs/clear" style="display:inline"
+    <form class="inline" method="post" action="/apps/{{.App.ID}}/logs/clear"
           data-confirm="Clear this app's log?">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <button class="danger" type="submit">Clear log</button>
+      <button class="iconbtn tip danger" type="submit"
+              data-tip="Clear log" aria-label="Clear log">{{template "icon_trash" .}}</button>
     </form>
     {{end}}
     <a class="btn" href="/projects/{{.Project.Slug}}">← Back</a>

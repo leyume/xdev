@@ -9,7 +9,8 @@
     <form class="inline" method="post" action="/events/clear"
           data-confirm="Clear the entire activity log for every project?">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <button class="danger" type="submit">Clear all</button>
+      <button class="iconbtn tip danger" type="submit"
+              data-tip="Clear all activity" aria-label="Clear all activity">{{template "icon_trash" .}}</button>
     </form>
     {{end}}
     <a class="btn" href="/">← Dashboard</a>

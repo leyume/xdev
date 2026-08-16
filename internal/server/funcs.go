@@ -6,6 +6,8 @@ import (
 	"html/template"
 	"strconv"
 	"strings"
+
+	"xdev/internal/store"
 )
 
 // tmplFuncs are small formatting helpers available to all templates.
@@ -17,6 +19,12 @@ func tmplFuncs() template.FuncMap {
 		"f1": func(f float64) string { return strconv.FormatFloat(f, 'f', 1, 64) },
 		// gib formats a byte count as gibibytes with one decimal.
 		"gib": func(b uint64) string { return fmt.Sprintf("%.1f", float64(b)/1073741824) },
+		// dbuse looks a container's latest sample out of the usage map. Unlike
+		// the builtin `index`, which errors on a nil map, indexing a nil Go map
+		// yields the zero value — so a page rendered without usage data (a test
+		// fixture, a collector that has not ticked yet) shows "—" rather than
+		// failing to render at all.
+		"dbuse": func(m map[string]store.DBMetric, key string) store.DBMetric { return m[key] },
 		// hasPrefix drives active-nav-link highlighting from the request path.
 		"hasPrefix": strings.HasPrefix,
 		// trimPrefix shortens a URL for display (the link still carries the

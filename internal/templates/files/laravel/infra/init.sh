@@ -10,8 +10,17 @@
 # by the next `git reset --hard` anyway, so the same work would run every
 # deploy, forever.
 #
+# XDEV_SERVER selects what this script ends up exec'ing, and therefore which
+# half of the Octane-specific work it does at all:
+#   unset|swoole  require laravel/octane, octane:install, exec octane:start
+#   fpm           skip both, exec php-fpm; nginx is a separate service and is
+#                 what listens on HTTP, so nothing here binds a port
+# Everything between (composer install, .env, key, waiting for the database,
+# migrations, prod caching) is identical, which is the point of one script.
+#
 # DB_* / REDIS_* come from the compose `environment:` block; .env and storage/
-# are mounted in from outside app/. The published host port maps to :8000 below.
+# are mounted in from outside app/. The published host port maps to :8000 below
+# for Swoole; under fpm the web service publishes it instead.
 set -e
 cd /var/www/html
 
@@ -89,7 +98,7 @@ fi
 #    requiring it here would edit composer.json and composer.lock inside the
 #    checkout, and the next deploy's hard reset would revert both — so the same
 #    work would run on every deploy, forever. Say so instead.
-if [ ! -d vendor/laravel/octane ]; then
+if [ "$XDEV_SERVER" != "fpm" ] && [ ! -d vendor/laravel/octane ]; then
   [ "$FROM_GIT" = 1 ] && die "laravel/octane is not in this repository — add it with 'composer require laravel/octane' and commit"
   log "requiring laravel/octane…"
   # base_flags, not install_flags: `require` rejects --no-dev, so in prod this
@@ -129,7 +138,7 @@ if [ ! -f .env ] && [ -f .env.example ]; then
   cp .env.example .env
 fi
 
-if [ ! -f config/octane.php ]; then
+if [ "$XDEV_SERVER" != "fpm" ] && [ ! -f config/octane.php ]; then
   [ "$FROM_GIT" = 1 ] && die "config/octane.php is missing — run 'php artisan octane:install --server=swoole' locally and commit it"
   log "octane:install --server=swoole…"
   php artisan octane:install --server=swoole --no-interaction
@@ -191,6 +200,15 @@ if [ "$prod" = 1 ]; then
   php artisan optimize --no-interaction || true
 fi
 
-# 7. Serve via Octane/Swoole (becomes the container's main process).
+# 7. Serve (becomes the container's main process either way).
+#
+#    php-fpm runs in the foreground so it is pid 1's child and compose can see
+#    it die. It speaks FastCGI on :9000 to the nginx service, and binds no HTTP
+#    port itself — which is why there is no --host/--port here.
+if [ "$XDEV_SERVER" = "fpm" ]; then
+  log "starting php-fpm on :9000 (nginx serves HTTP)…"
+  exec php-fpm -F
+fi
+
 log "starting Octane (Swoole) on :8000…"
 exec php artisan octane:start --server=swoole --host=0.0.0.0 --port=8000

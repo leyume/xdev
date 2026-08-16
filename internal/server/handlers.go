@@ -166,6 +166,17 @@ func (s *Server) handleHomeDashboard(w http.ResponseWriter, r *http.Request) {
 	sharedDBs := s.apps.SharedDBCount()
 	dedicatedDBs := len(s.apps.DedicatedDatabases())
 
+	// What the database containers are costing, summed across the shared server
+	// and every dedicated one. Only containers sampled in the last tick count,
+	// so a stopped database contributes nothing rather than a stale figure.
+	dbUsage, _ := s.store.LatestDBMetrics(time.Now().Add(-20 * time.Second))
+	var dbMemMiB int64
+	dbLive := 0
+	for _, m := range dbUsage {
+		dbMemMiB += m.MemBytes / 1024 / 1024
+		dbLive++
+	}
+
 	s.render(w, r, "dashboard", viewData{
 		"Title":        "Dashboard · xdev",
 		"Projects":     projects,
@@ -188,6 +199,8 @@ func (s *Server) handleHomeDashboard(w http.ResponseWriter, r *http.Request) {
 		"SharedDBs":    sharedDBs,
 		"DedicatedDBs": dedicatedDBs,
 		"TotalDBs":     sharedDBs + dedicatedDBs,
+		"DBMemMiB":     dbMemMiB,
+		"DBLive":       dbLive,
 	})
 }
 

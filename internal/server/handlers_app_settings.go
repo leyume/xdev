@@ -145,6 +145,8 @@ func (s *Server) renderAppSettingsWith(w http.ResponseWriter, r *http.Request, a
 		// on now. "On" is the presence of its service-domain row — the same fact
 		// appDB above reads for the hostname, not a second copy of it.
 		"CanToggleAdminer": apps.CanToggleAdminer(app),
+		"CanSwitchServer":  apps.CanSwitchLaravelServer(app),
+		"LaravelServer":    store.LaravelServerOr(app.LaravelServer),
 		"AdminerOn":        len(svc) > 0,
 		"Error":            errMsg,
 		"Cleared":          clearedCount(r),

@@ -355,7 +355,9 @@ POST /apps/{id}/deploy            start a deploy (returns at once; it runs in th
 POST /apps/{id}/deploy-key        replace this app's deploy key
 POST /apps/{id}/webhook           enable / rotate / disable the GitHub webhook
 POST /apps/{id}/push-token        issue / revoke the CI deploy token
-POST /apps/{id}/action            run one allowlisted container command (see 9.11)
+POST /apps/{id}/action            run one allowlisted container command (see 9.11);
+                                  answers JSON {label,output,failed} to Accept: application/json,
+                                  else re-renders the page — a *failed command* is still 200
 POST /apps/{id}/db-dump           switch pre-migration database dumps on/off
 POST /apps/{id}/adminer           add / remove the bundled Adminer (laravel)
 GET  /apps/{id}/deploys/partial   deploy history fragment (polled while one runs)
@@ -973,6 +975,13 @@ Limits, all deliberate and tested:
   `restore()` keyed on `data-deploy`/`data-step`, and `openSteps` in the add-app
   dialog. Anything else that re-renders on a timer owes the same. Guarded by
   `TestDeployPollRestoresExpandedEntries` and `TestCreateStepsStayOpenAcrossPolls`.
+- **Icon-only controls carry two labels.** `data-tip` is a CSS `::after` and
+  reaches no screen reader, so every `.iconbtn` also needs an `aria-label` —
+  without it the control announces as "button". Guarded by
+  `TestRefreshAndClearAreLabelledIconButtons`. A control at the top of a
+  scrolling container (the Deploys card heads the sticky side column, which is
+  `overflow-y: auto`) needs `.tip-below`, or its label is clipped and never
+  appears at all.
 - **`data-confirm` works on any form** (and on any submit button), via one
   capture-phase listener in `layout.html` registered *before* the others, which
   check `defaultPrevented`. It used to be read only inside the

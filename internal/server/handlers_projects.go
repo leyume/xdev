@@ -226,6 +226,7 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		NoAdminer:     r.FormValue("adminer") == "0",
 		DBMode:        r.FormValue("db_mode"),
 		WPMode:        r.FormValue("wp_mode"),
+		LaravelServer: r.FormValue("laravel_server"),
 		Archive:       archive,
 	}
 	target := "/projects/" + proj.Slug

@@ -44,6 +44,57 @@
     <input type="hidden" name="csrf_token" value="{{.CSRF}}"><button class="btn" type="submit">Update image</button>
   </form>
 </div>
+
+<!-- What the server is doing, as opposed to what it is: container cost on the
+     left (from the metrics collector), MariaDB's own counters on the right. -->
+{{if $db.Running}}
+{{$u := dbuse $.Usage $db.Container}}
+{{$st := $.Stats}}
+<div class="card db-stats">
+  <div class="db-stat-grid">
+    <div class="db-stat">
+      <div class="db-stat-label">Memory</div>
+      <div class="db-stat-num">{{if $u.TS}}{{mib $u.MemBytes}} <span class="db-stat-unit">MB</span>{{else}}—{{end}}</div>
+    </div>
+    <div class="db-stat">
+      <div class="db-stat-label">CPU</div>
+      <div class="db-stat-num">{{if $u.TS}}{{printf "%.1f" $u.CPUPct}}<span class="db-stat-unit">%</span>{{else}}—{{end}}</div>
+    </div>
+    <div class="db-stat">
+      <div class="db-stat-label">Uptime</div>
+      <div class="db-stat-num">{{if $st.Uptime}}{{$st.Uptime}}{{else}}—{{end}}</div>
+    </div>
+    <div class="db-stat">
+      <div class="db-stat-label">Connections</div>
+      <div class="db-stat-num">{{if $st.Available}}{{$st.Threads}}{{else}}—{{end}}</div>
+      {{if $st.Available}}<div class="muted small">{{$st.Running}} running · peak {{$st.MaxUsed}} of {{$st.MaxConns}}</div>{{end}}
+    </div>
+    <div class="db-stat">
+      <div class="db-stat-label">Queries</div>
+      <div class="db-stat-num">{{if $st.QPS}}{{$st.QPS}}<span class="db-stat-unit">/s</span>{{else}}—{{end}}</div>
+      {{if $st.Available}}<div class="muted small">{{$st.Questions}} since start · avg, not current</div>{{end}}
+    </div>
+    <div class="db-stat">
+      <div class="db-stat-label">Buffer pool</div>
+      <div class="db-stat-num">{{if $st.PoolPct}}{{$st.PoolPct}}<span class="db-stat-unit">%</span>{{else}}—{{end}}</div>
+      {{if $st.PoolSize}}<div class="muted small">{{$st.PoolUsed}} of {{$st.PoolSize}}</div>{{end}}
+    </div>
+    <div class="db-stat">
+      <div class="db-stat-label">Tables</div>
+      <div class="db-stat-num">{{if $st.Available}}{{$st.TableCount}}{{else}}—{{end}}</div>
+      <div class="muted small">across {{len $db.Databases}} database{{if ne (len $db.Databases) 1}}s{{end}}</div>
+    </div>
+    <div class="db-stat">
+      <div class="db-stat-label">Slow / aborted</div>
+      <div class="db-stat-num">{{if $st.Available}}{{$st.SlowLog}} <span class="db-stat-unit">/</span> {{$st.Aborted}}{{else}}—{{end}}</div>
+      {{if $st.Version}}<div class="muted small">MariaDB {{$st.Version}}</div>{{end}}
+    </div>
+  </div>
+  {{if not $st.Available}}
+  <p class="muted small">The server is running but did not answer a status query — counters unavailable.</p>
+  {{end}}
+</div>
+{{end}}
 {{else}}
 <div class="card db-server">
   <span class="status stopped"></span>
@@ -96,6 +147,8 @@
           <span class="status {{if .Running}}running{{else}}stopped{{end}}"></span>{{if .Running}}running{{else}}stopped{{end}}</span>
       </div>
       <div class="muted small">db <code>{{.DBName}}</code> · <code>{{.Container}}</code></div>
+      {{$u := dbuse $.Usage .Container}}
+      {{if $u.TS}}<div class="muted small">{{mib $u.MemBytes}} MB · {{printf "%.1f" $u.CPUPct}}% CPU</div>{{end}}
     </a>
     {{end}}
   </div>

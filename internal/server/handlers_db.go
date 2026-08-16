@@ -18,9 +18,12 @@ func (s *Server) handleDatabase(w http.ResponseWriter, r *http.Request) {
 	if err != nil && errMsg == "" {
 		errMsg = firstLine(err.Error())
 	}
+	usage, _ := s.store.LatestDBMetrics(time.Now().Add(-20 * time.Second))
 	s.render(w, r, "database", viewData{
 		"Title":     "Database · xdev",
 		"DB":        info,
+		"Stats":     s.apps.SharedDBStats(ctx),
+		"Usage":     usage,
 		"Users":     s.apps.SharedUsers(ctx),
 		"Dedicated": s.apps.DedicatedDatabases(),
 		"Msg":       r.URL.Query().Get("msg"),

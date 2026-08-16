@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"xdev/internal/apps"
 	"xdev/internal/store"
 )
 
@@ -194,5 +195,283 @@ func TestCreateStepsStayOpenAcrossPolls(t *testing.T) {
 	// A failed step is still open by default — it is the one worth reading.
 	if !strings.Contains(out, "!!st.failed") {
 		t.Error("a failed step no longer opens itself")
+	}
+}
+
+// The refresh and clear controls are icon-only. That is only acceptable if two
+// things are true of every one of them: a data-tip label for anyone who cannot
+// tell what the glyph means, and an aria-label — data-tip is a CSS ::after and
+// reaches no screen reader at all, so without it the button is announced as
+// nothing but "button".
+func TestRefreshAndClearAreLabelledIconButtons(t *testing.T) {
+	pages := map[string]string{
+		"settings": renderSettings(t, gitApp(), appSettingsForm{Name: "web"}, deployViewData()),
+		"logs": renderNamed(t, "app_logs", viewData{
+			"Title": "logs", "App": store.App{ID: 2, Name: "site", Slug: "site", Type: "static"},
+			"Project": store.Project{Name: "Demo", Slug: "demo"}, "Logs": "x", "CanClear": true,
+		}),
+		"events": renderNamed(t, "events", viewData{
+			"Title":  "Activity",
+			"Events": []store.Event{{TS: "2026-08-15", Level: "info", Message: "did a thing"}},
+		}),
+		"project": renderProjectWith(t, nil, viewData{
+			"Activity": []store.Event{{TS: "2026-08-15", Level: "info", Message: "started web"}},
+		}),
+	}
+
+	// Every icon-only control on the page, then the clear/refresh ones among
+	// them — matched on what they say they do rather than on the markup around
+	// them, which differs per page (the action sits on the form, not the button).
+	icons := regexp.MustCompile(`<(?:button|a)[^>]*\biconbtn\b[^>]*>`)
+	wanted := regexp.MustCompile(`(?i)data-tip="[^"]*(clear|refresh)`)
+	for page, html := range pages {
+		found := 0
+		for _, tag := range icons.FindAllString(html, -1) {
+			if !wanted.MatchString(tag) {
+				continue // some other icon button (start, stop, settings…)
+			}
+			found++
+			if !strings.Contains(tag, "data-tip=") {
+				t.Errorf("%s: icon control has no hover label: %s", page, tag)
+			}
+			if !strings.Contains(tag, "aria-label=") {
+				t.Errorf("%s: icon control has no accessible name — data-tip is decoration: %s", page, tag)
+			}
+		}
+		if found == 0 {
+			t.Errorf("%s: no icon-only refresh/clear control found at all", page)
+		}
+	}
+}
+
+// The Deploys card heads a sticky column that scrolls (overflow-y: auto), which
+// clips a label drawn above it. Those two get the below-the-button variant, and
+// the stylesheet has to define it.
+func TestStickyCardTooltipsPointDown(t *testing.T) {
+	out := renderSettings(t, gitApp(), appSettingsForm{Name: "web"}, deployViewData())
+	if !strings.Contains(out, ".tip.tip-below::after") {
+		t.Error("no tip-below rule in the stylesheet, so the variant does nothing")
+	}
+	i := strings.Index(out, `class="side-col is-sticky"`)
+	if i < 0 {
+		t.Fatal("no sticky side column")
+	}
+	if !strings.Contains(out[i:], "tip-below") {
+		t.Error("the Deploys card's icon buttons label upwards, where the scrolling column clips them")
+	}
+}
+
+// actionsViewData is a settings page with the Laravel maintenance commands.
+func actionsViewData(result *actionResult) viewData {
+	return viewData{
+		"Actions": []apps.ContainerAction{
+			{Key: "migrate-status", Label: "Migration status",
+				Help: "List migrations and whether each has run. Changes nothing."},
+			{Key: "migrate", Label: "Run migrations", Destroy: true,
+				Help: "Apply pending migrations. Takes a database dump first."},
+		},
+		"ActionResult": result,
+	}
+}
+
+// Eleven maintenance commands are a reference, not something anyone is part-way
+// through — open, they pushed the settings form off the screen.
+func TestRunCommandSectionIsCollapsed(t *testing.T) {
+	out := renderSettings(t, gitApp(), appSettingsForm{Name: "web"}, actionsViewData(nil))
+
+	box := regexp.MustCompile(`<details class="action-box"([^>]*)>`).FindStringSubmatch(out)
+	if box == nil {
+		t.Fatal("the run-command section is not collapsible at all")
+	}
+	if strings.Contains(box[1], "open") {
+		t.Errorf("it starts expanded (%q)", box[1])
+	}
+
+	// …except right after running one: the output is the only thing the button
+	// was pressed for, and a collapsed section would hide it.
+	ran := renderSettings(t, gitApp(), appSettingsForm{Name: "web"},
+		actionsViewData(&actionResult{Label: "Migration status", Output: "Ran? Yes"}))
+	box = regexp.MustCompile(`<details class="action-box"([^>]*)>`).FindStringSubmatch(ran)
+	if box == nil || !strings.Contains(box[1], "open") {
+		t.Error("after running a command the section is still collapsed, hiding the output")
+	}
+	if !strings.Contains(ran, "Ran? Yes") {
+		t.Error("the command output is not on the page")
+	}
+}
+
+// Each command reads as a labelled row — name, what it does underneath, and the
+// run control in the same place on every row.
+func TestActionRowsAreLabelledWithARunIcon(t *testing.T) {
+	out := renderSettings(t, gitApp(), appSettingsForm{Name: "web"}, actionsViewData(nil))
+
+	rows := regexp.MustCompile(`(?s)<form class="action-row".*?</form>`).FindAllString(out, -1)
+	if len(rows) != 2 {
+		t.Fatalf("found %d command rows, want 2", len(rows))
+	}
+	for _, row := range rows {
+		if !strings.Contains(row, `class="action-name"`) || !strings.Contains(row, `class="muted small action-help"`) {
+			t.Errorf("a command row has no name/help pair:\n%s", row)
+		}
+		if !strings.Contains(row, "iconbtn") || !strings.Contains(row, `data-tip="Run"`) {
+			t.Errorf("a command row has no run icon:\n%s", row)
+		}
+		if !strings.Contains(row, "aria-label=\"Run ") {
+			t.Errorf("the run icon has no accessible name, so it announces as just \"button\":\n%s", row)
+		}
+	}
+	// The destructive one is marked as such and still asks first.
+	migrate := rows[1]
+	if !strings.Contains(migrate, "changes data") {
+		t.Error("the destructive command is not flagged in its row")
+	}
+	if !strings.Contains(migrate, "data-confirm=") {
+		t.Error("the destructive command no longer asks for confirmation")
+	}
+}
+
+// Running a command posts with fetch and opens the output under the row that
+// was clicked — the page keeps its scroll position, its open panels and
+// anything half-typed in the settings form below.
+func TestActionsRunInPlace(t *testing.T) {
+	out := renderSettings(t, gitApp(), appSettingsForm{Name: "web"}, actionsViewData(nil))
+
+	// Delegated plain JS, not a per-row component: this is the one control whose
+	// whole job is to not reload the page, so it must not depend on a component
+	// initialising.
+	if !strings.Contains(out, `if (!form.classList || !form.classList.contains('action-row')) return;`) {
+		t.Fatal("no delegated submit handler for the command rows")
+	}
+	if strings.Contains(out, "actionRow()") {
+		t.Error("the rows still carry per-row Alpine state")
+	}
+	// Nothing anywhere in this path may navigate.
+	if strings.Contains(out, "form.submit();") {
+		t.Error("a fallback still submits the form, which reloads the page — the one thing this must not do")
+	}
+	// A declined confirmation must not run the command.
+	if !strings.Contains(out, "if (e.defaultPrevented) return;") {
+		t.Error("the handler ignores a declined confirmation and would go ahead anyway")
+	}
+	// The output element lives inside the row's own container.
+	item := regexp.MustCompile(`(?s)<div class="action-item">.*?</div>\s*</div>`).FindString(out)
+	if item == "" || !strings.Contains(item, `class="action-out"`) {
+		t.Error("the output panel is not inside the row it belongs to")
+	}
+	// It still works without JS: a real action and method, not href="#".
+	if !strings.Contains(out, `<form class="action-row" method="post" action="/apps/1/action"`) {
+		t.Error("the form has no server-side fallback")
+	}
+}
+
+// Disclosure markers are the same SVG chevron used everywhere else, not ▸/▾
+// text. Those code points are missing from plenty of system fonts, where they
+// render as tofu or at a size that does not match the row.
+func TestDisclosureMarkersUseTheSVGChevron(t *testing.T) {
+	settings := renderSettings(t, gitApp(), appSettingsForm{Name: "web"},
+		mergeViewData(deployViewData(), actionsViewData(nil)))
+	project := renderProject(t, nil)
+
+	for name, out := range map[string]string{"settings": settings, "project": project} {
+		if strings.Contains(out, `content: "▸"`) || strings.Contains(out, `content: "▾"`) {
+			t.Errorf("%s: a disclosure marker is still a text triangle", name)
+		}
+	}
+	// Every collapsible summary carries one.
+	for _, want := range []string{
+		`<summary class="deploy-head">` + "\n" + `      <span class="chevron">`,
+		`<summary class="action-summary">` + "\n" + `      <span class="chevron">`,
+	} {
+		if !strings.Contains(settings, want) {
+			t.Errorf("settings: a summary has no chevron: %q", want)
+		}
+	}
+	// And the rule that turns it as the section opens.
+	if !strings.Contains(settings, "details[open] > summary > .chevron") {
+		t.Error("no rule rotates the chevron when a section opens")
+	}
+}
+
+func mergeViewData(vds ...viewData) viewData {
+	out := viewData{}
+	for _, v := range vds {
+		for k, val := range v {
+			out[k] = val
+		}
+	}
+	return out
+}
+
+// A non-JSON answer is not a network failure, and it is not a reason to
+// navigate either. An older server, a CSRF rejection and an expired session all
+// reply with a page; the row used to call every one of them "could not reach
+// xdev", and then briefly to reload — which threw away the rest of the form.
+func TestActionExplainsANonJSONAnswerInPlace(t *testing.T) {
+	out := renderSettings(t, gitApp(), appSettingsForm{Name: "web"}, actionsViewData(nil))
+
+	if !strings.Contains(out, "your session or CSRF token expired") {
+		t.Error("a 401/403 is not explained as the expired session it is")
+	}
+	if !strings.Contains(out, "answered with a page rather than JSON") {
+		t.Error("an unexpected page answer is not reported as such")
+	}
+	// The "no answer" wording is reserved for a fetch that actually threw.
+	i := strings.Index(out, "no answer from xdev")
+	j := strings.Index(out, ".catch(function () {")
+	if i < 0 || j < 0 || i < j {
+		t.Error("the unreachable message is not confined to the catch block")
+	}
+	if strings.Contains(out, "could not reach xdev — check that it is still running") {
+		t.Error("the old blanket message is still there")
+	}
+}
+
+// This form carries <input name="action">, and a named control shadows the
+// form's own property: form.action is that input element, which stringifies
+// into a URL as "[object HTMLInputElement]". Every request went to
+// /apps/<id>/[object HTMLInputElement] and came back 404. The attribute has to
+// be read explicitly — the same reason layout.html has always done so.
+func TestActionURLIsReadFromTheAttribute(t *testing.T) {
+	out := renderSettings(t, gitApp(), appSettingsForm{Name: "web"}, actionsViewData(nil))
+
+	// The shadowing input is what makes this necessary; if it is ever renamed,
+	// this test should be revisited rather than silently kept.
+	if !strings.Contains(out, `<input type="hidden" name="action" value="migrate-status">`) {
+		t.Fatal("the action field is no longer named \"action\" — re-check whether the shadowing still applies")
+	}
+	if !strings.Contains(out, `var url = form.getAttribute('action');`) {
+		t.Error("the request URL is not read from the attribute")
+	}
+	// Nothing may read the property instead.
+	for _, bad := range []string{"fetch(form.action", "e.target.action", "form.action,"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("%q reads the shadowed property and would post to [object HTMLInputElement]", bad)
+		}
+	}
+}
+
+// The status dot is styled for a block: top-aligned with a margin above, so it
+// lines up with the first line of a two-line entry. A single-line row has to
+// undo both, and undoing only the margin leaves the dot floating above the word
+// it labels. One rule covers every such row, including the command output's.
+func TestStatusDotIsCentredOnSingleLineRows(t *testing.T) {
+	out := renderSettings(t, gitApp(), appSettingsForm{Name: "web"}, actionsViewData(nil))
+
+	rule := regexp.MustCompile(`(?s)([-.\w\s,]*?\.action-out-head \.status)\s*\{([^}]*)\}`).FindStringSubmatch(out)
+	if rule == nil {
+		t.Fatal("nothing resets the status dot inside a command's output header")
+	}
+	if !strings.Contains(rule[2], "align-self: center") {
+		t.Errorf("the reset does not re-centre the dot: %q", rule[2])
+	}
+	if !strings.Contains(rule[2], "margin: 0") {
+		t.Errorf("the reset does not drop the block margin: %q", rule[2])
+	}
+	// And it is shared rather than copied per row — the copies are how one gets
+	// missed.
+	for _, also := range []string{".deploy-head .status", ".app-card-head .status", ".status-label .status"} {
+		if !strings.Contains(rule[1], also) {
+			t.Errorf("%s is not covered by the shared reset", also)
+		}
 	}
 }

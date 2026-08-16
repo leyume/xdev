@@ -388,6 +388,16 @@ code {
 .status.running { background: var(--ok); border-color: var(--ok); box-shadow: 0 0 8px rgba(140, 232, 184, 0.6); }
 .status.error { background: var(--danger); border-color: var(--danger); box-shadow: 0 0 8px rgba(245, 140, 140, 0.7); }
 .status.stopped { background: transparent; border-color: var(--off); }
+/* The dot above is positioned for a *block*: it sits at the top and carries a
+   margin, so it lines up with the first line of a two-line entry. Every
+   single-line row has to undo both — undoing only the margin leaves it floating
+   above the text it labels, which is the kind of thing each new row rediscovers
+   by getting it wrong. One list, so a new row joins it instead. */
+.status-label .status,
+.app-card-head .status,
+.project-card-app .status,
+.deploy-head .status,
+.action-out-head .status { margin: 0; align-self: center; }
 
 /* Host resource bars */
 .host-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 26px; }
@@ -424,8 +434,6 @@ code {
   list-style: none;
 }
 .steps .step > summary::-webkit-details-marker { display: none; }
-.steps .step > summary::before { content: "▸"; opacity: .5; font-size: 11px; }
-.steps .step[open] > summary::before { content: "▾"; }
 .steps .step > summary:hover { background: var(--code-bg); }
 .steps .step-failed > summary { color: var(--danger, #ff6b6b); }
 .steps .step > pre.logs { border: 0; border-radius: 0; max-height: 40vh; margin: 0; }
@@ -693,6 +701,46 @@ button.iconbtn.danger:hover { color: var(--danger); background: rgba(245, 140, 1
   transition: opacity 0.12s ease, transform 0.12s ease;
 }
 .tip:hover::after, .tip:focus-visible::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* Label underneath instead. For a control at the top of a scrolling container —
+   the Deploys card heads the sticky side column, which is overflow-y: auto — a
+   label placed above is clipped by that container and simply never appears. */
+.tip.tip-below::after { bottom: auto; top: calc(100% + 8px); transform: translateX(-50%) translateY(-3px); }
+.tip.tip-below:hover::after, .tip.tip-below:focus-visible::after { transform: translateX(-50%) translateY(0); }
+
+/* Maintenance commands. The card collapses to its heading; each command is a
+   row of name + explanation with the run button always in the same place at the
+   right, rather than a column of buttons whose widths follow their labels. */
+.action-summary {
+  display: flex; align-items: center; gap: 12px;
+  cursor: pointer; list-style: none;
+}
+.action-summary::-webkit-details-marker { display: none; }
+.action-list { margin-top: 12px; }
+.action-row {
+  display: flex; align-items: center; gap: var(--gap-sm);
+  padding: 10px 0;
+}
+.action-row .grow { min-width: 0; }
+.action-name { font-size: 13.5px; font-weight: 600; }
+.action-help { margin: 2px 0 0; }
+.chip.warn { color: var(--warn); border-color: rgba(240, 200, 120, 0.35); }
+
+/* A command's output, opened under its own row. */
+.action-out {
+  margin: 0 0 10px;
+  border: 1px solid var(--border-card);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.action-out.is-failed { border-color: rgba(245, 140, 140, 0.45); }
+.action-out-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border-card);
+}
+.action-out > pre.logs { border: 0; border-radius: 0; margin: 0; max-height: 24em; }
+.action-item + .action-item > .action-row { border-top: 1px solid var(--border-soft); }
 
 /* Native select options render with OS colors; force dark-theme-readable ones. */
 option { background: var(--bg); color: var(--text); }
@@ -810,16 +858,12 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
   cursor: pointer; list-style: none;
 }
 .deploy-head::-webkit-details-marker { display: none; }
-.deploy-head::before { content: "▸"; opacity: .5; font-size: 11px; }
-.deploy-row[open] > .deploy-head::before { content: "▾"; }
 .deploy-head:hover { color: var(--text); }
-.deploy-head .status { margin: 0; align-self: center; }
 .deploy-msg { margin-bottom: 6px; }
 
 .apps-table-head { display: flex; align-items: center; margin-bottom: 6px; }
 .apps-table-head h2 { margin: 0; }
 .status-label { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; text-transform: capitalize; }
-.status-label .status { margin: 0; align-self: center; }
 .status-label.running { color: var(--ok); }
 .status-label.error { color: var(--danger); }
 .status-label.stopped { color: var(--muted); }
@@ -839,7 +883,6 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
 .project-card-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
 .project-card-apps { display: flex; flex-direction: column; gap: 9px; border-top: 1px solid var(--border-soft); padding-top: 12px; margin-top: 4px; }
 .project-card-app { display: flex; align-items: center; gap: 9px; font-size: 13px; }
-.project-card-app .status { margin: 0; align-self: center; }
 .chip { font-size: 10.5px; font-weight: 600; color: var(--muted); background: var(--panel-2); padding: 2px 7px; border-radius: 5px; }
 .badge.warn { color: var(--warn); background: rgba(242, 193, 78, 0.12); }
 .project-card-new { align-items: center; justify-content: center; text-align: center; gap: 8px; border: 1.5px dashed var(--border); min-height: 130px; }
@@ -860,7 +903,13 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
 .app-card > .app-card-head { cursor: pointer; user-select: none; }
 .chevron { display: inline-flex; align-items: center; color: var(--muted); transition: transform 0.2s; }
 .chevron.is-collapsed { transform: rotate(-90deg); }
-.app-card-head .status { margin: 0; align-self: center; }
+/* The same chevron as a <details> marker, driven by [open] instead of a class.
+   The native marker is hidden per-summary above; this replaces the ▸/▾ glyphs
+   that stood in for it, which depend on the font having those code points and
+   render as tofu (or at the wrong size) where it does not. */
+summary > .chevron { flex: none; transform: rotate(-90deg); }
+summary > .chevron .ico { width: 14px; height: 14px; }
+details[open] > summary > .chevron { transform: rotate(0deg); }
 .app-card-name { font-size: 16px; font-weight: 700; }
 /* One labelled entry per fact about where an app lives — its hostnames, its
    host port, its repository, its limits. As a single dot-separated line these
@@ -886,6 +935,14 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
 /* Condensed server status row (replaces the old full-height details card). */
 .db-server { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .db-server .btn { padding: 6px 12px; font-size: 12.5px; }
+
+/* Shared-server vitals. auto-fit rather than a fixed column count so the row
+   reflows to one column on a phone without a second breakpoint. */
+.db-stats { margin-top: 12px; }
+.db-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 18px 22px; }
+.db-stat-label { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.db-stat-num { font-size: 20px; font-weight: 600; line-height: 1.3; margin-top: 2px; }
+.db-stat-unit { font-size: 13px; font-weight: 500; color: var(--muted); }
 /* Page-level tab bar (Databases / Users; Overview / Tables) — reuses .tab. */
 .pagetabs { display: flex; align-items: center; gap: 4px; margin: 6px 0 20px; }
 /* DB cards show the schema name as a plain monospace title, not a boxed code. */

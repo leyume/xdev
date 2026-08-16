@@ -265,32 +265,69 @@ jobs:
      code change in internal/apps/actions.go. */}}
 {{with .Actions}}
 <section class="card form-card">
-  <h3>Run a command</h3>
-  <p class="muted small">These run inside <code>{{$app.Slug}}</code>'s container, as the app.
-    The app has to be running.</p>
+  {{/* Collapsed by default: eleven maintenance commands are a reference, not
+       something anyone is part-way through, and open they pushed the settings
+       form off the screen. Forced open when an action has just run — the output
+       is the only thing the button was pressed for. */}}
+  <details class="action-box"{{if $.ActionResult}} open{{end}}>
+    <summary class="action-summary">
+      <span class="chevron">{{template "icon_chevron" .}}</span>
+      <h3 style="margin:0">Run a command</h3>
+      <span class="chip">{{len .}}</span>
+      <span class="spacer"></span>
+      <span class="muted small nowrap">inside {{$app.Slug}}</span>
+    </summary>
 
-  {{with $.ActionResult}}
-  <div class="{{if .Failed}}alert{{else}}note{{end}}" style="margin:8px 0">
-    <strong>{{.Label}}{{if .Failed}} — failed{{end}}</strong>
-    <pre class="mono small" style="white-space:pre-wrap;margin:6px 0 0;max-height:24em;overflow:auto">{{.Output}}</pre>
-  </div>
-  {{end}}
+    <p class="muted small">These run inside <code>{{$app.Slug}}</code>'s container, as the app.
+      The app has to be running.</p>
 
-  <table class="rows">
-    {{range .}}
-    <tr>
-      <td style="width:14em">
-        <form method="post" action="/apps/{{$app.ID}}/action"
+    {{with $.ActionResult}}
+    <div class="{{if .Failed}}alert{{else}}note{{end}}" style="margin:8px 0">
+      <strong>{{.Label}}{{if .Failed}} — failed{{end}}</strong>
+      <pre class="mono small" style="white-space:pre-wrap;margin:6px 0 0;max-height:24em;overflow:auto">{{.Output}}</pre>
+    </div>
+    {{end}}
+
+    {{/* One row per command: what it is called, what it does underneath, and the
+         run button at the far right — the same shape every row, so the control
+         is always in the same place and the list reads top-to-bottom instead of
+         as a column of buttons whose widths differ. */}}
+    <div class="action-list">
+      {{range .}}
+      {{/* Each row owns its own state, so one command running (or failing) says
+           nothing about the others. The form still has a real action and method:
+           run() only takes over when JS is there, and without it this posts and
+           the server renders the output the old way. */}}
+      <div class="action-item">
+        <form class="action-row" method="post" action="/apps/{{$app.ID}}/action"
               {{if .Destroy}}data-confirm="Run {{.Label}}? This changes the database."{{end}}>
           <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
           <input type="hidden" name="action" value="{{.Key}}">
-          <button type="submit" {{if .Destroy}}class="danger"{{end}}>{{.Label}}</button>
+          <div class="grow">
+            <div class="action-name">{{.Label}}{{if .Destroy}} <span class="chip warn">changes data</span>{{end}}</div>
+            <p class="muted small action-help">{{.Help}}</p>
+          </div>
+          <button class="iconbtn tip{{if .Destroy}} danger{{end}}" type="submit"
+                  data-tip="Run" aria-label="Run {{.Label}}">{{template "icon_play" .}}</button>
         </form>
-      </td>
-      <td class="muted small">{{.Help}}</td>
-    </tr>
-    {{end}}
-  </table>
+        {{/* The output opens under the row it belongs to, not at the top of the
+             card: on a list this long, output shown elsewhere means scrolling
+             away from the thing you just pressed. Filled in by the handler in
+             the script below; hidden until there is something in it. */}}
+        <div class="action-out" hidden>
+          <div class="action-out-head">
+            <span class="status"></span>
+            <span class="small action-out-state"></span>
+            <span class="spacer"></span>
+            <button class="iconbtn tip" type="button" data-action-hide
+                    data-tip="Hide" aria-label="Hide output">✕</button>
+          </div>
+          <pre class="logs"></pre>
+        </div>
+      </div>
+      {{end}}
+    </div>
+  </details>
 
   {{/* The dump is the only way back from a migration that fails halfway, so
        turning it off is a decision the page states plainly rather than hides
@@ -313,6 +350,46 @@ jobs:
       {{else}}<input type="hidden" name="skip" value="1"><button type="submit">Turn off</button>{{end}}
     </form>
   </div>
+</section>
+{{end}}
+
+{{/* Which PHP server this Laravel app runs. Its own card and its own form for
+     the same reason Adminer has one: switching regenerates the whole compose
+     file and replaces every container, which has no business happening inside
+     a save that was only meant to rename the app. */}}
+{{if .CanSwitchServer}}
+{{$fpm := eq .LaravelServer "fpm"}}
+<section class="card form-card">
+  <h3>PHP server</h3>
+  <div class="toggle-row">
+    <div class="grow">
+      <div class="small" style="font-weight:600">
+        <span class="status running"></span>
+        {{if $fpm}}php-fpm + nginx{{else}}Octane / Swoole{{end}}
+      </div>
+      {{if $fpm}}
+      <p class="muted small">Workers are forked per request and reaped when idle, so a quiet site costs
+        almost nothing — around <strong>50 MB</strong> against Octane's <strong>170 MB</strong>, measured on
+        a real app. Each busy worker is 30–40 MB, so the advantage narrows under steady concurrent traffic.</p>
+      <p class="muted small">Switching back to Octane keeps the framework booted between requests: flat
+        memory whether busy or idle, and no per-request bootstrap.</p>
+      {{else}}
+      <p class="muted small">The framework stays resident in each worker, so there is no per-request
+        bootstrap — the fastest option, at a flat <strong>~170 MB</strong> idle.</p>
+      <p class="muted small">php-fpm trades that for memory: <strong>~50 MB</strong> idle, because idle
+        workers are reaped and there is one opcache pool instead of two. Requests pay a bootstrap each.</p>
+      {{end}}
+    </div>
+    <form method="post" action="/apps/{{$app.ID}}/server"
+          data-confirm="Switch {{$app.Name}} to {{if $fpm}}Octane / Swoole{{else}}php-fpm + nginx{{end}}? Its compose file is regenerated and every container in the stack is replaced. The app is left stopped.">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <input type="hidden" name="server" value="{{if $fpm}}swoole{{else}}fpm{{end}}">
+      <button type="submit">Switch to {{if $fpm}}Octane{{else}}php-fpm{{end}}</button>
+    </form>
+  </div>
+  <p class="muted small">The two stacks share no containers, so the running ones are removed before the
+    new file is written — otherwise they would be orphaned, belonging to no stack the engine can reach.
+    The app is left <strong>stopped</strong>; start it to bring the new stack up.</p>
 </section>
 {{end}}
 
@@ -561,15 +638,17 @@ jobs:
     <div class="title-row">
       <h3 style="margin:0">Deploys</h3>
       <span class="spacer"></span>
-      <button type="button" @click="refresh()">Refresh</button>
+      <button class="iconbtn tip tip-below" type="button" data-tip="Refresh" aria-label="Refresh"
+              @click="refresh()">{{template "icon_refresh" .}}</button>
       {{/* Clear is a form rather than a fetch so it goes through the same CSRF
            check as every other mutation, and so it still works with no JS. It
            only appears when there is something to clear. */}}
       {{if $.Deploys}}
-      <form method="post" action="/apps/{{$app.ID}}/deploys/clear" style="display:inline"
+      <form class="inline" method="post" action="/apps/{{$app.ID}}/deploys/clear"
             data-confirm="Clear this app's deploy history? A deploy that is still running is kept.">
         <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-        <button class="danger" type="submit">Clear</button>
+        <button class="iconbtn tip tip-below danger" type="submit"
+                data-tip="Clear history" aria-label="Clear deploy history">{{template "icon_trash" .}}</button>
       </form>
       {{end}}
     </div>
@@ -585,6 +664,97 @@ jobs:
 // learn it finished is to ask. Polling stops as soon as no row is running,
 // which the fragment marks with data-running — the client should not have to
 // read status text to know whether to keep asking.
+// Maintenance commands, run without leaving the page.
+//
+// Delegated from the document in plain JS rather than wired per row with
+// Alpine, for the same reason start/stop/delete are: this is the one control on
+// the page whose whole job is to not reload it, so it should not stop working
+// if a component fails to initialise. The form keeps a real method and action,
+// so with no JS at all it posts and the server renders the output as before.
+document.addEventListener('submit', function (e) {
+  var form = e.target;
+  if (!form.classList || !form.classList.contains('action-row')) return;
+  // A declined confirmation for a destructive command has already prevented the
+  // event, in the capture phase. Do not run it anyway.
+  if (e.defaultPrevented) return;
+  e.preventDefault();
+  runAction(form);
+});
+
+// Hide an output panel again.
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest && e.target.closest('[data-action-hide]');
+  if (!btn) return;
+  var box = btn.closest('.action-out');
+  if (box) box.hidden = true;
+});
+
+function runAction(form) {
+  var item = form.closest('.action-item');
+  var box = item.querySelector('.action-out');
+  var dot = box.querySelector('.status');
+  var state = box.querySelector('.action-out-state');
+  var pre = box.querySelector('pre');
+  var btn = form.querySelector('button[type=submit]');
+  if (btn && btn.disabled) return; // already running
+
+  var show = function (cls, label, text) {
+    dot.className = 'status ' + cls;
+    state.textContent = label;
+    pre.textContent = text;
+    box.hidden = false;
+    box.classList.toggle('is-failed', cls === 'error');
+  };
+  var done = function () {
+    if (btn) { btn.disabled = false; btn.classList.remove('is-busy'); }
+  };
+
+  if (btn) { btn.disabled = true; btn.classList.add('is-busy'); }
+  show('running', 'running…', '');
+
+  // getAttribute, never form.action: this form carries <input name="action">,
+  // and a control named "action" shadows the form's own property — form.action
+  // returns that input element, which stringifies into the URL as
+  // "[object HTMLInputElement]". The same reason layout.html reads it this way.
+  var url = form.getAttribute('action');
+
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Accept': 'application/json' },
+    body: new FormData(form),
+    credentials: 'same-origin',
+  }).then(function (r) {
+    var ct = r.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      // Something that renders pages answered: a CSRF rejection, a session that
+      // expired into a login redirect, or an xdev older than this page. Say so
+      // in place — reloading is exactly what this control exists to avoid, and
+      // it would throw away the rest of the form as well.
+      done();
+      var why = 'HTTP ' + r.status + ' from POST ' + url;
+      if (r.status === 401 || r.status === 403) {
+        show('error', 'failed', 'your session or CSRF token expired (' + why + ') — reload this page, sign in, and try again');
+      } else if (r.status === 404) {
+        show('error', 'failed', 'xdev has no such app or endpoint (' + why + '). The app may have been '
+          + 'deleted, or this server is older than this page — reload it.');
+      } else {
+        show('error', 'failed', 'xdev answered with a page rather than JSON (' + why + ')');
+      }
+      return;
+    }
+    return r.json().then(function (d) {
+      done();
+      var failed = !r.ok || !!d.failed;
+      show(failed ? 'error' : 'ok', failed ? 'failed' : 'done',
+        d.output || d.error || (failed ? 'the command failed with no output' : 'done — no output'));
+    });
+  }).catch(function () {
+    // Nothing answered at all — the only case that is really unreachable.
+    done();
+    show('error', 'failed', 'no answer from xdev — check that it is still running, then try again');
+  });
+}
+
 function deployWatch(appID, running) {
   return {
     busy: running,
@@ -684,6 +854,7 @@ function appSettings(domains, ports, maxDomains) {
        after it replaces this list; data-running is how it knows to keep asking. */}}
   <details class="deploy-row" data-deploy="{{.ID}}"{{if .Running}} data-running="1" open{{end}}>
     <summary class="deploy-head">
+      <span class="chevron">{{template "icon_chevron" .}}</span>
       {{if .Running}}<span class="status running" title="running"></span>
       {{else if eq .Status "ok"}}<span class="status ok" title="ok"></span>
       {{else}}<span class="status error" title="failed"></span>{{end}}
@@ -700,6 +871,7 @@ function appSettings(domains, ports, maxDomains) {
       {{range $i, $step := .}}
       <details class="step{{if $step.Failed}} step-failed{{end}}" data-step="{{$i}}"{{if $step.Failed}} open{{end}}>
         <summary class="small">
+          <span class="chevron">{{template "icon_chevron" .}}</span>
           {{if $step.Failed}}<span class="status error"></span>{{else}}<span class="status ok"></span>{{end}}
           <code>{{if $step.Name}}{{$step.Name}}{{else}}output{{end}}</code>
         </summary>
