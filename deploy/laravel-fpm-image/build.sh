@@ -1,9 +1,10 @@
 #!/bin/sh
 # Build and (optionally) push the Laravel php-fpm image.
 #
-#   ./build.sh                     build locally for this machine, no push
-#   ./build.sh --push              build for amd64+arm64 and push
-#   ./build.sh --push --tag 1.1.0  same, with an explicit version
+#   ./build.sh                       build locally for this machine, no push
+#   ./build.sh --push                build for amd64+arm64 and push
+#   ./build.sh --push --this-arch    push for THIS machine's architecture only
+#   ./build.sh --push --tag 1.1.0    same, with an explicit version
 #
 # Multi-arch by default when pushing. That is deliberate: the existing
 # leyume/swoole tags are single-arch and, as it happens, for opposite
@@ -22,6 +23,7 @@ PUSH=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --push)  PUSH=1 ;;
+    --this-arch) PLATFORMS="" ;;  # resolved to the host's arch below
     --tag)   shift; TAG="$1" ;;
     --repo)  shift; REPO="$1" ;;
     --php)   shift; PHP_VERSION="$1" ;;
@@ -53,8 +55,49 @@ if [ "$PUSH" = "0" ]; then
   exit 0
 fi
 
+# An architecture this machine cannot execute natively is built under QEMU, and
+# install-php-extensions compiles every extension from source -- each ./configure
+# alone runs hundreds of tiny conftest compiles through the emulator. On a small
+# host that turns a 4-minute build into the better part of an hour, with no
+# output to suggest anything is happening. Say so before starting, not after.
+# Squeeze whitespace out: a docker that cannot reach its daemon still prints an
+# empty line to stdout before failing, and an arch of "\namd64" silently matches
+# no platform at all -- which would report every architecture as foreign.
+HOST_ARCH=$(docker version --format '{{.Server.Arch}}' 2>/dev/null | tr -d '[:space:]')
+if [ -z "$HOST_ARCH" ]; then
+  case "$(uname -m)" in
+    x86_64|amd64)  HOST_ARCH=amd64 ;;
+    aarch64|arm64) HOST_ARCH=arm64 ;;
+    *)             HOST_ARCH=$(uname -m) ;;
+  esac
+fi
+if [ -z "$PLATFORMS" ]; then
+  PLATFORMS="linux/$HOST_ARCH"
+fi
+FOREIGN=""
+for p in $(echo "$PLATFORMS" | tr ',' ' '); do
+  case "$p" in
+    */"$HOST_ARCH") ;;
+    *) FOREIGN="$FOREIGN ${p#*/}" ;;
+  esac
+done
+
 echo "platform  $PLATFORMS"
-echo
+if [ -n "$FOREIGN" ]; then
+  CORES=$(nproc 2>/dev/null || echo 2)
+  echo
+  echo "  NOTE:$FOREIGN is emulated on this $HOST_ARCH host, and every PHP"
+  echo "  extension is compiled from source. Expect 30-60 min on $CORES cores,"
+  echo "  most of it with no visible progress."
+  echo
+  echo "  For this machine only (a few minutes):"
+  echo "    ./build.sh --push --this-arch"
+  echo
+  echo "  Multi-arch is still the better artifact -- the existing leyume/swoole"
+  echo "  tags are single-arch for opposite architectures, which is the problem"
+  echo "  this avoids. Worth doing once from a faster machine, or with the time."
+  echo
+fi
 
 if ! docker buildx version >/dev/null 2>&1; then
   echo "!! docker buildx is required for a multi-arch push." >&2
