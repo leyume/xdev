@@ -3,6 +3,7 @@ package apps
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"xdev/internal/store"
@@ -117,5 +118,84 @@ func TestLaravelServerDefault(t *testing.T) {
 		if got := store.LaravelServerOr(tc.in); got != tc.want {
 			t.Errorf("LaravelServerOr(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// A bind mount whose source is missing gets a directory created for it by the
+// engine, and the container then cannot start because a directory will not
+// mount over a file. Worse, the directory then makes every later write fail
+// with "is a directory", so the app stays broken until someone deletes it by
+// hand. writeInfra has to clear it.
+func TestWriteInfraReplacesAnEngineCreatedDirectory(t *testing.T) {
+	svc := &Service{}
+	dir := t.TempDir()
+
+	// Exactly what docker leaves behind: an empty directory at the file's path.
+	stray := filepath.Join(dir, "nginx.conf")
+	if err := os.Mkdir(stray, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.writeInfra("laravel", dir); err != nil {
+		t.Fatalf("writeInfra: %v", err)
+	}
+
+	fi, err := os.Stat(stray)
+	if err != nil {
+		t.Fatalf("nginx.conf missing after writeInfra: %v", err)
+	}
+	if fi.IsDir() {
+		t.Fatal("nginx.conf is still a directory; the container would fail to start again")
+	}
+	body, _ := os.ReadFile(stray)
+	if !strings.Contains(string(body), "fastcgi_pass php:9000") {
+		t.Error("nginx.conf was replaced with the wrong contents")
+	}
+}
+
+// A directory with anything in it belongs to somebody, and is not an artifact
+// of a failed mount. Refuse rather than delete it.
+func TestWriteInfraWillNotDeleteANonEmptyDirectory(t *testing.T) {
+	svc := &Service{}
+	dir := t.TempDir()
+
+	stray := filepath.Join(dir, "nginx.conf")
+	if err := os.Mkdir(stray, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stray, "keepme"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.writeInfra("laravel", dir); err == nil {
+		t.Fatal("writeInfra deleted or ignored a directory holding data")
+	}
+	if _, err := os.Stat(filepath.Join(stray, "keepme")); err != nil {
+		t.Errorf("the file inside the directory was destroyed: %v", err)
+	}
+}
+
+// The support files an fpm stack mounts must all land, and init.sh must be the
+// current one — an app carrying the pre-XDEV_SERVER copy would try to start
+// Octane inside an image that has no Swoole.
+func TestWriteInfraShipsWhatTheFPMStackMounts(t *testing.T) {
+	svc := &Service{}
+	dir := t.TempDir()
+	if err := svc.writeInfra("laravel", dir); err != nil {
+		t.Fatalf("writeInfra: %v", err)
+	}
+
+	init, err := os.ReadFile(filepath.Join(dir, "init.sh"))
+	if err != nil {
+		t.Fatalf("init.sh: %v", err)
+	}
+	if !strings.Contains(string(init), "exec php-fpm -F") {
+		t.Error("init.sh cannot serve fpm; a switched app would look for Octane")
+	}
+	if fi, err := os.Stat(filepath.Join(dir, "init.sh")); err == nil && fi.Mode()&0o111 == 0 {
+		t.Error("init.sh is not executable")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "nginx.conf")); err != nil {
+		t.Errorf("nginx.conf not written: %v", err)
 	}
 }

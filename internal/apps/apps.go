@@ -660,6 +660,17 @@ func (s *Service) writeInfra(appType, underscore string) error {
 		if strings.HasSuffix(rel, ".sh") {
 			mode = 0o755
 		}
+		// An empty directory here is the engine's doing, not a user's: a bind
+		// mount whose source does not exist gets one created for it, and the
+		// container then fails to start because a directory cannot be mounted
+		// over a file. Left in place it would also make WriteFile fail with
+		// "is a directory" forever after. Only an empty one is removed — a
+		// directory with anything in it is somebody's data, not an artifact.
+		if fi, err := os.Stat(dest); err == nil && fi.IsDir() {
+			if err := os.Remove(dest); err != nil {
+				return fmt.Errorf("%s exists as a directory and could not be replaced with the file: %w", dest, err)
+			}
+		}
 		if err := os.WriteFile(dest, data, mode); err != nil {
 			return err
 		}

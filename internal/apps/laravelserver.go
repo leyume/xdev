@@ -74,6 +74,26 @@ func (s *Service) SetLaravelServer(id int64, server string) error {
 	if err != nil {
 		return err
 	}
+
+	// Refresh the support files before the compose file that mounts them.
+	//
+	// These are written at create time and never again, so an app created
+	// before a support file existed does not have it — which is not a missing
+	// file so much as a booby trap: the engine creates a *directory* for a bind
+	// mount whose source is absent, and then refuses to start the container
+	// because a directory cannot be mounted over a file. The fpm stack mounts
+	// nginx.conf, so every app predating it hits this on its first switch.
+	//
+	// It also picks up init.sh, which is what teaches the script to serve fpm
+	// at all: an app still carrying the pre-XDEV_SERVER copy would go looking
+	// for laravel/octane inside an image that has no Swoole.
+	//
+	// Overwriting is intended. These files are generated, the switch is already
+	// regenerating the stack around them, and a stale one is exactly what
+	// breaks it.
+	if err := s.writeInfra(app.Type, filepath.Dir(app.ComposePath)); err != nil {
+		return fmt.Errorf("refresh compose support files: %w", err)
+	}
 	if err := writeComposeEdit(app.ComposePath, yaml); err != nil {
 		return err
 	}
