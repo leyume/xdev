@@ -28,6 +28,11 @@ type Data struct {
 	AppSlug     string
 	AppType     string
 	Env         string // local | prod (selects compose.prod.yml.tmpl when prod)
+	// Server selects a laravel app's PHP server: "" or "swoole" for
+	// Octane/Swoole, "fpm" for php-fpm. It picks a template the same way Env
+	// does, so an unset value renders exactly what it rendered before the
+	// option existed. Ignored by every other app type.
+	Server      string
 	AppImage    string // image the app service runs; "" lets RenderCompose resolve it
 	HostPort    int
 	AdminerPort int     // published host port for the secondary HTTP UI (laravel Adminer, mail admin); 0 = none
@@ -95,11 +100,7 @@ func RenderCompose(appType string, d Data) (string, error) {
 	if d.AppImage == "" && appType == "laravel" {
 		d.AppImage, _ = ResolveLaravelImage(d.Env)
 	}
-	candidates := make([]string, 0, 2)
-	if d.Env == "prod" {
-		candidates = append(candidates, "files/"+appType+"/compose.prod.yml.tmpl")
-	}
-	candidates = append(candidates, "files/"+appType+"/compose.yml.tmpl")
+	candidates := composeCandidates(appType, d.Env, d.Server)
 
 	var raw []byte
 	var err error
@@ -121,6 +122,32 @@ func RenderCompose(appType string, d Data) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// composeCandidates lists the compose templates to try, most specific first.
+//
+// Two independent dimensions select a template: the environment (prod has its
+// own file) and, for laravel, the PHP server. They are ordered server-then-env
+// because a server is a different stack — an fpm app in a prod project wants
+// the fpm template far more than it wants the Swoole prod one — while env is a
+// variation within a stack. Each dimension falls back to the unqualified name,
+// so adding compose.fpm.yml.tmpl alone is enough to support fpm everywhere,
+// and a type with neither still resolves compose.yml.tmpl exactly as before.
+func composeCandidates(appType, env, server string) []string {
+	base := "files/" + appType + "/compose"
+	prod := env == "prod"
+
+	var out []string
+	if server != "" && server != "swoole" {
+		if prod {
+			out = append(out, base+"."+server+".prod.yml.tmpl")
+		}
+		out = append(out, base+"."+server+".yml.tmpl")
+	}
+	if prod {
+		out = append(out, base+".prod.yml.tmpl")
+	}
+	return append(out, base+".yml.tmpl")
 }
 
 // RenderPartial renders one named block from a type's partials on its own —

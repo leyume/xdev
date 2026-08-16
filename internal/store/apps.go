@@ -27,6 +27,24 @@ const (
 // server instead of a per-app db service ("" = dedicated / not applicable).
 const DBShared = "shared"
 
+// The PHP server a laravel app runs on (migration 0015). LaravelSwoole is the
+// zero value's meaning as well as its name: an app row written before the
+// column existed reads as "", and must keep the Swoole stack it was built with.
+const (
+	LaravelSwoole = "swoole" // Octane/Swoole — framework resident per worker
+	LaravelFPM    = "fpm"    // php-fpm — per-request bootstrap, idle workers reaped
+)
+
+// LaravelServerOr resolves a stored value to a server name, mapping "" (and
+// anything unrecognised) to Swoole. Every reader goes through this rather than
+// comparing against "" directly, so the default lives in exactly one place.
+func LaravelServerOr(v string) string {
+	if v == LaravelFPM {
+		return LaravelFPM
+	}
+	return LaravelSwoole
+}
+
 // WPShared marks a WordPress app served by the shared platform wp-host (the
 // xdev-wp PHP-FPM container) from data/wp/sites/ — no container, compose file,
 // or port of its own ("" = separate container / not applicable).
@@ -76,6 +94,10 @@ type App struct {
 	// dump is the only way back from a migration that fails halfway, since
 	// files roll back with a rename and a schema does not.
 	SkipDBDump bool
+	// LaravelServer selects a laravel app's PHP server (migration 0015):
+	// "" or LaravelSwoole for Octane/Swoole, LaravelFPM for php-fpm. Blank is
+	// Swoole so apps created before the column existed keep their stack.
+	LaravelServer string
 	// Proxy-app config (see migration 0007).
 	Upstream  string // URL the domain forwards to (http(s)://host[:port])
 	DBMode    string // "shared" = uses xdev-db; "" = dedicated / n/a (migration 0008)
@@ -121,12 +143,12 @@ func (s *Store) CreateApp(a App) (App, error) {
 		`INSERT INTO apps (project_id, name, slug, type, runtime, status, subdomain,
 		                   cpu_limit, mem_limit, port, compose_path,
 		                   serve_mode, root_dir, build_cmd, start_cmd, upstream, db_mode, wp_mode,
-		                   source_dir, git_url, git_ref, git_subdir)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   source_dir, git_url, git_ref, git_subdir, laravel_server)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ProjectID, a.Name, a.Slug, a.Type, a.Runtime, statusOr(a.Status),
 		a.Domain, a.CPULimit, a.MemLimit, a.Port, a.ComposePath,
 		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd, a.Upstream, a.DBMode, a.WPMode,
-		a.SourceDir, a.GitURL, a.GitRef, a.GitSubdir,
+		a.SourceDir, a.GitURL, a.GitRef, a.GitSubdir, a.LaravelServer,
 	)
 	if err != nil {
 		return App{}, err
@@ -271,7 +293,7 @@ const appSelect = `SELECT id, project_id, name, slug, type, runtime, status, sub
 	serve_mode, root_dir, build_cmd, start_cmd, upstream, db_mode, wp_mode, source_dir,
 	git_url, git_ref, git_subdir, deployed_sha, deployed_at,
 	hook_id, hook_secret, push_token_hash, push_token_hint, skip_db_dump,
-	created_at, updated_at FROM apps`
+	laravel_server, created_at, updated_at FROM apps`
 
 func (s *Store) scanApp(row *sql.Row) (App, error) {
 	var a App
@@ -280,7 +302,7 @@ func (s *Store) scanApp(row *sql.Row) (App, error) {
 		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.DBMode, &a.WPMode,
 		&a.SourceDir, &a.GitURL, &a.GitRef, &a.GitSubdir, &a.DeployedSHA, &a.DeployedAt,
 		&a.HookID, &a.HookSecret, &a.PushTokenHash, &a.PushTokenHint, &a.SkipDBDump,
-		&a.CreatedAt, &a.UpdatedAt)
+		&a.LaravelServer, &a.CreatedAt, &a.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return App{}, ErrNotFound
 	}
@@ -294,7 +316,7 @@ func scanAppRows(rows *sql.Rows) (App, error) {
 		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.DBMode, &a.WPMode,
 		&a.SourceDir, &a.GitURL, &a.GitRef, &a.GitSubdir, &a.DeployedSHA, &a.DeployedAt,
 		&a.HookID, &a.HookSecret, &a.PushTokenHash, &a.PushTokenHint, &a.SkipDBDump,
-		&a.CreatedAt, &a.UpdatedAt)
+		&a.LaravelServer, &a.CreatedAt, &a.UpdatedAt)
 	return a, err
 }
 
