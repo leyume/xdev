@@ -13,7 +13,12 @@ IMG="${1:-leyume/php-fpm-alphine:1.0.0}"
 
 # What the Swoole image ships, minus swoole itself. An fpm app must be able to
 # do everything a Swoole app can, or switching servers silently breaks it.
-NEED="bcmath intl mbstring pcntl pdo_mysql redis sodium zip Zend OPcache"
+#
+# One name per word, deliberately: this list is word-split by the loop below, so
+# a two-word module name here would be tested as two nonexistent ones and fail a
+# perfectly good image. Zend OPcache is the only such name, and it is checked
+# separately further down.
+NEED="bcmath intl mbstring pcntl pdo_mysql redis sodium zip"
 
 echo "image  $IMG"
 echo
@@ -38,6 +43,15 @@ for m in $NEED; do
   fi
 done
 
+# Matched loosely, not as a whole line: php -m prints this one as "Zend OPcache"
+# and lists it under both [PHP Modules] and [Zend Modules].
+if echo "$MODS" | grep -qi "zend opcache"; then
+  printf '  ok    Zend OPcache\n'
+else
+  printf '  MISS  Zend OPcache\n'
+  fail=1
+fi
+
 echo
 # opcache being present is not the same as opcache being on: the image that
 # failed this check had it compiled in and disabled by default.
@@ -54,6 +68,9 @@ echo "fpm process manager $PM  (must be ondemand for the idle-memory saving)"
 echo
 if [ "$fail" = "1" ] || [ "$ENABLED" != "on" ]; then
   echo "FAILED — do not push this image."
+  echo
+  echo "Everything the image actually loads, for comparison:"
+  echo "$MODS" | sed 's/^/  /'
   exit 1
 fi
 echo "PASSED — safe to push."
