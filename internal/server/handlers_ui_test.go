@@ -253,3 +253,40 @@ func TestAppCardMetaIsLabelled(t *testing.T) {
 		t.Error("the deployed commit is not abbreviated the way git abbreviates it")
 	}
 }
+
+// The server card is the only way to switch an existing app, so it has to
+// render for a laravel app and stay hidden for everything else.
+func TestSettingsShowsPHPServerCard(t *testing.T) {
+	app := gitApp()
+	form := appSettingsForm{Name: "web", Domain: "web.demo.test"}
+
+	swoole := renderSettings(t, app, form, viewData{
+		"CanSwitchServer": true, "LaravelServer": "swoole",
+	})
+	if !strings.Contains(swoole, "Octane / Swoole") {
+		t.Error("card does not name the current server")
+	}
+	if !strings.Contains(swoole, `name="server" value="fpm"`) {
+		t.Error("a Swoole app is not offered the switch to fpm")
+	}
+	if !strings.Contains(swoole, "/apps/1/server") {
+		t.Error("form does not post to the server endpoint")
+	}
+	// Replacing every container in a stack is not something to do on a stray
+	// click.
+	if !strings.Contains(swoole, "data-confirm=") {
+		t.Error("switching is not behind a confirmation")
+	}
+
+	fpm := renderSettings(t, app, form, viewData{
+		"CanSwitchServer": true, "LaravelServer": "fpm",
+	})
+	if !strings.Contains(fpm, `name="server" value="swoole"`) {
+		t.Error("an fpm app is not offered the switch back to Swoole")
+	}
+
+	hidden := renderSettings(t, app, form, viewData{"CanSwitchServer": false})
+	if strings.Contains(hidden, "/apps/1/server") {
+		t.Error("a static app was offered a PHP server switch")
+	}
+}

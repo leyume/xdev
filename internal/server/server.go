@@ -114,6 +114,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /apps/{id}/action", s.auth.RequireAuth(s.handleAppAction))
 	mux.HandleFunc("POST /apps/{id}/db-dump", s.auth.RequireAuth(s.handleAppDumpToggle))
 	mux.HandleFunc("POST /apps/{id}/adminer", s.auth.RequireAuth(s.handleAppAdminerToggle))
+	mux.HandleFunc("POST /apps/{id}/server", s.auth.RequireAuth(s.handleAppLaravelServer))
 	mux.HandleFunc("GET /apps/{id}/deploys/partial", s.auth.RequireAuth(s.handleAppDeploysPartial))
 	mux.HandleFunc("POST /apps/{id}/deploys/clear", s.auth.RequireAuth(s.handleAppDeploysClear))
 

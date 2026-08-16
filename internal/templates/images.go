@@ -89,6 +89,28 @@ func ResolveLaravelImage(env string) (image, fallbackReason string) {
 	return LaravelImage(env, goarch, os.Getenv(laravelImageEnvVar))
 }
 
+// laravelFPMImageEnvVar pins the php-fpm image, the same escape hatch
+// XDEV_LARAVEL_IMAGE is for the Swoole one.
+const laravelFPMImageEnvVar = "XDEV_LARAVEL_FPM_IMAGE"
+
+// LaravelFPMImage is the php-fpm counterpart to the Swoole images, built from
+// deploy/laravel-fpm-image/. One tag rather than a dev/prod pair: the split
+// exists for Swoole because its prod image drops the build toolchain, and this
+// image needs composer in both cases (xdev's deploy runs `composer install`
+// inside it). Published for amd64 and arm64, so unlike the Swoole tags there is
+// no architecture to fall back over.
+const LaravelFPMImage = "docker.io/leyume/php-fpm-alphine:1.0.0"
+
+// ResolveLaravelFPMImage picks the image an fpm-mode laravel app serves from.
+// env is accepted for symmetry with ResolveLaravelImage and to leave room for a
+// prod variant later; today both environments run the same image.
+func ResolveLaravelFPMImage(env string) string {
+	if v := os.Getenv(laravelFPMImageEnvVar); v != "" {
+		return v
+	}
+	return LaravelFPMImage
+}
+
 // LaravelImage picks the image a laravel app serves from without consulting the
 // registry, using only what laravelImageArches recorded. It is the answer for
 // callers that have no engine to ask through — template rendering in a test,

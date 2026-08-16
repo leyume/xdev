@@ -471,6 +471,29 @@
         </label>
       </template>
 
+      <!-- Laravel: which PHP server. The numbers are measured on one real app,
+           idle, not estimated — the difference is large enough that guessing
+           would be worse than saying nothing. -->
+      <template x-if="type==='laravel'">
+        <div>
+          <label>PHP server
+            <select name="laravel_server" x-model="lserver">
+              <option value="swoole">Octane / Swoole — fastest, keeps the framework in memory (~170 MB idle)</option>
+              <option value="fpm">php-fpm + nginx — lightest, rebuilds per request (~50 MB idle)</option>
+            </select>
+          </label>
+          <p class="muted small" x-show="lserver==='fpm'" style="margin:-2px 0 10px">
+            Workers are forked per request and reaped when idle, so a quiet site
+            costs almost nothing. Each busy worker is 30–40 MB, so the saving
+            narrows under steady concurrent traffic.
+          </p>
+          <p class="muted small" x-show="lserver==='swoole'" style="margin:-2px 0 10px">
+            The framework stays booted between requests. Flat memory whether the
+            site is busy or idle — the better trade above a few concurrent users.
+          </p>
+        </div>
+      </template>
+
       <!-- Laravel / separate-container WordPress: one shared xdev MariaDB (saves RAM)
            or a per-app one. Shared-host WordPress always uses the shared DB. -->
       <template x-if="type==='laravel' || (type==='wordpress' && wp==='separate')">
@@ -615,7 +638,7 @@
 function addAppForm(baseDomain, maxDomains, csrf) {
   return {
     step: 1,
-    type: '', serve: 'serve', wp: 'shared', godb: '', domain: '', name: '',
+    type: '', serve: 'serve', wp: 'shared', godb: '', lserver: 'swoole', domain: '', name: '',
     // Adminer ships with a Laravel app unless it is turned off here. A string,
     // not a boolean: it is a <select> whose value is posted as-is.
     adminer: '1',

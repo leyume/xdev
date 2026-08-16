@@ -98,7 +98,11 @@ func RenderCompose(appType string, d Data) (string, error) {
 	// every caller — the apps service, tests, anything later — on the same
 	// architecture-aware choice instead of hardcoding a tag in the template.
 	if d.AppImage == "" && appType == "laravel" {
-		d.AppImage, _ = ResolveLaravelImage(d.Env)
+		if d.Server == "fpm" {
+			d.AppImage = ResolveLaravelFPMImage(d.Env)
+		} else {
+			d.AppImage, _ = ResolveLaravelImage(d.Env)
+		}
 	}
 	candidates := composeCandidates(appType, d.Env, d.Server)
 

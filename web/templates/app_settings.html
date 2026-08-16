@@ -353,6 +353,46 @@ jobs:
 </section>
 {{end}}
 
+{{/* Which PHP server this Laravel app runs. Its own card and its own form for
+     the same reason Adminer has one: switching regenerates the whole compose
+     file and replaces every container, which has no business happening inside
+     a save that was only meant to rename the app. */}}
+{{if .CanSwitchServer}}
+{{$fpm := eq .LaravelServer "fpm"}}
+<section class="card form-card">
+  <h3>PHP server</h3>
+  <div class="toggle-row">
+    <div class="grow">
+      <div class="small" style="font-weight:600">
+        <span class="status running"></span>
+        {{if $fpm}}php-fpm + nginx{{else}}Octane / Swoole{{end}}
+      </div>
+      {{if $fpm}}
+      <p class="muted small">Workers are forked per request and reaped when idle, so a quiet site costs
+        almost nothing — around <strong>50 MB</strong> against Octane's <strong>170 MB</strong>, measured on
+        a real app. Each busy worker is 30–40 MB, so the advantage narrows under steady concurrent traffic.</p>
+      <p class="muted small">Switching back to Octane keeps the framework booted between requests: flat
+        memory whether busy or idle, and no per-request bootstrap.</p>
+      {{else}}
+      <p class="muted small">The framework stays resident in each worker, so there is no per-request
+        bootstrap — the fastest option, at a flat <strong>~170 MB</strong> idle.</p>
+      <p class="muted small">php-fpm trades that for memory: <strong>~50 MB</strong> idle, because idle
+        workers are reaped and there is one opcache pool instead of two. Requests pay a bootstrap each.</p>
+      {{end}}
+    </div>
+    <form method="post" action="/apps/{{$app.ID}}/server"
+          data-confirm="Switch {{$app.Name}} to {{if $fpm}}Octane / Swoole{{else}}php-fpm + nginx{{end}}? Its compose file is regenerated and every container in the stack is replaced. The app is left stopped.">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <input type="hidden" name="server" value="{{if $fpm}}swoole{{else}}fpm{{end}}">
+      <button type="submit">Switch to {{if $fpm}}Octane{{else}}php-fpm{{end}}</button>
+    </form>
+  </div>
+  <p class="muted small">The two stacks share no containers, so the running ones are removed before the
+    new file is written — otherwise they would be orphaned, belonging to no stack the engine can reach.
+    The app is left <strong>stopped</strong>; start it to bring the new stack up.</p>
+</section>
+{{end}}
+
 {{/* The bundled Adminer. Its own card and its own form, because switching it
      rewrites the compose file and republishes a hostname — neither of which
      belongs in a save that was only meant to rename the app. */}}

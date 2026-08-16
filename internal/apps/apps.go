@@ -114,6 +114,11 @@ type CreateOpts struct {
 	CPULimit float64 // cores; 0 = unlimited (container apps only)
 	MemLimit int64   // bytes; 0 = unlimited (container apps only)
 
+	// LaravelServer picks a laravel app's PHP server: store.LaravelSwoole
+	// (or blank) for Octane/Swoole, store.LaravelFPM for php-fpm. Ignored by
+	// every other type.
+	LaravelServer string
+
 	// Static-app config (see store.App).
 	ServeMode string // serve | command (default serve)
 	RootDir   string
@@ -259,6 +264,13 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 		Status:    store.AppStopped,
 		Domain:    domain,
 		Runtime:   appEngine,
+	}
+	// Recorded only for laravel, so a non-laravel row never carries a server it
+	// does not have. Stored resolved rather than raw: the settings page and the
+	// compose regeneration both read this column, and a blank that means Swoole
+	// is one more thing for each of them to remember.
+	if opts.Type == "laravel" {
+		app.LaravelServer = store.LaravelServerOr(opts.LaravelServer)
 	}
 
 	// A host app may live in a directory the user already has instead of one
@@ -547,18 +559,25 @@ func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.P
 	// Laravel picks its image per environment and per host architecture; log any
 	// substitution here, where it happens once per app, rather than leaving the
 	// operator to notice the compose file names something they didn't ask for.
-	var appImage string
+	var appImage, server string
 	if opts.Type == "laravel" {
-		engine := runtime.Engine(app.Runtime)
-		if engine == "" {
-			engine = s.sel.Current()
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
-		var reason string
-		appImage, reason = laravelImage(ctx, engine, proj.Environment)
-		cancel()
-		if reason != "" {
-			log.Printf("app %s/%s: %s", proj.Slug, app.Slug, reason)
+		server = store.LaravelServerOr(opts.LaravelServer)
+		if server == store.LaravelFPM {
+			// One image, published for both architectures, so none of the
+			// detection the Swoole tags need applies.
+			appImage = templates.ResolveLaravelFPMImage(proj.Environment)
+		} else {
+			engine := runtime.Engine(app.Runtime)
+			if engine == "" {
+				engine = s.sel.Current()
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
+			var reason string
+			appImage, reason = laravelImage(ctx, engine, proj.Environment)
+			cancel()
+			if reason != "" {
+				log.Printf("app %s/%s: %s", proj.Slug, app.Slug, reason)
+			}
 		}
 	}
 
@@ -568,6 +587,7 @@ func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.P
 		AppSlug:     app.Slug,
 		AppType:     opts.Type,
 		Env:         proj.Environment,
+		Server:      server,
 		AppImage:    appImage,
 		HostPort:    port,
 		AdminerPort: adminerPort,

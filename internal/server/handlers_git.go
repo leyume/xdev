@@ -11,6 +11,7 @@ package server
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -298,4 +299,44 @@ func (s *Server) handleAppAdminerToggle(w http.ResponseWriter, r *http.Request) 
 	}
 	s.reconcile()
 	http.Redirect(w, r, target+"?saved=1", http.StatusSeeOther)
+}
+
+// handleAppLaravelServer switches a laravel app between Octane/Swoole and
+// php-fpm, regenerating its compose file for the requested server.
+//
+// Unlike the Adminer toggle this does not restart a running app afterwards.
+// SetLaravelServer replaces every container in the stack, so the app is left
+// stopped and starting it is an explicit second action — a settings form should
+// not silently swap out the process serving live traffic.
+func (s *Server) handleAppLaravelServer(w http.ResponseWriter, r *http.Request) {
+	app, proj, ok := s.appAndProject(w, r)
+	if !ok {
+		return
+	}
+	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/settings"
+	want := store.LaravelServerOr(r.FormValue("server"))
+	was := store.LaravelServerOr(app.LaravelServer)
+	if want == was {
+		http.Redirect(w, r, target, http.StatusSeeOther)
+		return
+	}
+	if err := s.apps.SetLaravelServer(app.ID, want); err != nil {
+		redirectWithError(w, r, target, err)
+		return
+	}
+	s.store.AddEvent(proj.ID, app.ID, "info",
+		"Switched "+app.Name+" from "+was+" to "+want+" — stack regenerated, app stopped")
+	s.reconcile()
+	http.Redirect(w, r, target+"?msg="+url.QueryEscape(
+		"Now on "+serverLabel(want)+". The old containers were removed — start the app to bring the new stack up."),
+		http.StatusSeeOther)
+}
+
+// serverLabel names a PHP server the way the settings page does, so a flash
+// message and the card it lands next to agree.
+func serverLabel(server string) string {
+	if server == store.LaravelFPM {
+		return "php-fpm + nginx"
+	}
+	return "Octane / Swoole"
 }
