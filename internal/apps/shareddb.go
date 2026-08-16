@@ -591,6 +591,20 @@ func (s *Service) SharedDBCount() int {
 	return len(s.sharedDBOwners())
 }
 
+// DBContainers names every container that holds a database: the shared server
+// first, then each dedicated per-app one. The metrics collector uses this to
+// pick database rows out of the engine's stats, so it is a plain store read on
+// the collector's 10s tick — no engine calls. The shared container is listed
+// whether or not it is running; a name that has no stats row this tick simply
+// records no sample.
+func (s *Service) DBContainers() []string {
+	out := []string{sharedDBContainer}
+	for _, d := range s.DedicatedDatabases() {
+		out = append(out, d.Container)
+	}
+	return out
+}
+
 // --- Database & user administration (the /database CRUD controls) ---
 
 // SharedUser is one MySQL account on the shared server.

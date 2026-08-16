@@ -27,6 +27,7 @@ type Collector struct {
 	store    *store.Store
 	sel      *runtime.Selector
 	procs    ProcSource         // static (host-process) apps; may be nil
+	dbs      DBSource           // database containers; may be nil
 	lastProc map[int64]procMark // per-app CPU accumulator for %-from-delta
 }
 
@@ -37,9 +38,10 @@ type procMark struct {
 }
 
 // New creates a Collector that samples whichever engines are usable, plus the
-// host processes of static apps via procs (nil disables host-process sampling).
-func New(st *store.Store, sel *runtime.Selector, procs ProcSource) *Collector {
-	return &Collector{store: st, sel: sel, procs: procs, lastProc: map[int64]procMark{}}
+// host processes of static apps via procs and the database containers named by
+// dbs. Either may be nil, which disables that part of the sampling.
+func New(st *store.Store, sel *runtime.Selector, procs ProcSource, dbs DBSource) *Collector {
+	return &Collector{store: st, sel: sel, procs: procs, dbs: dbs, lastProc: map[int64]procMark{}}
 }
 
 // Run loops until ctx is cancelled, sampling every interval.
@@ -75,9 +77,20 @@ func (c *Collector) collectOnce(ctx context.Context) {
 	// apps), and the app-metrics prune is hoisted here so it always applies.
 	c.sampleHostProcs(now)
 	c.store.PruneMetricsBefore(now.Add(-retention))
+	c.store.PruneDBMetricsBefore(now.Add(-retention))
 
 	prefixes, err := c.store.AppPrefixes()
-	if err != nil || len(prefixes) == 0 {
+	if err != nil {
+		prefixes = nil
+	}
+	var dbNames []string
+	if c.dbs != nil {
+		dbNames = c.dbs.DBContainers()
+	}
+	// A host with only databases and no container apps is a real state (every
+	// app static, or none created yet), so the stats read has to survive an
+	// empty prefix list rather than returning on it.
+	if len(prefixes) == 0 && len(dbNames) == 0 {
 		return
 	}
 
@@ -85,6 +98,8 @@ func (c *Collector) collectOnce(ctx context.Context) {
 	if err != nil {
 		return // engine may be momentarily unavailable; try again next tick
 	}
+
+	c.sampleDBs(now, dbNames, samples)
 
 	byPrefix := make(map[string]int64, len(prefixes))
 	for _, p := range prefixes {
@@ -110,6 +125,23 @@ func (c *Collector) collectOnce(ctx context.Context) {
 	for id, a := range byApp {
 		if err := c.store.InsertMetric(id, now, a.cpu, a.mem); err != nil {
 			log.Printf("metrics insert: %v", err)
+		}
+	}
+}
+
+// sampleDBs records a sample for each database container that appears in this
+// tick's stats. Reuses the stats already read for apps rather than asking the
+// engine again, so adding databases costs no extra exec. A named container
+// with no stats row is simply not running and records nothing, which is what
+// leaves a gap in its series rather than a flat line of zeroes.
+func (c *Collector) sampleDBs(now time.Time, names []string, samples map[string]sample) {
+	for _, name := range names {
+		s, ok := samples[name]
+		if !ok {
+			continue
+		}
+		if err := c.store.InsertDBMetric(name, now, s.cpu, s.mem); err != nil {
+			log.Printf("db metrics insert: %v", err)
 		}
 	}
 }

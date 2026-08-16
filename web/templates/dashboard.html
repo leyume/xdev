@@ -37,6 +37,7 @@
     <div class="kpi-label">Databases</div>
     <div class="kpi-num">{{if .TotalDBs}}{{.TotalDBs}}{{else}}—{{end}}</div>
     <div class="muted small">{{.SharedDBs}} shared · {{.DedicatedDBs}} dedicated</div>
+    {{if .DBLive}}<div class="muted small">{{.DBMemMiB}} MB across {{.DBLive}} container{{if ne .DBLive 1}}s{{end}}</div>{{end}}
   </a>
 </section>
 

@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"xdev/internal/apps"
+	"xdev/internal/metrics"
+	"xdev/internal/runtime"
 	"xdev/internal/store"
 	"xdev/web"
 )
@@ -110,5 +112,112 @@ func TestWordPressPageRenders(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("wordpress page missing %q", want)
 		}
+	}
+}
+
+// The vitals strip is the point of the DB page's detail work: container cost
+// from the collector, MariaDB's own counters beside it.
+func TestDatabasePageShowsServerVitals(t *testing.T) {
+	out := renderPage(t, viewData{
+		"DB": apps.SharedDBInfo{
+			Configured: true, Running: true, Container: "xdev-db",
+			Host: "xdev-db", Port: 3306,
+			Databases: []apps.SharedDB{{Name: "demo_api", SizeMB: "1.5"}},
+		},
+		"Usage": map[string]store.DBMetric{
+			"xdev-db": {Container: "xdev-db", TS: "2026-08-16T04:00:00Z", CPUPct: 2.5, MemBytes: 314572800},
+		},
+		"Stats": apps.SharedDBStats{
+			Available: true, Version: "11.4.2", Uptime: "3d 4h",
+			Threads: "7", Running: "1", MaxUsed: "12", MaxConns: "151",
+			Questions: "84210", QPS: "0.3", SlowLog: "2", Aborted: "0",
+			PoolSize: "128.0 MiB", PoolUsed: "41.2 MiB", PoolPct: "32",
+			TableCount: "38",
+		},
+	})
+	for _, want := range []string{
+		"300 ", "MB", // 314572800 bytes rendered through mib
+		"2.5",                   // CPU percent
+		"3d 4h",                 // uptime
+		"7",                     // connections
+		"peak 12 of 151",        // high-water mark against the ceiling
+		"0.3",                   // queries/sec
+		"41.2 MiB of 128.0 MiB", // buffer pool
+		"38",                    // table count
+		"MariaDB 11.4.2",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("vitals strip missing %q", want)
+		}
+	}
+	// The averaged figure must say so; a bare "queries/sec" would read as live.
+	if !strings.Contains(out, "avg, not current") {
+		t.Error("queries/sec is not labelled as an average since start")
+	}
+}
+
+// A running server that will not answer a status query still has to render:
+// the container figures come from the collector, not from MariaDB.
+func TestDatabasePageRendersWithoutServerCounters(t *testing.T) {
+	out := renderPage(t, viewData{
+		"DB": apps.SharedDBInfo{Configured: true, Running: true, Container: "xdev-db"},
+		"Usage": map[string]store.DBMetric{
+			"xdev-db": {Container: "xdev-db", TS: "2026-08-16T04:00:00Z", CPUPct: 1, MemBytes: 104857600},
+		},
+		"Stats": apps.SharedDBStats{}, // Available=false
+	})
+	if !strings.Contains(out, "counters unavailable") {
+		t.Error("no explanation shown when the server did not answer a status query")
+	}
+	if !strings.Contains(out, "100 ") {
+		t.Error("container memory should still render when MariaDB counters are missing")
+	}
+}
+
+// Nothing on this page may require Usage to be populated: the collector has not
+// ticked when xdev has just started, and `index` on a nil map is a hard error.
+func TestDatabasePageRendersWithNoUsageData(t *testing.T) {
+	out := renderPage(t, viewData{
+		"DB": apps.SharedDBInfo{
+			Configured: true, Running: true, Container: "xdev-db",
+		},
+		"Dedicated": []apps.DedicatedDB{{
+			ProjectName: "Bizepp", ProjectSlug: "bizepp", AppName: "API",
+			Container: "bizepp_api_db", DBName: "laravel", Running: true,
+		}},
+	})
+	if !strings.Contains(out, "xdev-db") {
+		t.Error("page did not render without usage data")
+	}
+}
+
+// The Databases KPI gains what those databases actually cost, so the dashboard
+// answers "how much is my data layer" without a click through.
+func TestDashboardKPIShowsDatabaseUsage(t *testing.T) {
+	base := viewData{
+		"Projects": []store.Project{}, "Apps": []appRow{}, "Events": []store.Event{},
+		"Runtime": runtime.Info{}, "Engine": "docker", "Host": metrics.HostSnapshot(),
+		"TotalApps": 0, "Running": 0, "Stopped": 0,
+		"SharedDBs": 2, "DedicatedDBs": 1, "TotalDBs": 3,
+	}
+
+	base["DBMemMiB"], base["DBLive"] = int64(412), 2
+	out := renderNamed(t, "dashboard", base)
+	if !strings.Contains(out, "412 MB across 2 containers") {
+		t.Errorf("dashboard KPI missing database usage:\n%s", out)
+	}
+
+	// One container must not read "1 containers".
+	base["DBMemMiB"], base["DBLive"] = int64(300), 1
+	out = renderNamed(t, "dashboard", base)
+	if !strings.Contains(out, "300 MB across 1 container<") {
+		t.Error("dashboard KPI pluralised a single container")
+	}
+
+	// No samples yet: the line disappears rather than claiming 0 MB.
+	base["DBMemMiB"], base["DBLive"] = int64(0), 0
+	out = renderNamed(t, "dashboard", base)
+	if strings.Contains(out, "MB across") {
+		t.Error("dashboard KPI showed a usage line with no samples")
 	}
 }

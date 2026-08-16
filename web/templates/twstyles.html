@@ -935,6 +935,14 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
 /* Condensed server status row (replaces the old full-height details card). */
 .db-server { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .db-server .btn { padding: 6px 12px; font-size: 12.5px; }
+
+/* Shared-server vitals. auto-fit rather than a fixed column count so the row
+   reflows to one column on a phone without a second breakpoint. */
+.db-stats { margin-top: 12px; }
+.db-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 18px 22px; }
+.db-stat-label { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.db-stat-num { font-size: 20px; font-weight: 600; line-height: 1.3; margin-top: 2px; }
+.db-stat-unit { font-size: 13px; font-weight: 500; color: var(--muted); }
 /* Page-level tab bar (Databases / Users; Overview / Tables) — reuses .tab. */
 .pagetabs { display: flex; align-items: center; gap: 4px; margin: 6px 0 20px; }
 /* DB cards show the schema name as a plain monospace title, not a boxed code. */
