@@ -924,6 +924,20 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
    first. Top is set to line it up with the header row, which is the card's
    22px padding plus half a 16px icon row. */
 .app-card { position: relative; }
+/* The card's hover area, extended across the gutter the handle sits in.
+   Without this the handle is revealed by hovering the card and then hidden the
+   moment you set off towards it: the gutter is outside the card, so the cursor
+   leaves before it arrives, and the thing you were reaching for fades under
+   the pointer. The strip runs the card's full height so the handle is still
+   reachable when you start from the bottom of an expanded card. */
+.app-card::before {
+  content: "";
+  position: absolute;
+  left: -34px;
+  top: 0;
+  bottom: 0;
+  width: 34px;
+}
 .drag-handle {
   position: absolute;
   left: -30px;
@@ -935,16 +949,19 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
   opacity: 0;
   transition: opacity 0.15s;
 }
-.app-card:hover .drag-handle, .drag-handle:focus-visible { opacity: 0.75; }
+.app-card:hover .drag-handle, .drag-handle:hover, .drag-handle:focus-visible { opacity: 0.75; }
 .drag-handle:active { cursor: grabbing; }
 .app-card.is-dragging { opacity: 0.45; }
 /* The reorder confirmation. Auto-save has no button to have pressed, so this
    is the only thing that separates "saved" from "silently failed". */
 .order-saved { padding: 8px 12px; font-size: 13px; }
 /* The gutter is the container's own padding, which narrows on small screens —
-   so the handle tucks in to match rather than sliding off the left edge. */
+   so the handle tucks in to match rather than sliding off the left edge. The
+   hover strip has to narrow with it: an absolutely positioned box reaching past
+   the viewport edge is what puts a horizontal scrollbar on the whole page. */
 @media (max-width: 900px) {
   .drag-handle { left: -18px; }
+  .app-card::before { left: -20px; width: 20px; }
 }
 /* Touch has no hover to reveal it with. It is shown rather than hidden even
    though HTML5 drag does not fire for touch, because the same breakpoint
