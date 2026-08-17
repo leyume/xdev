@@ -6,6 +6,7 @@
 // by the installer and for day-to-day operations:
 //
 //	xdev version                 print version + go/os/arch
+//	xdev update                  install the latest published release, and restart
 //	xdev doctor                  preflight/health check (engine, caddy, ports, …)
 //	xdev create-admin <email>    create the first admin account (idempotent)
 //	xdev write-hosts <file> [h…] rewrite the managed /etc/hosts block (internal)
@@ -72,6 +73,8 @@ func run() error {
 			return nil
 		case "doctor":
 			return runDoctor(os.Args[2:])
+		case "update":
+			return runUpdate(os.Args[2:])
 		case "create-admin":
 			return runCreateAdmin(os.Args[2:])
 		case "write-hosts":
