@@ -30,6 +30,22 @@ binary instead, or `self` to wire xdev to a proxy you already run.
 Full details — non-interactive/automated install, manual steps, uninstall — are
 in [`deploy/README.md`](deploy/README.md).
 
+## Update
+
+```bash
+sudo xdev update          # install the latest release and restart
+sudo xdev update --check  # is there a newer one? changes nothing
+```
+
+It verifies the download against the release checksums, keeps the previous
+binary, and rolls back automatically if the service doesn't come back. Config,
+the database and your projects are untouched. On a binary too old to have the
+subcommand (v0.2.6 and earlier), bootstrap once with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/leyume/xdev/main/deploy/upgrade.sh | sudo bash
+```
+
 ## What you get
 
 - **Projects & apps** — group apps under a project with a shared base domain and

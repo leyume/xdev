@@ -88,6 +88,7 @@ sudo XDEV_DATA=/var/lib/xdev xdev doctor
 
 ```bash
 xdev version                  # version + go/os/arch
+xdev update                   # install the latest release and restart
 xdev doctor                   # preflight: engine, caddy, ports, data dir, admin
 xdev create-admin you@x.com   # create the first admin (idempotent)
 ```
@@ -150,7 +151,37 @@ only changes if you edit *it*.
 
 ## Upgrading
 
-The installer is **re-run safe**. On a box that already has xdev it detects the
+On a machine that already runs xdev, the binary updates itself:
+
+```bash
+sudo xdev update                    # latest release: verify, swap, restart
+sudo xdev update --check            # is there a newer release? changes nothing
+sudo xdev update --version v0.2.6   # pin a release, or roll back to one
+sudo xdev update --no-restart       # swap the binary, leave the service alone
+```
+
+It asks GitHub for the newest release, downloads the asset for this OS and CPU,
+**verifies it against the release's `checksums.txt`**, keeps the current binary
+as `/usr/local/bin/xdev.<timestamp>.bak` (newest three), swaps by rename so the
+running process is never truncated, restarts the service, and **rolls back
+automatically** if it doesn't come back. Your config, the sqlite database and
+everything under `projects/` are never touched.
+
+A binary too old to have the subcommand — anything up to v0.2.6 — bootstraps
+with a one-liner, which hands over to `xdev update` once one is installed:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/leyume/xdev/main/deploy/upgrade.sh | sudo bash
+```
+
+Both refuse to call a failed restart a success. If the restart itself is
+rejected — polkit declining an interactive authorisation is the usual cause —
+the old process is still alive and every liveness check passes, so they compare
+the service's main PID before and after and report the truth instead.
+
+### Re-running the installer
+
+The installer is also **re-run safe**. On a box that already has xdev it detects the
 existing install and upgrades in place: it replaces the binary and restarts the
 service **without touching `XDEV_DATA` (your DB) or anything under `projects/`**,
 keeps your existing admin account (no password prompt), and backs up the current
