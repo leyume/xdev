@@ -60,10 +60,27 @@ func TestProjectPageCardsAreDraggable(t *testing.T) {
 	if !strings.Contains(out, `@dragover.prevent="onDragOver($event)"`) {
 		t.Error("the list has no dragover handler, so cards would never move")
 	}
-	// The handle must not toggle the card open on click — it sits inside the
-	// header, whose click handler collapses the card.
 	if !strings.Contains(out, `class="drag-handle tip" data-tip="Drag to reorder" aria-hidden="true"`) {
 		t.Error("the drag handle is missing its label")
+	}
+
+	// The handle must sit in the card's gutter, not in the header row. Inside
+	// the header it took a flex slot and pushed the chevron, status dot and
+	// name along; as a sibling it is absolutely positioned and costs no layout,
+	// so the header is laid out exactly as it was before the handle existed.
+	head := between(out, `<div class="app-card-head"`, "</div>")
+	if head == "" {
+		t.Fatal("could not isolate the card header")
+	}
+	if strings.Contains(head, "drag-handle") {
+		t.Error("the drag handle is inside the header row — it will shift the chevron and status dot")
+	}
+	if i, j := strings.Index(head, "chevron"), strings.Index(head, `class="status `); i < 0 || j < 0 || i > j {
+		t.Error("the header no longer starts with the chevron then the status dot")
+	}
+	// And it is emitted as the card's own child, immediately before the header.
+	if !strings.Contains(out, "</span>\n      <div class=\"app-card-head\"") {
+		t.Error("the drag handle is not a direct child of the card, just before its header")
 	}
 }
 
@@ -97,4 +114,61 @@ func between(s, start, end string) string {
 		return ""
 	}
 	return rest[:j]
+}
+
+// The reorder component must read $el exactly once, in init().
+//
+// This is not style. Alpine rebinds $el to whichever element's expression is
+// being evaluated, and the drag handlers are bound on the cards while dragover
+// is bound on the list — so `this.$el` inside a method is a card in one call
+// and the list in another. The first version of this component read $el in
+// ids(), which meant the drag-start snapshot was taken from a card (containing
+// no cards, so an empty list), matched the equally empty snapshot at drag end,
+// and never saved anything. Dragging looked right and nothing persisted.
+func TestReorderComponentReadsElOnlyInInit(t *testing.T) {
+	out := renderProject(t, twoApps())
+
+	start := strings.Index(out, "function appOrder(")
+	if start < 0 {
+		t.Fatal("the reorder component is gone")
+	}
+	end := strings.Index(out[start:], "\nfunction ")
+	if end < 0 {
+		end = len(out) - start
+	}
+	body := out[start : start+end]
+
+	if !strings.Contains(body, "init() { this.list = this.$el; }") {
+		t.Error("the component no longer captures the list element in init()")
+	}
+	if n := strings.Count(body, "this.$el"); n != 1 {
+		t.Errorf("the component reads this.$el %d times, want exactly 1 (in init) — "+
+			"every other read is rebound to whichever element fired the handler", n)
+	}
+	// The methods have to go through the captured element.
+	for _, want := range []string{
+		"this.list.querySelectorAll('.app-card')",
+		"this.list.insertBefore(this.dragging, ref)",
+		"this.list.appendChild(this.dragging)",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("component does not use the captured list for %q", want)
+		}
+	}
+}
+
+// Auto-save with no confirmation is indistinguishable from a save that failed,
+// and there is no Save button to have pressed.
+func TestReorderConfirmsItSaved(t *testing.T) {
+	out := renderProject(t, twoApps())
+
+	if !strings.Contains(out, `x-show="saved"`) {
+		t.Error("nothing tells the user the new order was saved")
+	}
+	if !strings.Contains(out, "this.saved = true;") {
+		t.Error("the save path never sets the confirmation")
+	}
+	if !strings.Contains(out, "this.saved = false;") {
+		t.Error("the confirmation is never cleared, so it would stick after one drag")
+	}
 }
