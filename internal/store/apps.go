@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 )
 
 // App statuses.
@@ -98,6 +99,9 @@ type App struct {
 	// "" or LaravelSwoole for Octane/Swoole, LaravelFPM for php-fpm. Blank is
 	// Swoole so apps created before the column existed keep their stack.
 	LaravelServer string
+	// Position orders an app among its project's apps (migration 0016). It is
+	// only meaningful relative to siblings; see SetAppOrder.
+	Position int
 	// Proxy-app config (see migration 0007).
 	Upstream  string // URL the domain forwards to (http(s)://host[:port])
 	DBMode    string // "shared" = uses xdev-db; "" = dedicated / n/a (migration 0008)
@@ -140,15 +144,19 @@ func (a App) IsSharedWP() bool { return a.Type == "wordpress" && a.WPMode == WPS
 // CreateApp inserts an app and returns it with its assigned id.
 func (s *Store) CreateApp(a App) (App, error) {
 	res, err := s.db.Exec(
+		// position is computed rather than passed: a new app belongs at the end
+		// of its project's list, and working that out in the INSERT keeps it
+		// correct without every caller having to know the column exists.
 		`INSERT INTO apps (project_id, name, slug, type, runtime, status, subdomain,
 		                   cpu_limit, mem_limit, port, compose_path,
 		                   serve_mode, root_dir, build_cmd, start_cmd, upstream, db_mode, wp_mode,
-		                   source_dir, git_url, git_ref, git_subdir, laravel_server)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   source_dir, git_url, git_ref, git_subdir, laravel_server, position)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		         (SELECT COALESCE(MAX(position), 0) + 1 FROM apps WHERE project_id = ?))`,
 		a.ProjectID, a.Name, a.Slug, a.Type, a.Runtime, statusOr(a.Status),
 		a.Domain, a.CPULimit, a.MemLimit, a.Port, a.ComposePath,
 		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd, a.Upstream, a.DBMode, a.WPMode,
-		a.SourceDir, a.GitURL, a.GitRef, a.GitSubdir, a.LaravelServer,
+		a.SourceDir, a.GitURL, a.GitRef, a.GitSubdir, a.LaravelServer, a.ProjectID,
 	)
 	if err != nil {
 		return App{}, err
@@ -169,9 +177,12 @@ func (s *Store) AppSlugExists(projectID int64, slug string) bool {
 	return err == nil
 }
 
-// ListAppsByProject returns a project's apps, oldest first (creation order).
+// ListAppsByProject returns a project's apps in the order the project page
+// shows them: the hand-arranged position first, falling back to id so the list
+// is still deterministic when positions tie (two apps created before migration
+// 0016 backfilled them, or a reorder that raced).
 func (s *Store) ListAppsByProject(projectID int64) ([]App, error) {
-	rows, err := s.db.Query(appSelect+` WHERE project_id = ? ORDER BY id ASC`, projectID)
+	rows, err := s.db.Query(appSelect+` WHERE project_id = ? ORDER BY position ASC, id ASC`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -208,6 +219,76 @@ func (s *Store) UpdateApp(a App) error {
 		a.GitURL, a.GitRef, a.GitSubdir, a.ID,
 	)
 	return err
+}
+
+// ErrStaleOrder reports that a submitted app order does not describe the
+// project as it stands — the page that produced it has since gone out of date.
+var ErrStaleOrder = errors.New("this list of apps no longer matches the project")
+
+// SetAppOrder rewrites the positions of a project's apps to match ids, which
+// must name exactly the apps in that project, once each.
+//
+// The whole list is required rather than a moved-app-and-target pair because
+// the client already knows the final order, and sending it whole is the only
+// version that cannot drift: a partial update has to reason about what the
+// server currently holds, and two people dragging cards in the same project
+// would interleave into an order neither of them chose.
+//
+// A mismatched list is rejected outright. Ignoring unknown ids would let a
+// stale page — one open since before an app was added or deleted — save an
+// order that silently drops the apps it never knew about.
+func (s *Store) SetAppOrder(projectID int64, ids []int64) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(`SELECT id FROM apps WHERE project_id = ?`, projectID)
+	if err != nil {
+		return err
+	}
+	current := map[int64]bool{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		current[id] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if len(ids) != len(current) {
+		return fmt.Errorf("%w: %d apps submitted, the project has %d", ErrStaleOrder, len(ids), len(current))
+	}
+	seen := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		if !current[id] {
+			return fmt.Errorf("%w: app %d is not in this project", ErrStaleOrder, id)
+		}
+		if seen[id] {
+			return fmt.Errorf("%w: app %d listed twice", ErrStaleOrder, id)
+		}
+		seen[id] = true
+	}
+
+	stmt, err := tx.Prepare(`UPDATE apps SET position = ? WHERE id = ? AND project_id = ?`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	// Positions start at 1, leaving the column's 0 default to mean "never
+	// ordered" rather than "ordered first".
+	for i, id := range ids {
+		if _, err := stmt.Exec(i+1, id, projectID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // SetAppStatus updates an app's lifecycle status and bumps updated_at.
@@ -293,7 +374,7 @@ const appSelect = `SELECT id, project_id, name, slug, type, runtime, status, sub
 	serve_mode, root_dir, build_cmd, start_cmd, upstream, db_mode, wp_mode, source_dir,
 	git_url, git_ref, git_subdir, deployed_sha, deployed_at,
 	hook_id, hook_secret, push_token_hash, push_token_hint, skip_db_dump,
-	laravel_server, created_at, updated_at FROM apps`
+	laravel_server, position, created_at, updated_at FROM apps`
 
 func (s *Store) scanApp(row *sql.Row) (App, error) {
 	var a App
@@ -302,7 +383,7 @@ func (s *Store) scanApp(row *sql.Row) (App, error) {
 		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.DBMode, &a.WPMode,
 		&a.SourceDir, &a.GitURL, &a.GitRef, &a.GitSubdir, &a.DeployedSHA, &a.DeployedAt,
 		&a.HookID, &a.HookSecret, &a.PushTokenHash, &a.PushTokenHint, &a.SkipDBDump,
-		&a.LaravelServer, &a.CreatedAt, &a.UpdatedAt)
+		&a.LaravelServer, &a.Position, &a.CreatedAt, &a.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return App{}, ErrNotFound
 	}
@@ -316,7 +397,7 @@ func scanAppRows(rows *sql.Rows) (App, error) {
 		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.DBMode, &a.WPMode,
 		&a.SourceDir, &a.GitURL, &a.GitRef, &a.GitSubdir, &a.DeployedSHA, &a.DeployedAt,
 		&a.HookID, &a.HookSecret, &a.PushTokenHash, &a.PushTokenHint, &a.SkipDBDump,
-		&a.LaravelServer, &a.CreatedAt, &a.UpdatedAt)
+		&a.LaravelServer, &a.Position, &a.CreatedAt, &a.UpdatedAt)
 	return a, err
 }
 

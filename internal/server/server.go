@@ -97,6 +97,8 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /projects/new", s.auth.RequireAuth(s.handleProjectNewForm))
 	mux.HandleFunc("POST /projects", s.auth.RequireAuth(s.handleProjectCreate))
 	mux.HandleFunc("GET /projects/{slug}", s.auth.RequireAuth(s.handleProjectDetail))
+	mux.HandleFunc("POST /projects/{slug}/rename", s.auth.RequireAuth(s.handleProjectRename))
+	mux.HandleFunc("POST /projects/{slug}/apps/order", s.auth.RequireAuth(s.handleAppOrder))
 	mux.HandleFunc("POST /projects/{slug}/delete", s.auth.RequireAuth(s.handleProjectDelete))
 	mux.HandleFunc("POST /projects/{slug}/apps", s.auth.RequireAuth(s.handleAppCreate))
 

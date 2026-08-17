@@ -21,6 +21,11 @@
      same rows and a single circular arrow would read as either. */}}
 {{define "icon_refresh"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>{{end}}
 {{define "icon_chevron"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>{{end}}
+{{define "icon_pencil"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>{{end}}
+{{/* Six dots: the conventional drag affordance, and legible at 16px in a way a
+     stroked "grip bars" glyph is not. Filled rather than stroked for the same
+     reason. */}}
+{{define "icon_grip"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>{{end}}
 
 {{/* App-type marks for the add-app type picker, 26px, drawn in the same stroke
      style as the nav icons and tinted per type by .type-card CSS. These are

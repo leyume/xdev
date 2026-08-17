@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -154,6 +155,91 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		"NeedsHosts":     needsHosts,
 		"HostsMsg":       r.URL.Query().Get("hosts_msg"),
 	})
+}
+
+// handleProjectRename changes a project's display name.
+//
+// The slug stays put, so the URL this redirects back to is the one it came
+// from: renaming is a label change, not a move of the directory, network and
+// containers the slug names.
+func (s *Server) handleProjectRename(w http.ResponseWriter, r *http.Request) {
+	proj, err := s.store.ProjectBySlug(r.PathValue("slug"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	target := "/projects/" + proj.Slug
+	was := proj.Name
+
+	renamed, err := s.projects.Rename(proj.ID, r.FormValue("name"))
+	if err != nil {
+		if wantsJSON(r) {
+			http.Error(w, firstLine(err.Error()), http.StatusBadRequest)
+			return
+		}
+		redirectWithError(w, r, target, err)
+		return
+	}
+	if renamed.Name != was {
+		s.store.AddEvent(proj.ID, 0, "info", "Renamed project "+was+" to "+renamed.Name)
+	}
+	if wantsJSON(r) {
+		writeJSON(w, map[string]string{"name": renamed.Name})
+		return
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+// handleAppOrder saves the order the project page's cards were dragged into.
+//
+// The client posts the whole list, form-encoded as repeated `id` fields — not
+// JSON, because the CSRF middleware reads its token with r.FormValue and a JSON
+// body has no form for it to read.
+func (s *Server) handleAppOrder(w http.ResponseWriter, r *http.Request) {
+	proj, err := s.store.ProjectBySlug(r.PathValue("slug"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	// The CSRF middleware has already parsed the form, but a direct caller (a
+	// test) has not — and an unparsed form silently reads as an empty list,
+	// which SetAppOrder would reject as stale rather than as malformed.
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	raw := r.Form["id"]
+	ids := make([]int64, 0, len(raw))
+	for _, v := range raw {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			http.Error(w, "bad app id", http.StatusBadRequest)
+			return
+		}
+		ids = append(ids, id)
+	}
+
+	if err := s.store.SetAppOrder(proj.ID, ids); err != nil {
+		// A stale list is the page's fault, not the server's, and the fix is to
+		// reload rather than retry — so it gets a 409 the client can act on.
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrStaleOrder) {
+			status = http.StatusConflict
+		}
+		if wantsJSON(r) {
+			http.Error(w, firstLine(err.Error()), status)
+			return
+		}
+		redirectWithError(w, r, "/projects/"+proj.Slug, err)
+		return
+	}
+	// No event log entry: reordering cards changes nothing about what is
+	// deployed, and one line per drag would bury the activity feed.
+	if wantsJSON(r) {
+		writeJSON(w, map[string]string{"status": "ok"})
+		return
+	}
+	http.Redirect(w, r, "/projects/"+proj.Slug, http.StatusSeeOther)
 }
 
 // handleProjectDelete tears down every app in the project, then the project.

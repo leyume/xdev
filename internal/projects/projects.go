@@ -7,6 +7,7 @@ package projects
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,6 +78,39 @@ func (s *Service) Create(name, baseDomain, environment string) (store.Project, e
 		return store.Project{}, err
 	}
 	return p, nil
+}
+
+// MaxProjectName bounds a project's display name. Long enough for a real
+// title, short enough that it cannot push the page head, the breadcrumb and
+// every event message out of shape.
+const MaxProjectName = 80
+
+// Rename changes a project's display name and returns the updated project.
+//
+// Nothing else moves. The slug — and so the project's directory, network,
+// container names and databases — is fixed at creation: renaming is a label
+// change, and anyone expecting the URL to follow is better served by being told
+// it does not than by having their apps' infrastructure quietly rebuilt
+// underneath them.
+func (s *Service) Rename(id int64, name string) (store.Project, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return store.Project{}, errors.New("project name is required")
+	}
+	if len([]rune(name)) > MaxProjectName {
+		return store.Project{}, fmt.Errorf("project name is too long (max %d characters)", MaxProjectName)
+	}
+	p, err := s.store.ProjectByID(id)
+	if err != nil {
+		return store.Project{}, err
+	}
+	if p.Name == name {
+		return p, nil
+	}
+	if err := s.store.RenameProject(id, name); err != nil {
+		return store.Project{}, err
+	}
+	return s.store.ProjectByID(id)
 }
 
 // Delete removes the project's network, directory, and row. Callers must delete
