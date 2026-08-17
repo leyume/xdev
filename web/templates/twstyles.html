@@ -920,6 +920,9 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
 .app-card:hover .drag-handle, .drag-handle:focus-visible { opacity: 0.75; }
 .drag-handle:active { cursor: grabbing; }
 .app-card.is-dragging { opacity: 0.45; }
+/* The reorder confirmation. Auto-save has no button to have pressed, so this
+   is the only thing that separates "saved" from "silently failed". */
+.order-saved { padding: 8px 12px; font-size: 13px; }
 /* Keyboard and touch users get the handle permanently, since neither has a
    hover to reveal it. */
 @media (hover: none) { .drag-handle { opacity: 0.75; } }

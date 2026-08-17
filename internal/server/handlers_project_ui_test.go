@@ -98,3 +98,60 @@ func between(s, start, end string) string {
 	}
 	return rest[:j]
 }
+
+// The reorder component must read $el exactly once, in init().
+//
+// This is not style. Alpine rebinds $el to whichever element's expression is
+// being evaluated, and the drag handlers are bound on the cards while dragover
+// is bound on the list — so `this.$el` inside a method is a card in one call
+// and the list in another. The first version of this component read $el in
+// ids(), which meant the drag-start snapshot was taken from a card (containing
+// no cards, so an empty list), matched the equally empty snapshot at drag end,
+// and never saved anything. Dragging looked right and nothing persisted.
+func TestReorderComponentReadsElOnlyInInit(t *testing.T) {
+	out := renderProject(t, twoApps())
+
+	start := strings.Index(out, "function appOrder(")
+	if start < 0 {
+		t.Fatal("the reorder component is gone")
+	}
+	end := strings.Index(out[start:], "\nfunction ")
+	if end < 0 {
+		end = len(out) - start
+	}
+	body := out[start : start+end]
+
+	if !strings.Contains(body, "init() { this.list = this.$el; }") {
+		t.Error("the component no longer captures the list element in init()")
+	}
+	if n := strings.Count(body, "this.$el"); n != 1 {
+		t.Errorf("the component reads this.$el %d times, want exactly 1 (in init) — "+
+			"every other read is rebound to whichever element fired the handler", n)
+	}
+	// The methods have to go through the captured element.
+	for _, want := range []string{
+		"this.list.querySelectorAll('.app-card')",
+		"this.list.insertBefore(this.dragging, ref)",
+		"this.list.appendChild(this.dragging)",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("component does not use the captured list for %q", want)
+		}
+	}
+}
+
+// Auto-save with no confirmation is indistinguishable from a save that failed,
+// and there is no Save button to have pressed.
+func TestReorderConfirmsItSaved(t *testing.T) {
+	out := renderProject(t, twoApps())
+
+	if !strings.Contains(out, `x-show="saved"`) {
+		t.Error("nothing tells the user the new order was saved")
+	}
+	if !strings.Contains(out, "this.saved = true;") {
+		t.Error("the save path never sets the confirmation")
+	}
+	if !strings.Contains(out, "this.saved = false;") {
+		t.Error("the confirmation is never cleared, so it would stick after one drag")
+	}
+}

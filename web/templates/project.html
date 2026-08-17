@@ -57,6 +57,7 @@
   <div class="app-cards" x-data="appOrder('{{.Project.Slug}}', '{{.CSRF}}')"
        @dragover.prevent="onDragOver($event)" @drop.prevent>
     <div class="alert" x-show="error" x-cloak x-text="error"></div>
+    <div class="alert ok order-saved" x-show="saved" x-cloak x-transition.opacity>Order saved</div>
     {{if .Apps}}
     {{range .Apps}}
     <div class="card app-card" data-app-id="{{.ID}}"
@@ -669,20 +670,31 @@
 // valid target — let go over the sidebar and the cards have already moved with
 // no drop to notice it. dragend always fires, so the one handler covers landing
 // inside the list, outside it, and cancelling with Escape.
+// $el is deliberately read exactly once, in init(). It is rebound to whichever
+// element's expression is being evaluated, and the drag handlers are bound on
+// the cards while the dragover handler is bound on the list — so a later
+// this.$el would be a card in one method and the list in another. Reading the
+// list once, when Alpine runs init() against the component's own element, is
+// what keeps every method talking about the same thing.
 function appOrder(slug, csrf) {
   return {
+    list: null,
     dragging: null,
     before: [],
     error: '',
+    saved: false,
+
+    init() { this.list = this.$el; },
 
     ids() {
-      return [...this.$el.querySelectorAll('.app-card')].map(c => c.dataset.appId);
+      return [...this.list.querySelectorAll('.app-card')].map(c => c.dataset.appId);
     },
     onDragStart(e) {
       this.dragging = e.target.closest('.app-card');
       if (!this.dragging) return;
       this.before = this.ids();
       this.error = '';
+      this.saved = false;
       this.dragging.classList.add('is-dragging');
       e.dataTransfer.effectAllowed = 'move';
       // Firefox will not start a drag at all unless some data is set.
@@ -692,13 +704,13 @@ function appOrder(slug, csrf) {
       if (!this.dragging) return;
       const ref = this.cardAfter(e.clientY);
       if (ref === this.dragging) return;
-      if (ref) this.$el.insertBefore(this.dragging, ref);
-      else this.$el.appendChild(this.dragging);
+      if (ref) this.list.insertBefore(this.dragging, ref);
+      else this.list.appendChild(this.dragging);
     },
     // The first card whose midpoint is below the pointer is the one the dragged
     // card belongs in front of; past the last midpoint it belongs at the end.
     cardAfter(y) {
-      return [...this.$el.querySelectorAll('.app-card:not(.is-dragging)')]
+      return [...this.list.querySelectorAll('.app-card:not(.is-dragging)')]
         .find(c => { const b = c.getBoundingClientRect(); return y < b.top + b.height / 2; }) || null;
     },
     onDragEnd(e) {
@@ -732,6 +744,10 @@ function appOrder(slug, csrf) {
         }
         if (!r.ok) throw new Error(await r.text());
         this.error = '';
+        // Success was silent before, which is indistinguishable from a save
+        // that quietly failed — and there is no Save button to have pressed.
+        this.saved = true;
+        setTimeout(() => { this.saved = false; }, 2500);
       } catch (err) {
         // The cards are already in the new order on screen; say plainly that
         // the order is not saved rather than leaving a silent lie.
