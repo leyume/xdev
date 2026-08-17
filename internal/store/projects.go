@@ -57,6 +57,18 @@ func (s *Store) ProjectSlugExists(slug string) bool {
 	return err == nil
 }
 
+// RenameProject changes a project's display name.
+//
+// Only the name. The slug is identity, not presentation: it names the project's
+// directory under projects/, its container network, every container in every
+// app's stack, and the shared databases those apps authenticate against. Moving
+// it is a migration of running infrastructure, not an edit to a row — so the
+// name is free to change and the slug never does.
+func (s *Store) RenameProject(id int64, name string) error {
+	_, err := s.db.Exec(`UPDATE projects SET name = ? WHERE id = ?`, name, id)
+	return err
+}
+
 // DeleteProject removes a project row. Apps cascade via the FK.
 func (s *Store) DeleteProject(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM projects WHERE id = ?`, id)

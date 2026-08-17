@@ -911,6 +911,22 @@ summary > .chevron { flex: none; transform: rotate(-90deg); }
 summary > .chevron .ico { width: 14px; height: 14px; }
 details[open] > summary > .chevron { transform: rotate(0deg); }
 .app-card-name { font-size: 16px; font-weight: 700; }
+
+/* Drag-to-reorder. The handle is the only draggable part of a card, so it gets
+   the grab cursor and the card itself keeps the pointer that says "click me to
+   expand". It stays dim until the card is hovered: the affordance should be
+   there when you reach for it without competing with the app's name. */
+.drag-handle { display: inline-flex; align-items: center; color: var(--muted); cursor: grab; opacity: 0; transition: opacity 0.15s; }
+.app-card:hover .drag-handle, .drag-handle:focus-visible { opacity: 0.75; }
+.drag-handle:active { cursor: grabbing; }
+.app-card.is-dragging { opacity: 0.45; }
+/* Keyboard and touch users get the handle permanently, since neither has a
+   hover to reveal it. */
+@media (hover: none) { .drag-handle { opacity: 0.75; } }
+
+/* Inline project rename, in place of the <h1> while it is open. */
+.rename-form { display: flex; align-items: center; gap: 8px; }
+.rename-form input[type=text] { font-size: 20px; font-weight: 700; padding: 6px 10px; min-width: min(340px, 60vw); }
 /* One labelled entry per fact about where an app lives — its hostnames, its
    host port, its repository, its limits. As a single dot-separated line these
    were the same size and colour as each other, so telling a domain from an

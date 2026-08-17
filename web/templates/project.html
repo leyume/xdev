@@ -1,12 +1,27 @@
 {{define "content"}}
-<div x-data="{ addOpen: false }" @keydown.escape.window="addOpen = false"
+<div x-data="{ addOpen: false, renaming: false }" @keydown.escape.window="addOpen = false"
      x-effect="document.body.classList.toggle('modal-open', addOpen)">
 <div class="crumbs"><a href="/projects">Projects</a> / <strong>{{.Project.Name}}</strong></div>
 <section class="page-head">
   <div>
     <div class="title-row">
-      <h1>{{.Project.Name}}</h1>
-      <span class="status-pill {{if eq .AppsRunning (len .Apps)}}ok{{else}}warn{{end}}">
+      <h1 x-show="!renaming">{{.Project.Name}}</h1>
+      {{/* Rename is a plain form post, not a fetch: it changes the page title,
+           the breadcrumb and the activity feed, so the reload that a redirect
+           brings is doing useful work rather than getting in the way. */}}
+      <button class="iconbtn tip" type="button" x-show="!renaming" data-tip="Rename project"
+              aria-label="Rename project"
+              @click="renaming = true; $nextTick(() => { $refs.projName.focus(); $refs.projName.select(); })">
+        {{template "icon_pencil" .}}</button>
+      <form class="rename-form" method="post" action="/projects/{{.Project.Slug}}/rename"
+            x-show="renaming" x-cloak @keydown.escape.stop="renaming = false">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <input type="text" name="name" value="{{.Project.Name}}" x-ref="projName"
+               maxlength="80" required spellcheck="false" aria-label="Project name">
+        <button class="primary" type="submit">Save</button>
+        <button type="button" @click="renaming = false">Cancel</button>
+      </form>
+      <span class="status-pill {{if eq .AppsRunning (len .Apps)}}ok{{else}}warn{{end}}" x-show="!renaming">
         <span class="status running"></span>{{.AppsRunning}} of {{len .Apps}} running
       </span>
     </div>
@@ -36,10 +51,17 @@
 {{end}}
 
 <div class="grid-main">
-  <div class="app-cards">
+  {{/* The drag target is the list, not each card: a card only needs to report
+       that it is the one being dragged, and where every other card sits is a
+       question about the list. */}}
+  <div class="app-cards" x-data="appOrder('{{.Project.Slug}}', '{{.CSRF}}')"
+       @dragover.prevent="onDragOver($event)" @drop.prevent>
+    <div class="alert" x-show="error" x-cloak x-text="error"></div>
     {{if .Apps}}
     {{range .Apps}}
-    <div class="card app-card" x-data="{collapsed:true, tab:'metrics', loaded:{},
+    <div class="card app-card" data-app-id="{{.ID}}"
+         @dragstart="onDragStart($event)" @dragend="onDragEnd($event)"
+         x-data="{collapsed:true, tab:'metrics', loaded:{},
         open(t){ this.tab=t; if(t!=='metrics' && !this.loaded[t]){ this.loaded[t]=true; this.fetchPartial(t); } },
         async fetchPartial(t){ const el=this.$refs[t];
           try{ const r=await fetch('/apps/{{.ID}}/'+t+'/partial',{credentials:'same-origin'}); el.innerHTML=await r.text(); }
@@ -48,6 +70,13 @@
            @click="collapsed=!collapsed" role="button" tabindex="0"
            @keydown.enter="collapsed=!collapsed" @keydown.space.prevent="collapsed=!collapsed"
            :aria-expanded="(!collapsed).toString()">
+        {{/* The card is only draggable while this handle is held. Making the
+             whole card draggable would fight the header's click-to-collapse and
+             make text unselectable; HTML5 drag has no "handle" concept, so the
+             attribute is set on mousedown and cleared when the drag ends. */}}
+        <span class="drag-handle tip" data-tip="Drag to reorder" aria-hidden="true"
+              @mousedown="$el.closest('.app-card').setAttribute('draggable','true')"
+              @click.stop>{{template "icon_grip" .}}</span>
         <span class="chevron ico" :class="{'is-collapsed':collapsed}">{{template "icon_chevron" .}}</span>
         <span class="status {{.Status}}" title="{{.Status}}"></span>
         <span class="app-card-name">{{.Name}}</span>
@@ -629,6 +658,89 @@
 </div>
 
 <script>
+// Drag-to-reorder for the project's app cards.
+//
+// The DOM is the model: dragging moves the card element as the pointer passes
+// each neighbour, and the order that gets saved is read back off the list when
+// the drag ends. Nothing keeps a parallel array in step, so there is no way for
+// what you see and what gets saved to disagree.
+//
+// It saves on dragend rather than on drop, because drop only fires inside a
+// valid target — let go over the sidebar and the cards have already moved with
+// no drop to notice it. dragend always fires, so the one handler covers landing
+// inside the list, outside it, and cancelling with Escape.
+function appOrder(slug, csrf) {
+  return {
+    dragging: null,
+    before: [],
+    error: '',
+
+    ids() {
+      return [...this.$el.querySelectorAll('.app-card')].map(c => c.dataset.appId);
+    },
+    onDragStart(e) {
+      this.dragging = e.target.closest('.app-card');
+      if (!this.dragging) return;
+      this.before = this.ids();
+      this.error = '';
+      this.dragging.classList.add('is-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      // Firefox will not start a drag at all unless some data is set.
+      e.dataTransfer.setData('text/plain', this.dragging.dataset.appId || '');
+    },
+    onDragOver(e) {
+      if (!this.dragging) return;
+      const ref = this.cardAfter(e.clientY);
+      if (ref === this.dragging) return;
+      if (ref) this.$el.insertBefore(this.dragging, ref);
+      else this.$el.appendChild(this.dragging);
+    },
+    // The first card whose midpoint is below the pointer is the one the dragged
+    // card belongs in front of; past the last midpoint it belongs at the end.
+    cardAfter(y) {
+      return [...this.$el.querySelectorAll('.app-card:not(.is-dragging)')]
+        .find(c => { const b = c.getBoundingClientRect(); return y < b.top + b.height / 2; }) || null;
+    },
+    onDragEnd(e) {
+      const card = e.target.closest('.app-card');
+      if (card) {
+        card.setAttribute('draggable', 'false');
+        card.classList.remove('is-dragging');
+      }
+      this.dragging = null;
+      const now = this.ids();
+      if (now.length === this.before.length && now.every((id, i) => id === this.before[i])) return;
+      this.save(now);
+    },
+    async save(ids) {
+      // Form-encoded, not JSON: the CSRF check reads its token with FormValue,
+      // which has no form to read in a JSON body.
+      const body = new URLSearchParams();
+      body.append('csrf_token', csrf);
+      ids.forEach(id => body.append('id', id));
+      try {
+        const r = await fetch('/projects/' + slug + '/apps/order', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        if (r.status === 409) {
+          // An app was added or removed since this page loaded, so the list
+          // just sent describes a project that no longer exists in that shape.
+          this.error = 'This page is out of date — reload it, then reorder.';
+          return;
+        }
+        if (!r.ok) throw new Error(await r.text());
+        this.error = '';
+      } catch (err) {
+        // The cards are already in the new order on screen; say plainly that
+        // the order is not saved rather than leaving a silent lie.
+        this.error = 'Could not save the new order — it will revert when you reload.';
+      }
+    },
+  };
+}
+
 // Add-app form state. Three steps — type, setup, options — with the type
 // deciding which fields step 2 shows at all. A compose app asks how many domains
 // it needs and takes a hostname for each; the file is scanned as it is
