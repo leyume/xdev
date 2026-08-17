@@ -67,17 +67,20 @@
         async fetchPartial(t){ const el=this.$refs[t];
           try{ const r=await fetch('/apps/{{.ID}}/'+t+'/partial',{credentials:'same-origin'}); el.innerHTML=await r.text(); }
           catch(e){ el.textContent='Could not load.'; } }}">
+      {{/* In the gutter, not in the header row: it is absolutely positioned, so
+           it takes no layout space and the header's own controls keep the
+           places they had before there was a handle at all.
+
+           The card is only draggable while this handle is held — making the
+           whole card draggable would fight the header's click-to-collapse and
+           make text unselectable, and HTML5 drag has no "handle" concept, so
+           the attribute goes on at mousedown and comes off when the drag ends. */}}
+      <span class="drag-handle tip" data-tip="Drag to reorder" aria-hidden="true"
+            @mousedown="$el.closest('.app-card').setAttribute('draggable','true')">{{template "icon_grip" .}}</span>
       <div class="app-card-head" data-app-id="{{.ID}}" data-status="{{.Status}}"
            @click="collapsed=!collapsed" role="button" tabindex="0"
            @keydown.enter="collapsed=!collapsed" @keydown.space.prevent="collapsed=!collapsed"
            :aria-expanded="(!collapsed).toString()">
-        {{/* The card is only draggable while this handle is held. Making the
-             whole card draggable would fight the header's click-to-collapse and
-             make text unselectable; HTML5 drag has no "handle" concept, so the
-             attribute is set on mousedown and cleared when the drag ends. */}}
-        <span class="drag-handle tip" data-tip="Drag to reorder" aria-hidden="true"
-              @mousedown="$el.closest('.app-card').setAttribute('draggable','true')"
-              @click.stop>{{template "icon_grip" .}}</span>
         <span class="chevron ico" :class="{'is-collapsed':collapsed}">{{template "icon_chevron" .}}</span>
         <span class="status {{.Status}}" title="{{.Status}}"></span>
         <span class="app-card-name">{{.Name}}</span>

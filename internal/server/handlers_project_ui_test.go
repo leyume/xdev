@@ -60,10 +60,27 @@ func TestProjectPageCardsAreDraggable(t *testing.T) {
 	if !strings.Contains(out, `@dragover.prevent="onDragOver($event)"`) {
 		t.Error("the list has no dragover handler, so cards would never move")
 	}
-	// The handle must not toggle the card open on click — it sits inside the
-	// header, whose click handler collapses the card.
 	if !strings.Contains(out, `class="drag-handle tip" data-tip="Drag to reorder" aria-hidden="true"`) {
 		t.Error("the drag handle is missing its label")
+	}
+
+	// The handle must sit in the card's gutter, not in the header row. Inside
+	// the header it took a flex slot and pushed the chevron, status dot and
+	// name along; as a sibling it is absolutely positioned and costs no layout,
+	// so the header is laid out exactly as it was before the handle existed.
+	head := between(out, `<div class="app-card-head"`, "</div>")
+	if head == "" {
+		t.Fatal("could not isolate the card header")
+	}
+	if strings.Contains(head, "drag-handle") {
+		t.Error("the drag handle is inside the header row — it will shift the chevron and status dot")
+	}
+	if i, j := strings.Index(head, "chevron"), strings.Index(head, `class="status `); i < 0 || j < 0 || i > j {
+		t.Error("the header no longer starts with the chevron then the status dot")
+	}
+	// And it is emitted as the card's own child, immediately before the header.
+	if !strings.Contains(out, "</span>\n      <div class=\"app-card-head\"") {
+		t.Error("the drag handle is not a direct child of the card, just before its header")
 	}
 }
 

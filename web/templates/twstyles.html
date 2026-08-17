@@ -912,19 +912,43 @@ summary > .chevron .ico { width: 14px; height: 14px; }
 details[open] > summary > .chevron { transform: rotate(0deg); }
 .app-card-name { font-size: 16px; font-weight: 700; }
 
-/* Drag-to-reorder. The handle is the only draggable part of a card, so it gets
-   the grab cursor and the card itself keeps the pointer that says "click me to
-   expand". It stays dim until the card is hovered: the affordance should be
-   there when you reach for it without competing with the app's name. */
-.drag-handle { display: inline-flex; align-items: center; color: var(--muted); cursor: grab; opacity: 0; transition: opacity 0.15s; }
+/* Drag-to-reorder. The handle lives in the gutter beside the card rather than
+   in its header, absolutely positioned so it costs no layout: the card's own
+   left edge, and every control in its header, sit exactly where they would
+   with no handle present. It gets the grab cursor; the card keeps the pointer
+   that says "click me to expand".
+
+   It stays dim until the card is hovered — the affordance should be there when
+   you reach for it without competing with the app's name — and the hover is on
+   the card, not the handle, so you do not have to find an invisible target
+   first. Top is set to line it up with the header row, which is the card's
+   22px padding plus half a 16px icon row. */
+.app-card { position: relative; }
+.drag-handle {
+  position: absolute;
+  left: -30px;
+  top: 26px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
 .app-card:hover .drag-handle, .drag-handle:focus-visible { opacity: 0.75; }
 .drag-handle:active { cursor: grabbing; }
 .app-card.is-dragging { opacity: 0.45; }
 /* The reorder confirmation. Auto-save has no button to have pressed, so this
    is the only thing that separates "saved" from "silently failed". */
 .order-saved { padding: 8px 12px; font-size: 13px; }
-/* Keyboard and touch users get the handle permanently, since neither has a
-   hover to reveal it. */
+/* The gutter is the container's own padding, which narrows on small screens —
+   so the handle tucks in to match rather than sliding off the left edge. */
+@media (max-width: 900px) {
+  .drag-handle { left: -18px; }
+}
+/* Touch has no hover to reveal it with. It is shown rather than hidden even
+   though HTML5 drag does not fire for touch, because the same breakpoint
+   covers narrow desktop windows, where dragging works normally. */
 @media (hover: none) { .drag-handle { opacity: 0.75; } }
 
 /* Inline project rename, in place of the <h1> while it is open. */
