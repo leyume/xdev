@@ -114,6 +114,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /apps/{id}/deploy-key", s.auth.RequireAuth(s.handleAppDeployKeyRotate))
 	mux.HandleFunc("POST /apps/{id}/webhook", s.auth.RequireAuth(s.handleAppWebhookSet))
 	mux.HandleFunc("POST /apps/{id}/push-token", s.auth.RequireAuth(s.handleAppPushTokenSet))
+	mux.HandleFunc("POST /apps/{id}/upload", s.auth.RequireAuth(s.handleAppUpload))
 	// Maintenance commands inside a container app. The body names an action
 	// key, which is resolved against a fixed allowlist — never a command.
 	mux.HandleFunc("GET /jobs/{id}", s.auth.RequireAuth(s.handleJob))
