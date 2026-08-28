@@ -1,17 +1,49 @@
 {{define "content"}}
+{{/* The whole overview is one component: the cards are draggable and the same
+     grid renders as cards or as rows, and both of those are view state that
+     belongs in one place. */}}
+<div x-data="projectBoard('{{.CSRF}}')">
 <section class="page-head">
   <div>
     <h1>Projects</h1>
     <div class="muted small">{{len .Projects}} project{{if ne (len .Projects) 1}}s{{end}} · {{.TotalApps}} apps · {{.Running}} running</div>
   </div>
+  {{if .Projects}}
+  {{/* Two buttons rather than a toggle: with a single button you have to work
+       out whether the icon shows the view you are in or the one you would get. */}}
+  <div class="viewswitch" role="group" aria-label="View">
+    <button type="button" class="viewbtn tip" data-tip="Cards" aria-label="Card view"
+            :class="{active: view==='grid'}" :aria-pressed="(view==='grid').toString()"
+            @click="setView('grid')">{{template "icon_grid" .}}</button>
+    <button type="button" class="viewbtn tip" data-tip="List" aria-label="List view"
+            :class="{active: view==='list'}" :aria-pressed="(view==='list').toString()"
+            @click="setView('list')">{{template "icon_list" .}}</button>
+  </div>
+  {{end}}
   <a class="primary btn" href="/projects/new">+ New project</a>
 </section>
 
 {{if .Projects}}
-<div class="project-grid">
+<div class="alert" x-show="error" x-cloak x-text="error"></div>
+<div class="alert ok order-saved" x-show="saved" x-cloak x-transition.opacity>Order saved</div>
+<div class="project-grid" :class="{'is-list': view==='list'}"
+     @dragover.prevent="onDragOver($event)" @drop.prevent>
   {{range .Projects}}
-  <a class="card project-card" href="/projects/{{.Slug}}">
+  {{/* draggable="false" is not redundant: an <a> is draggable by default, and
+       that native link-drag would fight the reorder. It goes true only while
+       the handle is held, the same way the app cards work. */}}
+  <a class="card project-card" href="/projects/{{.Slug}}" data-project-id="{{.ID}}" draggable="false"
+     @dragstart="onDragStart($event)" @dragend="onDragEnd($event)">
     <div class="project-card-head">
+      {{/* Inside the card rather than in a gutter: the cards sit in a
+           three-column grid, so only the first column has an outside to put a
+           handle in. It is absolutely positioned against the card, so it costs
+           no width and the project name sits where it would with no handle at
+           all — see .grip. Its place in the markup is next to the name only so
+           the reading order matches. */}}
+      <span class="grip tip" data-tip="Drag to reorder" aria-hidden="true"
+            @click.prevent.stop
+            @mousedown="$el.closest('.project-card').setAttribute('draggable','true')">{{template "icon_grip" .}}</span>
       <strong>{{.Name}}</strong>
       <span class="spacer"></span>
       {{if gt .Stopped 0}}
@@ -20,7 +52,7 @@
       <span class="badge">{{len .Apps}} app{{if ne (len .Apps) 1}}s{{end}}</span>
       {{end}}
     </div>
-    <div class="muted small">{{.BaseDomain}} · {{.Environment}} · {{.NetworkName}}</div>
+    <div class="muted small project-card-meta">{{.BaseDomain}} · {{.Environment}} · {{.NetworkName}}</div>
     {{if .Apps}}
     <div class="project-card-apps">
       {{range .Apps}}
@@ -36,7 +68,7 @@
     {{end}}
   </a>
   {{end}}
-  <a class="card project-card project-card-new" href="/projects/new">
+  <a class="card project-card project-card-new" href="/projects/new" x-ref="newTile" draggable="false">
     <div class="new-plus">+</div>
     <div style="font-weight:600">New project</div>
     <div class="muted small">network + base domain + auto-SSL</div>
@@ -50,4 +82,118 @@
 {{end}}
 
 {{template "events_card" .}}
+</div>
+
+<script>
+// The projects overview: drag to rearrange, and card or row layout.
+//
+// Reordering works the way the app cards on a project page do — the DOM is the
+// model, the order is read back off the grid when the drag ends, and the save
+// happens on dragend rather than drop so that letting go outside the grid still
+// counts. See the longer note in project.html.
+//
+// The layout choice is kept in localStorage rather than on the server. It is a
+// per-person, per-screen preference — the same admin wants rows on a laptop and
+// cards on a wide monitor — and storing it server-side would make one of those
+// two overwrite the other on every visit.
+function projectBoard(csrf) {
+  return {
+    view: 'grid',
+    grid: null,
+    dragging: null,
+    before: [],
+    error: '',
+    saved: false,
+
+    init() {
+      // The grid is a child, and only exists when there are projects at all.
+      this.grid = this.$el.querySelector('.project-grid');
+      try {
+        const saved = localStorage.getItem('xdev.projects.view');
+        if (saved === 'list' || saved === 'grid') this.view = saved;
+      } catch (e) { /* private mode, or storage disabled — the default is fine */ }
+    },
+    setView(v) {
+      this.view = v;
+      try { localStorage.setItem('xdev.projects.view', v); } catch (e) { /* as above */ }
+    },
+
+    cards() { return [...this.grid.querySelectorAll('[data-project-id]')]; },
+    ids() { return this.cards().map(c => c.dataset.projectId); },
+
+    onDragStart(e) {
+      this.dragging = e.target.closest('[data-project-id]');
+      if (!this.dragging) return;
+      this.before = this.ids();
+      this.error = '';
+      this.saved = false;
+      this.dragging.classList.add('is-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      // Firefox will not start a drag at all unless some data is set.
+      e.dataTransfer.setData('text/plain', this.dragging.dataset.projectId || '');
+    },
+    onDragOver(e) {
+      if (!this.dragging) return;
+      const ref = this.cardBefore(e.clientX, e.clientY);
+      if (ref === this.dragging) return;
+      // Never past the "New project" tile: it lives in the same grid but is not
+      // one of the things being ordered, and it belongs last.
+      this.grid.insertBefore(this.dragging, ref || this.$refs.newTile);
+    },
+    // Which card the dragged one belongs in front of. A single column is
+    // decided vertically, by midpoint; a grid has to be read the way the eye
+    // reads it — earlier rows first, then left of centre within a row.
+    cardBefore(x, y) {
+      return this.cards().filter(c => c !== this.dragging).find(c => {
+        const b = c.getBoundingClientRect();
+        if (this.view === 'list') return y < b.top + b.height / 2;
+        if (y < b.top) return true;
+        if (y > b.bottom) return false;
+        return x < b.left + b.width / 2;
+      }) || null;
+    },
+    onDragEnd(e) {
+      const card = e.target.closest('[data-project-id]');
+      if (card) {
+        card.setAttribute('draggable', 'false');
+        card.classList.remove('is-dragging');
+      }
+      this.dragging = null;
+      const now = this.ids();
+      if (now.length === this.before.length && now.every((id, i) => id === this.before[i])) return;
+      this.save(now);
+    },
+    async save(ids) {
+      // Form-encoded, not JSON: the CSRF check reads its token with FormValue,
+      // which has no form to read in a JSON body.
+      const body = new URLSearchParams();
+      body.append('csrf_token', csrf);
+      ids.forEach(id => body.append('id', id));
+      try {
+        const r = await fetch('/projects/order', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        if (r.status === 409) {
+          // A project was created or deleted since this page loaded, so the
+          // list just sent describes a set that no longer exists.
+          this.error = 'This page is out of date — reload it, then rearrange.';
+          return;
+        }
+        if (!r.ok) throw new Error(await r.text());
+        this.error = '';
+        // Nothing was pressed, so without this a working save and a silently
+        // broken one look exactly the same.
+        this.saved = true;
+        setTimeout(() => { this.saved = false; }, 2500);
+      } catch (err) {
+        // The cards are already rearranged on screen; say plainly that the
+        // order is not saved rather than leaving a silent lie.
+        this.error = 'Could not save the new order — it will revert when you reload.';
+      }
+    },
+  };
+}
+</script>
 {{end}}

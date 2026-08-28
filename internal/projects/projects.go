@@ -136,3 +136,84 @@ func (s *Service) Delete(id int64) error {
 	}
 	return s.store.DeleteProject(id)
 }
+
+// Environments a project can be in. The value decides how its apps' domains get
+// their certificates: an internally-issued one from Caddy's own CA, or a real
+// one from Let's Encrypt.
+const (
+	EnvLocal = "local"
+	EnvProd  = "prod"
+)
+
+// MaxBaseDomain bounds a base domain. DNS allows 253 characters for a full
+// name, and a base domain has an app label prefixed to it.
+const MaxBaseDomain = 200
+
+// Configure changes a project's base domain and environment together, and
+// returns the updated project.
+//
+// One call rather than two, because they are read together: the base domain
+// decides what a new app is named, and the environment decides how that name is
+// certificated. Changing them in separate requests leaves a window where a
+// project is, say, "prod" with a .test base domain — and an app created in that
+// window asks Let's Encrypt for a certificate it can never be issued.
+//
+// A blank base domain is allowed and means "no default": an app created
+// afterwards with the domain field left empty gets no hostname at all, and is
+// reached at its published port. That is a real configuration — a server used
+// by IP — not an omission to be filled in with a guess.
+func (s *Service) Configure(id int64, baseDomain, environment string) (store.Project, error) {
+	baseDomain = strings.ToLower(strings.TrimSpace(baseDomain))
+	if err := validBaseDomain(baseDomain); err != nil {
+		return store.Project{}, err
+	}
+	switch environment {
+	case EnvLocal, EnvProd:
+	default:
+		return store.Project{}, fmt.Errorf("environment must be %q or %q", EnvLocal, EnvProd)
+	}
+	if _, err := s.store.ProjectByID(id); err != nil {
+		return store.Project{}, err
+	}
+	// The store restamps unconditionally, so this runs even when nothing looks
+	// changed — that is what repairs a domain row left behind by an earlier
+	// switch.
+	isLocal := environment == EnvLocal
+	sslMode := "letsencrypt"
+	if isLocal {
+		sslMode = "internal"
+	}
+	if err := s.store.SetProjectConfig(id, baseDomain, environment, isLocal, sslMode); err != nil {
+		return store.Project{}, err
+	}
+	return s.store.ProjectByID(id)
+}
+
+// validBaseDomain checks a project's base domain.
+//
+// Deliberately its own rule rather than the one app hostnames get: an app must
+// have a hostname to be routed at all, while a project's base domain is only a
+// default for naming future apps, and having none is a valid answer. Everything
+// else — the character set, no scheme, no port, no leading or trailing dot — is
+// the same, because whatever goes here becomes part of an app hostname later.
+func validBaseDomain(h string) error {
+	if h == "" {
+		return nil // no default; apps must then be given a domain or run on a port
+	}
+	if len(h) > MaxBaseDomain {
+		return fmt.Errorf("base domain is too long (max %d characters)", MaxBaseDomain)
+	}
+	if strings.Contains(h, "://") || strings.ContainsAny(h, ":/?#") {
+		return fmt.Errorf("base domain %q should be a bare hostname — no scheme, port or path", h)
+	}
+	if strings.HasPrefix(h, ".") || strings.HasSuffix(h, ".") || strings.Contains(h, "..") {
+		return fmt.Errorf("invalid base domain %q", h)
+	}
+	for _, r := range h {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '.'
+		if !ok {
+			return fmt.Errorf("invalid base domain %q (use letters, digits, '-' and '.')", h)
+		}
+	}
+	return nil
+}

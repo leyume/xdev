@@ -889,6 +889,52 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
 .new-plus { width: 32px; height: 32px; border-radius: var(--radius-sm); background: rgba(180, 140, 255, 0.1); color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 18px; }
 @media (max-width: 900px) { .row-16-10, .project-grid { grid-template-columns: 1fr; } }
 
+/* Card or row. Two buttons rather than one that toggles: with a single control
+   you have to work out whether the icon means the view you are in or the view
+   you would get. margin-left:auto rather than a change to .page-head, which is
+   shared with every other page and expects exactly two children. */
+.viewswitch { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-left: auto; }
+.viewbtn { display: inline-flex; align-items: center; padding: 5px 9px; border: 0; background: none; color: var(--muted); border-radius: 6px; cursor: pointer; }
+.viewbtn:hover { color: var(--text); }
+.viewbtn.active { background: var(--panel-2); color: var(--text); }
+
+/* The reorder handle on a project card. Inside the card, not in the gutter the
+   app cards use: these sit in a three-column grid, and only the first column
+   has an outside to put anything in.
+
+   Absolutely positioned, so it is out of the flow and costs no width at all.
+   As a flex child of the header it reserved a slot in every card whether or not
+   anyone was pointing at one, which pushed every project name permanently to
+   the right. The card's own 24px left padding is the space it sits in, so the
+   name stays exactly where it would be if there were no handle — before the
+   hover and during it. */
+.project-card { position: relative; }
+.grip { position: absolute; left: 5px; top: 22px; height: 24px; display: inline-flex; align-items: center; color: var(--muted); cursor: grab; opacity: 0; transition: opacity 0.15s; }
+.project-card:hover .grip, .grip:hover, .grip:focus-visible { opacity: 0.75; }
+.grip:active { cursor: grabbing; }
+.project-card.is-dragging { opacity: 0.45; }
+/* Touch has no hover to reveal it with. Shown rather than hidden even though
+   HTML5 drag does not fire for touch, because the same query covers a narrow
+   desktop window, where dragging works normally. */
+@media (hover: none) { .grip { opacity: 0.75; } }
+
+/* List view: one project per row. The per-app breakdown is what makes a card a
+   card, so a row does without it and puts the name, its badge and where the
+   project lives on one line. */
+.project-grid.is-list { grid-template-columns: 1fr; gap: 10px; }
+/* Extra left padding, not a different handle position: the row is short enough
+   that the handle centres on the whole card rather than on a first line. */
+.project-grid.is-list .project-card { display: flex; align-items: center; gap: 14px; padding: 12px 16px 12px 26px; min-height: 0; }
+.project-grid.is-list .grip { top: 0; bottom: 0; height: auto; }
+.project-grid.is-list .project-card-head { flex: 0 1 auto; margin-bottom: 0; min-width: 0; }
+.project-grid.is-list .project-card-head .spacer { display: none; }
+.project-grid.is-list .project-card-meta { margin-left: auto; text-align: right; }
+.project-grid.is-list .project-card-apps { display: none; }
+.project-grid.is-list .project-card-new { justify-content: flex-start; text-align: left; }
+.project-grid.is-list .project-card-new .new-plus { width: 22px; height: 22px; font-size: 15px; }
+/* A row is already full width, so the lift-on-hover reads as a wobble. */
+.project-grid.is-list a.card.project-card:hover { transform: none; }
+
 /* ---- Project detail: header status pill, app cards with tabs ---- */
 .title-row { display: flex; align-items: center; gap: 14px; }
 .status-pill { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; }
@@ -924,6 +970,20 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
    first. Top is set to line it up with the header row, which is the card's
    22px padding plus half a 16px icon row. */
 .app-card { position: relative; }
+/* The card's hover area, extended across the gutter the handle sits in.
+   Without this the handle is revealed by hovering the card and then hidden the
+   moment you set off towards it: the gutter is outside the card, so the cursor
+   leaves before it arrives, and the thing you were reaching for fades under
+   the pointer. The strip runs the card's full height so the handle is still
+   reachable when you start from the bottom of an expanded card. */
+.app-card::before {
+  content: "";
+  position: absolute;
+  left: -34px;
+  top: 0;
+  bottom: 0;
+  width: 34px;
+}
 .drag-handle {
   position: absolute;
   left: -30px;
@@ -935,21 +995,36 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
   opacity: 0;
   transition: opacity 0.15s;
 }
-.app-card:hover .drag-handle, .drag-handle:focus-visible { opacity: 0.75; }
+.app-card:hover .drag-handle, .drag-handle:hover, .drag-handle:focus-visible { opacity: 0.75; }
 .drag-handle:active { cursor: grabbing; }
 .app-card.is-dragging { opacity: 0.45; }
 /* The reorder confirmation. Auto-save has no button to have pressed, so this
    is the only thing that separates "saved" from "silently failed". */
 .order-saved { padding: 8px 12px; font-size: 13px; }
 /* The gutter is the container's own padding, which narrows on small screens —
-   so the handle tucks in to match rather than sliding off the left edge. */
+   so the handle tucks in to match rather than sliding off the left edge. The
+   hover strip has to narrow with it: an absolutely positioned box reaching past
+   the viewport edge is what puts a horizontal scrollbar on the whole page. */
 @media (max-width: 900px) {
   .drag-handle { left: -18px; }
+  .app-card::before { left: -20px; width: 20px; }
 }
 /* Touch has no hover to reveal it with. It is shown rather than hidden even
    though HTML5 drag does not fire for touch, because the same breakpoint
    covers narrow desktop windows, where dragging works normally. */
 @media (hover: none) { .drag-handle { opacity: 0.75; } }
+
+/* Base domain + environment, edited in place of the meta line under the title.
+   Laid out as a row that wraps, so the two fields sit side by side on a wide
+   page and stack on a narrow one without a breakpoint of their own. */
+.proj-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.proj-config { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+.proj-config label { margin: 0; font-size: 12.5px; }
+.proj-config input[type=text] { min-width: min(260px, 60vw); }
+.proj-config-actions { display: flex; gap: 8px; }
+/* The consequence notes take the whole width under the fields rather than
+   sitting beside them: they are the part that has to be read. */
+.proj-config-note { flex-basis: 100%; margin: 0; max-width: 62ch; }
 
 /* Inline project rename, in place of the <h1> while it is open. */
 .rename-form { display: flex; align-items: center; gap: 8px; }

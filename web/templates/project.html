@@ -1,5 +1,11 @@
 {{define "content"}}
-<div x-data="{ addOpen: false, renaming: false }" @keydown.escape.window="addOpen = false"
+{{/* cfgDomain/cfgEnv live here rather than on the settings form itself: the
+     pencil that opens the form is outside it, and Alpine's $refs only reach up
+     through ancestors, never down into a nested x-data. Prefixed because the
+     add-app component further down owns a `domain` of its own. */}}
+<div x-data="{ addOpen: false, renaming: false, configuring: false,
+               cfgEnv: '{{.Project.Environment}}', cfgDomain: '{{.Project.BaseDomain}}' }"
+     @keydown.escape.window="addOpen = false"
      x-effect="document.body.classList.toggle('modal-open', addOpen)">
 <div class="crumbs"><a href="/projects">Projects</a> / <strong>{{.Project.Name}}</strong></div>
 <section class="page-head">
@@ -25,7 +31,54 @@
         <span class="status running"></span>{{.AppsRunning}} of {{len .Apps}} running
       </span>
     </div>
-    <div class="muted small">{{.Project.BaseDomain}} · {{.Project.Environment}} · network <code>{{.Project.NetworkName}}</code></div>
+    {{/* The two editable facts and one that is not. The network name comes from
+         the slug, which is identity — see RenameProject. */}}
+    <div class="muted small proj-meta" x-show="!configuring">
+      {{if .Project.BaseDomain}}<span>{{.Project.BaseDomain}}</span>{{else}}<span class="muted">no base domain</span>{{end}}
+      · <span>{{.Project.Environment}}</span>
+      · network <code>{{.Project.NetworkName}}</code>
+      <button class="iconbtn tip" type="button" data-tip="Edit domain and environment"
+              aria-label="Edit domain and environment"
+              @click="configuring = true; $nextTick(() => $refs.baseDomain.focus())">
+        {{template "icon_pencil" .}}</button>
+    </div>
+
+    {{/* A plain form post: the change reruns the proxy config and rewrites the
+         page's own heading, so the reload a redirect brings is doing useful
+         work. */}}
+    <form class="proj-config" method="post" action="/projects/{{.Project.Slug}}/settings"
+          x-show="configuring" x-cloak @keydown.escape.stop="configuring = false">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <label>Base domain <span class="muted">(blank = none)</span>
+        <input type="text" name="base_domain" x-model="cfgDomain" x-ref="baseDomain"
+               placeholder="example.com" spellcheck="false" autocapitalize="off"
+               maxlength="200" aria-label="Base domain">
+      </label>
+      <label>Environment
+        <select name="environment" x-model="cfgEnv" aria-label="Environment">
+          <option value="local">local — certificates from xdev's own CA</option>
+          <option value="prod">prod — certificates from Let's Encrypt</option>
+        </select>
+      </label>
+      <div class="proj-config-actions">
+        <button class="primary" type="submit">Save</button>
+        <button type="button" @click="configuring = false">Cancel</button>
+      </div>
+      {{/* Both consequences stated where the decision is made. Neither is
+           obvious from the field itself, and both are the kind of thing you
+           only find out about when a certificate fails to issue. */}}
+      <p class="muted small proj-config-note" x-show="cfgEnv !== '{{.Project.Environment}}'" x-cloak>
+        <strong>This re-issues certificates for every domain in this project.</strong>
+        <span x-show="cfgEnv === 'prod'">Each hostname must already resolve to this server publicly, or
+          Let's Encrypt cannot validate it.</span>
+        <span x-show="cfgEnv === 'local'">Browsers will reject the new certificates until xdev's CA is
+          trusted — <code>xdev doctor</code> prints the command.</span>
+      </p>
+      <p class="muted small proj-config-note" x-show="cfgDomain.trim() !== '{{.Project.BaseDomain}}'" x-cloak>
+        Only affects apps added from now on. Existing apps keep the hostnames they already answer on —
+        change those on each app's settings page.
+      </p>
+    </form>
   </div>
   <button class="primary" type="button" @click="addOpen = true">+ Add app</button>
 </section>
@@ -1105,10 +1158,28 @@ function detectComposePorts(text, maxSlots) {
 <label>Where the code comes from
   <select x-model="src">
     <option value="new">A new folder in this project{{if eq .Kind "static"}} — with a starter app{{end}}</option>
-    <option value="folder">A folder I already have on this host</option>
+{{if eq .Kind "static"}}    <option value="upload">A .zip or .tar.gz of my code, uploaded now</option>
+{{end}}    <option value="folder">A folder I already have on this host</option>
     <option value="git">A GitHub repository — cloned, built, and redeployable</option>
   </select>
 </label>
+
+{{if eq .Kind "static"}}
+<template x-if="src==='upload'">
+  <div>
+    <label>Your code <span class="muted">(a .zip or .tar.gz — the built site, or the project to build)</span>
+      <input type="file" name="code_archive" :required="step===2"
+             accept=".zip,.tar.gz,.tgz,application/zip,application/gzip,application/x-gzip">
+    </label>
+    <p class="muted small" style="margin:-2px 0 10px">
+      Unpacked into the app's folder instead of the starter app. If everything in the archive sits inside
+      a single folder — what you get from zipping a directory, or from GitHub's <em>Download ZIP</em> —
+      that folder is dropped, so <code>index.html</code> lands where the app looks for it rather than one
+      level down.
+    </p>
+  </div>
+</template>
+{{end}}
 
 <template x-if="src==='folder'">
   <div>

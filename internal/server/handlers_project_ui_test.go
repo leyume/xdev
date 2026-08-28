@@ -172,3 +172,104 @@ func TestReorderConfirmsItSaved(t *testing.T) {
 		t.Error("the confirmation is never cleared, so it would stick after one drag")
 	}
 }
+
+// The handle sits in the gutter, outside the card, so revealing it on
+// .app-card:hover alone hides it again the moment the cursor sets off towards
+// it — the card is behind, the handle is not yet under the pointer, and the
+// thing being reached for fades away. The card's hover area is extended across
+// the gutter to close that gap.
+//
+// Every assertion here keys on rules rather than on the comments above them:
+// html/template strips CSS comments in a <style> context, so they never reach
+// the page.
+func TestDragHandleStaysVisibleOnTheWayToIt(t *testing.T) {
+	css := renderProject(t, twoApps())
+
+	if !strings.Contains(css, ".app-card::before") {
+		t.Fatal("no hover extension across the gutter — the handle fades as the cursor approaches it")
+	}
+	if !strings.Contains(css, ".app-card:hover .drag-handle, .drag-handle:hover, .drag-handle:focus-visible") {
+		t.Error("hovering the handle itself does not keep it visible")
+	}
+
+	// The strip has to reach at least as far as the handle, or it leaves
+	// exactly the dead zone it exists to remove, and run the card's full height
+	// so the handle is reachable from the bottom of an expanded card.
+	block := between(css, ".app-card::before {", "}")
+	for _, want := range []string{"left: -34px", "width: 34px", "top: 0", "bottom: 0"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("the hover strip is missing %q:\n%s", want, block)
+		}
+	}
+
+	// An absolutely positioned box reaching past the viewport edge is what puts
+	// a horizontal scrollbar on the page, so the narrow breakpoint must pull the
+	// handle and the strip in together.
+	for _, want := range []string{
+		".drag-handle { left: -18px; }",
+		".app-card::before { left: -20px; width: 20px; }",
+	} {
+		i := strings.Index(css, want)
+		if i < 0 {
+			t.Errorf("small-screen rules missing %q", want)
+			continue
+		}
+		if m := strings.LastIndex(css[:i], "@media"); m < 0 || !strings.HasPrefix(css[m:], "@media (max-width: 900px)") {
+			t.Errorf("%q is not inside the max-width:900px block, so it would apply at every width", want)
+		}
+	}
+}
+
+// TestProjectSettingsFormRenders: the base domain and environment are editable
+// from the project page, and the form warns about what the switch does.
+func TestProjectSettingsFormRenders(t *testing.T) {
+	out := renderProject(t, []store.App{{ID: 1, Name: "web", Slug: "web", Type: "static"}})
+
+	if !strings.Contains(out, `action="/projects/demo/settings"`) {
+		t.Fatal("no settings form on the project page")
+	}
+	for _, want := range []string{`name="base_domain"`, `name="environment"`,
+		`<option value="local"`, `<option value="prod"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("settings form is missing %s", want)
+		}
+	}
+	// The field must be optional in the markup too. A `required` here would
+	// make "remove the base domain" impossible from the UI, whatever the
+	// server accepts.
+	form := between(out, `action="/projects/demo/settings"`, "</form>")
+	if strings.Contains(form, `name="base_domain"`) && strings.Contains(
+		between(form, `name="base_domain"`, ">"), "required") {
+		t.Error("the base domain field is required, so it can never be cleared")
+	}
+	// The pencil that opens the form sits outside it, and Alpine's $refs only
+	// reach up through ancestors. A nested x-data on the form would put
+	// x-ref="baseDomain" in a scope the button cannot see, and focusing it
+	// would throw instead of putting the cursor in the field.
+	if strings.Contains(between(out, `class="proj-config"`, ">"), "x-data") {
+		t.Error("the settings form declares its own x-data, so the button outside it cannot reach x-ref=\"baseDomain\"")
+	}
+	if !strings.Contains(out, "cfgEnv:") || !strings.Contains(out, "cfgDomain:") {
+		t.Error("the form's state is not on the page root, so the pencil and the fields are in different scopes")
+	}
+	// Both consequences are stated where the decision is made. Neither is
+	// visible from the field itself.
+	if !strings.Contains(form, "re-issues certificates") {
+		t.Error("nothing warns that switching environment reissues certificates")
+	}
+	if !strings.Contains(form, "apps added from now on") {
+		t.Error("nothing says a new base domain does not rename existing apps")
+	}
+}
+
+// TestProjectMetaShowsNoBaseDomain: with the base domain removed the meta line
+// has to say so rather than render an empty gap between two separators.
+func TestProjectMetaShowsNoBaseDomain(t *testing.T) {
+	out := renderProjectWith(t, nil, viewData{
+		"Project": store.Project{ID: 3, Name: "Demo", Slug: "demo", BaseDomain: "",
+			Environment: "local", NetworkName: "xdev_demo", Dir: "/p/demo"},
+	})
+	if !strings.Contains(out, "no base domain") {
+		t.Error("a project with no base domain renders a blank where the domain was")
+	}
+}

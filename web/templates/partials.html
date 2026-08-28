@@ -27,6 +27,11 @@
      reason. */}}
 {{define "icon_grip"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>{{end}}
 
+{{/* The two layout choices on the projects overview, drawn as what each one
+     produces: four tiles, and stacked rows. */}}
+{{define "icon_grid"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>{{end}}
+{{define "icon_list"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="4" rx="1.5"/><rect x="3" y="15.5" width="18" height="4" rx="1.5"/></svg>{{end}}
+
 {{/* App-type marks for the add-app type picker, 26px, drawn in the same stroke
      style as the nav icons and tinted per type by .type-card CSS. These are
      xdev's own glyphs for each stack — not the products' trademarks. Pass the
