@@ -36,6 +36,7 @@ import (
 	"strings"
 
 	"xdev/internal/apps"
+	"xdev/internal/auth"
 	"xdev/internal/gitsrc"
 	"xdev/internal/store"
 )
@@ -166,6 +167,50 @@ func (s *Server) handlePushDeploy(w http.ResponseWriter, r *http.Request) {
 	s.store.AddEvent(app.ProjectID, app.ID, "info", "Published an uploaded build of "+app.Name)
 	s.reconcile()
 	writeJSON(w, map[string]string{"published": target})
+}
+
+// handleAppUpload publishes a build the user picked in the browser — the same
+// swap CI's endpoint performs, reached with a session instead of a token.
+//
+// It is the other way to answer "my site's files changed". A git-backed app
+// redeploys; an app that is just files needs somewhere to hand them over, and
+// before this the only route was issuing a deploy token and running curl.
+func (s *Server) handleAppUpload(w http.ResponseWriter, r *http.Request) {
+	app, proj, ok := s.appAndProject(w, r)
+	if !ok {
+		return
+	}
+	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/settings"
+
+	// The CSRF middleware has already parsed the form (it reads its token with
+	// FormValue), but a direct caller has not — and an unparsed multipart form
+	// reads as no file chosen, which would report "choose a file" to someone who
+	// did.
+	if r.MultipartForm == nil {
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			redirectWithError(w, r, target, fmt.Errorf("upload too large (max %d MB) or malformed", auth.MaxRequestBody>>20))
+			return
+		}
+	}
+	code, closeCode, err := uploadedCode(r)
+	if err != nil {
+		redirectWithError(w, r, target, err)
+		return
+	}
+	defer closeCode()
+	if code == nil {
+		redirectWithError(w, r, target, errors.New("choose a .zip or .tar.gz to upload"))
+		return
+	}
+
+	if _, err := s.apps.PushDeploy(app.ID, code, store.DeployPush); err != nil {
+		s.store.AddEvent(proj.ID, app.ID, "error", "Upload to "+app.Name+" failed: "+firstLine(err.Error()))
+		redirectWithError(w, r, target, err)
+		return
+	}
+	s.store.AddEvent(proj.ID, app.ID, "info", "Published an uploaded build of "+app.Name)
+	s.reconcile()
+	http.Redirect(w, r, target+"?uploaded=1", http.StatusSeeOther)
 }
 
 // hookSecret decrypts the HMAC secret an app shares with GitHub.
