@@ -193,6 +193,34 @@ func uploadedArchive(r *http.Request) (io.Reader, func(), error) {
 	return file, func() { file.Close() }, nil
 }
 
+// uploadedCode returns the "code_archive" file from a multipart submit — a
+// .zip or .tar.gz of the user's own code, offered as one of the sources a
+// static app can be created from. A nil reader means none was chosen, which is
+// not an error: the field is optional, and most apps come from somewhere else.
+// Callers run after uploadedArchive, which has already parsed the form.
+func uploadedCode(r *http.Request) (io.Reader, func(), error) {
+	noop := func() {}
+	if r.MultipartForm == nil {
+		return nil, noop, nil
+	}
+	file, hdr, err := r.FormFile("code_archive")
+	if err != nil || hdr.Size == 0 {
+		if file != nil {
+			file.Close()
+		}
+		return nil, noop, nil
+	}
+	// The extension is checked for the error message's sake — it is what the
+	// user can see and fix. What the file actually is gets decided from its
+	// first bytes when it is unpacked.
+	name := strings.ToLower(hdr.Filename)
+	if !strings.HasSuffix(name, ".zip") && !strings.HasSuffix(name, ".tar.gz") && !strings.HasSuffix(name, ".tgz") {
+		file.Close()
+		return nil, noop, errors.New("upload your code as a .zip or .tar.gz archive")
+	}
+	return file, func() { file.Close() }, nil
+}
+
 // maxComposeUpload caps an uploaded compose file. Compose files are a few KB;
 // the apps service applies the same limit to pasted ones.
 const maxComposeUpload = 256 << 10

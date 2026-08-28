@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"xdev/internal/apps"
+	"xdev/internal/projects"
 	"xdev/internal/store"
 	"xdev/internal/templates"
 )
@@ -263,6 +264,107 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/projects", http.StatusSeeOther)
 }
 
+// handleProjectSettings changes a project's base domain and environment.
+//
+// It reconciles afterwards. The environment decides how every one of the
+// project's hostnames is certificated, so the change means nothing until the
+// proxy has been told — and a project switched to prod whose routes still use
+// an internally-issued certificate is exactly the confusing half-state the
+// switch is supposed to resolve.
+func (s *Server) handleProjectSettings(w http.ResponseWriter, r *http.Request) {
+	proj, err := s.store.ProjectBySlug(r.PathValue("slug"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	target := "/projects/" + proj.Slug
+	wasDomain, wasEnv := proj.BaseDomain, proj.Environment
+
+	updated, err := s.projects.Configure(proj.ID, r.FormValue("base_domain"), r.FormValue("environment"))
+	if err != nil {
+		if wantsJSON(r) {
+			http.Error(w, firstLine(err.Error()), http.StatusBadRequest)
+			return
+		}
+		redirectWithError(w, r, target, err)
+		return
+	}
+	// One event per thing that actually moved, and nothing at all when the form
+	// was submitted unchanged — the activity feed is for changes.
+	if updated.BaseDomain != wasDomain {
+		switch {
+		case updated.BaseDomain == "":
+			s.store.AddEvent(proj.ID, 0, "warn", "Removed the base domain of "+proj.Name+" (was "+wasDomain+") — new apps get no hostname unless given one")
+		case wasDomain == "":
+			s.store.AddEvent(proj.ID, 0, "info", "Set the base domain of "+proj.Name+" to "+updated.BaseDomain)
+		default:
+			s.store.AddEvent(proj.ID, 0, "info", "Changed the base domain of "+proj.Name+" from "+wasDomain+" to "+updated.BaseDomain)
+		}
+	}
+	if updated.Environment != wasEnv {
+		s.store.AddEvent(proj.ID, 0, "warn", "Switched "+proj.Name+" from "+wasEnv+" to "+updated.Environment+" — its domains now use "+certSource(updated.Environment)+" certificates")
+	}
+	s.reconcile()
+	if wantsJSON(r) {
+		writeJSON(w, map[string]string{"base_domain": updated.BaseDomain, "environment": updated.Environment})
+		return
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+// certSource names where an environment's certificates come from, for the
+// activity entry — the practical difference between the two settings.
+func certSource(environment string) string {
+	if environment == projects.EnvProd {
+		return "Let's Encrypt"
+	}
+	return "locally-issued"
+}
+
+// handleProjectOrder saves the arrangement of the project cards on the
+// overview. Same shape as handleAppOrder: the whole list, or nothing.
+func (s *Server) handleProjectOrder(w http.ResponseWriter, r *http.Request) {
+	// The CSRF middleware has already parsed the form, but a direct caller (a
+	// test) has not — and an unparsed form silently reads as an empty list,
+	// which SetProjectOrder would reject as stale rather than as malformed.
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	raw := r.Form["id"]
+	ids := make([]int64, 0, len(raw))
+	for _, v := range raw {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			http.Error(w, "bad project id", http.StatusBadRequest)
+			return
+		}
+		ids = append(ids, id)
+	}
+
+	if err := s.store.SetProjectOrder(ids); err != nil {
+		// A stale list is the page's fault, not the server's, and the fix is to
+		// reload rather than retry — so it gets a 409 the client can act on.
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrStaleProjectOrder) {
+			status = http.StatusConflict
+		}
+		if wantsJSON(r) {
+			http.Error(w, firstLine(err.Error()), status)
+			return
+		}
+		redirectWithError(w, r, "/projects", err)
+		return
+	}
+	// No event log entry: rearranging cards changes nothing about what is
+	// deployed, and one line per drag would bury the activity feed.
+	if wantsJSON(r) {
+		writeJSON(w, map[string]string{"status": "ok"})
+		return
+	}
+	http.Redirect(w, r, "/projects", http.StatusSeeOther)
+}
+
 // handleAppCreate adds an app to a project and starts it.
 func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 	proj, err := s.store.ProjectBySlug(r.PathValue("slug"))
@@ -274,15 +376,24 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 	// reads the text fields either way.
 	archive, closeArchive, err := uploadedArchive(r)
 	if err != nil {
-		redirectWithError(w, r, "/projects/"+proj.Slug, err)
+		rejectCreate(w, r, "/projects/"+proj.Slug, err)
 		return
 	}
 	defer closeArchive()
 
+	// A static app can be created from a .zip / .tar.gz of the user's code
+	// instead of a scaffold, a folder on the host, or a repository.
+	code, closeCode, err := uploadedCode(r)
+	if err != nil {
+		rejectCreate(w, r, "/projects/"+proj.Slug, err)
+		return
+	}
+	defer closeCode()
+
 	// Compose apps bring their own file (uploaded or pasted); other types ignore it.
 	composeFile, err := suppliedComposeFile(r)
 	if err != nil {
-		redirectWithError(w, r, "/projects/"+proj.Slug, err)
+		rejectCreate(w, r, "/projects/"+proj.Slug, err)
 		return
 	}
 
@@ -314,6 +425,7 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		WPMode:        r.FormValue("wp_mode"),
 		LaravelServer: r.FormValue("laravel_server"),
 		Archive:       archive,
+		Upload:        code,
 	}
 	target := "/projects/" + proj.Slug
 
@@ -325,24 +437,35 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 	// A native submit (no JS) keeps the old synchronous path — it has nowhere to
 	// put progress, and a redirect at the end is the whole interaction.
 	if wantsJSON(r) {
-		if archive != nil {
-			// The multipart file dies with the request, and the goroutine
-			// outlives it. Spool it first, or the create reads a closed file.
-			spooled, cleanup, err := spoolArchive(archive)
+		// The multipart files die with the request and the goroutine outlives
+		// it, so anything uploaded is spooled to a temp file first — otherwise
+		// the create reads a closed file. The job owns the spool and removes it
+		// when it finishes; cleaning up here would close it while the create is
+		// still reading, which is the same bug one line later.
+		var spools []func()
+		cleanup := func() {
+			for _, done := range spools {
+				done()
+			}
+		}
+		for _, up := range []struct {
+			src io.Reader
+			dst *io.Reader
+		}{{archive, &opts.Archive}, {code, &opts.Upload}} {
+			if up.src == nil {
+				continue
+			}
+			spooled, done, err := spoolArchive(up.src)
 			if err != nil {
+				cleanup()
 				writeJSONError(w, err, http.StatusBadRequest)
 				return
 			}
-			opts.Archive = spooled
-			defer cleanup()
-			cleanupAfterJob := cleanup
-			id, j := s.jobs.start()
-			go s.runCreateJob(j, proj, opts, target, cleanupAfterJob)
-			writeJSON(w, map[string]string{"job": id})
-			return
+			*up.dst = spooled
+			spools = append(spools, done)
 		}
 		id, j := s.jobs.start()
-		go s.runCreateJob(j, proj, opts, target, nil)
+		go s.runCreateJob(j, proj, opts, target, cleanup)
 		writeJSON(w, map[string]string{"job": id})
 		return
 	}
@@ -381,9 +504,11 @@ func (s *Server) runCreateJob(j *job, proj store.Project, opts apps.CreateOpts, 
 }
 
 // spoolArchive copies an uploaded archive somewhere that outlives the request,
-// so a background create can still read it.
+// so a background create can still read it. No extension: the file may be a
+// backup .tar.gz or a .zip of somebody's code, and nothing downstream decides
+// which from the name.
 func spoolArchive(src io.Reader) (io.Reader, func(), error) {
-	f, err := os.CreateTemp("", "xdev-upload-*.tar.gz")
+	f, err := os.CreateTemp("", "xdev-upload-*")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -509,6 +634,19 @@ func clampError(msg string) string {
 
 // redirectWithError redirects to target with a short ?error= message. Compose
 // failures can be long; keep the surfaced message to the first line.
+// rejectCreate answers a create that was refused before anything was made. The
+// dialog asked for JSON, so it gets JSON and stays open holding everything that
+// was typed; a native submit still gets the redirect and its banner. Retyping a
+// pasted compose file because the wrong archive was picked is exactly the kind
+// of thing that makes people give up.
+func rejectCreate(w http.ResponseWriter, r *http.Request, target string, err error) {
+	if wantsJSON(r) {
+		writeJSONError(w, err, http.StatusBadRequest)
+		return
+	}
+	redirectWithError(w, r, target, err)
+}
+
 func redirectWithError(w http.ResponseWriter, r *http.Request, target string, err error) {
 	msg := firstLine(err.Error())
 	http.Redirect(w, r, target+"?error="+url.QueryEscape(msg), http.StatusSeeOther)

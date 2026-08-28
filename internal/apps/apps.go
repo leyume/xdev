@@ -135,6 +135,15 @@ type CreateOpts struct {
 	// with SourceDir.
 	Git GitOpts
 
+	// Upload is a .zip or .tar.gz of the user's own code, unpacked into a host
+	// app's folder in place of the starter scaffold. The third way to say where
+	// a static app's code comes from, alongside SourceDir and Git, and mutually
+	// exclusive with both.
+	//
+	// Distinct from Archive below: that restores an xdev backup of an app that
+	// already existed, and applies to every type. This is just code.
+	Upload io.Reader
+
 	// Archive, when set, is a .tar.gz backup unpacked over the new app's files
 	// (after any scaffold, so the archive wins) before its first start.
 	Archive io.Reader
@@ -235,7 +244,16 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 	if err != nil {
 		return store.App{}, err
 	}
-	if len(hosts) == 0 && !s.reach.PortOnly() {
+	// A project with no base domain has no name to derive one from, so a blank
+	// domain field means the app is reached at its port — the same answer the
+	// port-only mode gives.
+	//
+	// Stated here rather than left to ReplaceAppDomains, which does drop an
+	// empty hostname on its way to the table. That filter is the last line of
+	// defence, not the decision: without this the app would carry hosts = [""]
+	// through the rest of Create, and report "publish " with nothing after it
+	// as one of its progress steps.
+	if len(hosts) == 0 && !s.reach.PortOnly() && proj.BaseDomain != "" {
 		fallback := proj.BaseDomain
 		if s.store.DomainOwner(fallback) != 0 {
 			fallback = slug + "." + proj.BaseDomain
@@ -305,6 +323,13 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 	// that would ignore it.
 	if strings.TrimSpace(opts.Git.URL) != "" && !canDeployFromGit(opts.Type) {
 		return store.App{}, fmt.Errorf("a %s app cannot be deployed from a repository — static, go and laravel apps can", opts.Type)
+	}
+	// Uploaded code goes into an app that *is* its files. A container type
+	// builds its own from an image, so an archive would be unpacked into a
+	// directory nothing reads — better to say so than to accept the upload and
+	// quietly drop it.
+	if opts.Upload != nil && opts.Type != store.TypeStatic && opts.Type != store.TypeGo {
+		return store.App{}, fmt.Errorf("a %s app cannot be created from an uploaded archive — static and Go apps can", opts.Type)
 	}
 	switch {
 	case opts.Type == store.TypeProxy:
@@ -690,10 +715,17 @@ func (s *Service) writeInfra(appType, underscore string) error {
 func (s *Service) layoutStatic(app *store.App, opts *CreateOpts, appDir string) error {
 	external := app.IsExternalDir()
 	fromGit := strings.TrimSpace(opts.Git.URL) != ""
+	fromUpload := opts.Upload != nil
 	if external && fromGit {
 		// A deploy is `git reset --hard`. Doing that to a folder the user owns is
 		// the one thing the external-directory feature exists to prevent.
 		return errors.New("choose one source: a repository xdev clones, or a folder you already have — a repository is deployed with a hard reset, which xdev will not do to your own folder")
+	}
+	if fromUpload && (external || fromGit) {
+		// Unpacking over either one would destroy what makes it that source: the
+		// user's own files in a folder xdev promised not to touch, or a checkout
+		// whose next deploy would throw the upload away again.
+		return errors.New("choose one source: an archive you upload, a repository xdev clones, or a folder you already have")
 	}
 	if !external {
 		if err := os.MkdirAll(appDir, 0o755); err != nil {
@@ -711,6 +743,12 @@ func (s *Service) layoutStatic(app *store.App, opts *CreateOpts, appDir string) 
 		if err := s.cloneRepo(app, opts, appDir); err != nil {
 			discard()
 			return err
+		}
+	}
+	if fromUpload {
+		if err := extractUpload(opts.Upload, appDir); err != nil {
+			discard()
+			return fmt.Errorf("unpack the uploaded code: %w", err)
 		}
 	}
 	mode := opts.ServeMode
@@ -759,8 +797,8 @@ func (s *Service) layoutStatic(app *store.App, opts *CreateOpts, appDir string) 
 			return err
 		}
 		app.Port = port
-		if external || fromGit {
-			break // the code is already there — the user's folder, or the clone
+		if external || fromGit || fromUpload {
+			break // the code is already there — the user's folder, the clone, or the upload
 		}
 		// Drop a runnable starter directly in the folder (Vite for static, a
 		// net/http server for go), skipping any files the user already added, so
@@ -770,7 +808,7 @@ func (s *Service) layoutStatic(app *store.App, opts *CreateOpts, appDir string) 
 			return err
 		}
 	case store.ServeStatic:
-		if external || fromGit {
+		if external || fromGit || fromUpload {
 			break
 		}
 		// Drop a friendly placeholder if the served dir has no index yet, so the
