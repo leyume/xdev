@@ -169,7 +169,7 @@ func (s *Service) layoutCompose(app *store.App, opts *CreateOpts, proj store.Pro
 		}
 	}
 
-	ports, err := s.allocPorts(slots, avoid...)
+	ports, err := s.appPorts(slots, opts.Port, avoid...)
 	if err != nil {
 		return nil, err
 	}
