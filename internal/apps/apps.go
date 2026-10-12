@@ -114,6 +114,13 @@ type CreateOpts struct {
 	CPULimit float64 // cores; 0 = unlimited (container apps only)
 	MemLimit int64   // bytes; 0 = unlimited (container apps only)
 
+	// Port is the host port the user picked for the app's own server — the
+	// one behind its domain, ${PORT} for a compose file. 0 lets xdev pick one
+	// from its range. Only types that run something take one: a proxy route,
+	// a shared-host WordPress docroot and a file-served static app have no
+	// port to choose, and asking for one there is refused.
+	Port int
+
 	// LaravelServer picks a laravel app's PHP server: store.LaravelSwoole
 	// (or blank) for Octane/Swoole, store.LaravelFPM for php-fpm. Ignored by
 	// every other type.
@@ -331,6 +338,16 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 	if opts.Upload != nil && opts.Type != store.TypeStatic && opts.Type != store.TypeGo {
 		return store.App{}, fmt.Errorf("a %s app cannot be created from an uploaded archive — static and Go apps can", opts.Type)
 	}
+	if opts.Port != 0 && !takesPort(opts) {
+		return store.App{}, fmt.Errorf("a %s app has no port of its own to choose — leave the port blank", describeType(opts))
+	}
+	// Checked again when the port is taken, but asked now as well: a clone or
+	// an image pull is a long way to go to find out the port was busy.
+	if opts.Port != 0 {
+		if err := s.checkChosenPort(opts.Port); err != nil {
+			return store.App{}, err
+		}
+	}
 	switch {
 	case opts.Type == store.TypeProxy:
 		// Proxy apps are only a Caddy route to another server: no container,
@@ -530,7 +547,7 @@ func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.P
 	if secondaryPrefix(opts.Type) != "" && !(opts.NoAdminer && opts.Type == "laravel") {
 		ports = 2
 	}
-	alloc, err := s.allocPorts(ports)
+	alloc, err := s.appPorts(ports, opts.Port)
 	if err != nil {
 		return 0, err
 	}
@@ -791,12 +808,12 @@ func (s *Service) layoutStatic(app *store.App, opts *CreateOpts, appDir string) 
 		} else if app.StartCmd == "" {
 			app.StartCmd = defaultStartCmd
 		}
-		port, err := s.allocPort()
+		ports, err := s.appPorts(1, opts.Port)
 		if err != nil {
 			discard()
 			return err
 		}
-		app.Port = port
+		app.Port = ports[0]
 		if external || fromGit || fromUpload {
 			break // the code is already there — the user's folder, the clone, or the upload
 		}
@@ -1289,6 +1306,82 @@ func (s *Service) allocPorts(n int, avoid ...int) ([]int, error) {
 		return nil, errors.New("no free host port available in range")
 	}
 	return out, nil
+}
+
+// appPorts returns the n host ports a new app needs, the first being its own.
+// want is the port the user chose for it (0 = none): it is checked rather than
+// allocated — it may sit outside xdev's range, but it must be a port an
+// unprivileged process can bind, not owned by another app, and not already
+// bound on the host. The rest (Adminer, a compose stack's extra domains) are
+// allocated as usual around it. avoid is passed through to the allocator.
+func (s *Service) appPorts(n, want int, avoid ...int) ([]int, error) {
+	if want == 0 {
+		return s.allocPorts(n, avoid...)
+	}
+	if err := s.checkChosenPort(want); err != nil {
+		return nil, err
+	}
+	for _, p := range avoid {
+		if p == want {
+			return nil, fmt.Errorf("port %d is already published elsewhere in this app — choose another", want)
+		}
+	}
+	rest, err := s.allocPorts(n-1, append(avoid, want)...)
+	if err != nil {
+		return nil, err
+	}
+	return append([]int{want}, rest...), nil
+}
+
+// checkChosenPort reports why a port the user picked for a new app cannot be
+// its own: nothing unprivileged could bind it, another app owns it, or
+// something on the host is already listening on it.
+func (s *Service) checkChosenPort(p int) error {
+	if err := validPort(p); err != nil {
+		return err
+	}
+	if err := s.portTaken(p); err != nil {
+		return fmt.Errorf("port %d is already used by another app — choose another", p)
+	}
+	if !portFree(p) {
+		return fmt.Errorf("port %d is already in use on this host — choose another, or leave it blank for xdev to pick one", p)
+	}
+	return nil
+}
+
+// validPort rejects a chosen port nothing could listen on: out of range, or
+// below 1024, which needs root to bind and xdev runs apps unprivileged.
+func validPort(p int) error {
+	if p < 1024 || p > 65535 {
+		return fmt.Errorf("port %d is not usable — choose one between 1024 and 65535", p)
+	}
+	return nil
+}
+
+// takesPort reports whether an app created with opts runs a server on a host
+// port of its own, and can therefore be given one.
+func takesPort(opts CreateOpts) bool {
+	switch {
+	case opts.Type == store.TypeProxy:
+		return false
+	case opts.Type == "wordpress" && opts.WPMode != "separate":
+		return false
+	case opts.Type == store.TypeStatic && opts.ServeMode != store.ServeCommand:
+		return false
+	}
+	return true
+}
+
+// describeType names an app's type the way the refusal above needs to: a
+// static app that serves files is a different thing from one that runs.
+func describeType(opts CreateOpts) string {
+	switch {
+	case opts.Type == "wordpress":
+		return "shared-host wordpress"
+	case opts.Type == store.TypeStatic:
+		return "file-served static"
+	}
+	return opts.Type
 }
 
 // pickPorts returns up to n ports in [portMin, portMax] that are neither taken

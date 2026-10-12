@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -404,12 +405,23 @@ func (s *Server) handleAppCreate(w http.ResponseWriter, r *http.Request) {
 		memBytes = memMB * 1024 * 1024
 	}
 
+	// Blank lets xdev pick the port; anything else must be a number, and is
+	// checked for being free by the create itself.
+	var port int
+	if raw := strings.TrimSpace(r.FormValue("port")); raw != "" {
+		if port, err = strconv.Atoi(raw); err != nil {
+			rejectCreate(w, r, "/projects/"+proj.Slug, fmt.Errorf("port %q is not a number", raw))
+			return
+		}
+	}
+
 	opts := apps.CreateOpts{
 		Name:          r.FormValue("name"),
 		Type:          r.FormValue("type"),
 		Domain:        r.FormValue("domain"),
 		CPULimit:      cpu,
 		MemLimit:      memBytes,
+		Port:          port,
 		ServeMode:     r.FormValue("serve_mode"),
 		RootDir:       r.FormValue("root_dir"),
 		SourceDir:     r.FormValue("source_dir"),

@@ -427,6 +427,14 @@
                placeholder="{{if .PortOnly}}leave blank for a port-only app{{else}}{{.Project.BaseDomain}}  ·  or  test.com, www.test.com{{end}}">
       </label>
 
+      <!-- The app's own host port. Only shown for types that run a server on
+           one: a proxy route, a shared-host WordPress docroot and a file-served
+           static app have none. Blank lets xdev pick a free one. -->
+      <label x-show="takesPort()" x-cloak>Port <span class="muted">(optional — blank picks a free one; <span x-show="type==='compose'">this is <code>${PORT}</code></span><span x-show="type!=='compose'">the app's server listens on it</span>)</span>
+        <input type="number" name="port" min="1024" max="65535" step="1" placeholder="e.g. 3000"
+               :disabled="!takesPort()">
+      </label>
+
       <!-- Static apps: run on the host's system Node, no container. -->
       <template x-if="type==='static'">
         <div>
@@ -1022,6 +1030,12 @@ function addAppForm(baseDomain, maxDomains, csrf) {
 
     // The Domain field may list several hostnames; the slot map shows the first,
     // since a slot is one port however many names point at it.
+    takesPort() {
+      if (!this.type || this.type === 'proxy') return false;
+      if (this.type === 'wordpress' && this.wp === 'shared') return false;
+      if (this.type === 'static' && this.serve !== 'command') return false;
+      return true;
+    },
     primaryDomain() {
       return this.domain.split(',')[0].trim() || '{{.Project.BaseDomain}}';
     },
