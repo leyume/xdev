@@ -137,7 +137,7 @@
       <form class="inline" method="post" action="/settings/engine">
         <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
         <input type="hidden" name="engine" value="podman">
-        <button type="submit">Use podman</button>
+        <button type="submit" class="small-btn">Use podman</button>
       </form>
       {{end}}
     </div>
@@ -157,13 +157,13 @@
       <form class="inline" method="post" action="/settings/engine">
         <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
         <input type="hidden" name="engine" value="docker">
-        <button type="submit">Use docker</button>
+        <button type="submit" class="small-btn">Use docker</button>
       </form>
       {{end}}
     </div>
     {{end}}
   </div>
-  <p class="muted small">Switching applies to <strong>new</strong> projects; existing projects keep the engine they were created with.</p>
+  <p class="muted small runtime-note">Switching applies to <strong>new</strong> projects; existing ones keep their engine.</p>
 </section>
 {{end}}
 
@@ -208,20 +208,22 @@
 
 {{define "events_card"}}
 <section class="card">
-  <h3>Recent events</h3>
-  {{if .Events}}
-  <div class="event-list">
-    {{range .Events}}
-    <div class="event-row">
-      <span class="dot {{.Level}}"></span>
-      <div>
-        <div class="small" style="font-weight:600">{{.Message}}</div>
-        <div class="muted small">{{.TS}}</div>
-      </div>
-    </div>
-    {{end}}
+  <div class="card-head">
+    <h3>Recent events</h3>
+    {{if .Events}}<a href="/events" class="more-link">All events →</a>{{end}}
   </div>
-  <a href="/events" class="small" style="display:inline-block;margin-top:4px;color:var(--accent);text-decoration:none;font-weight:600">All events →</a>
+  {{if .Events}}
+  <ol class="event-list timeline">
+    {{range .Events}}
+    <li class="event-row">
+      <span class="dot {{.Level}}"></span>
+      <div class="min-w-0">
+        <div class="event-msg">{{.Message}}</div>
+        <time class="event-ts">{{.TS}}</time>
+      </div>
+    </li>
+    {{end}}
+  </ol>
   {{else}}
   <p class="muted small">No activity yet.</p>
   {{end}}

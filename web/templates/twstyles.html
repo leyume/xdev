@@ -861,8 +861,69 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
 .deploy-head:hover { color: var(--text); }
 .deploy-msg { margin-bottom: 6px; }
 
-.apps-table-head { display: flex; align-items: center; margin-bottom: 6px; }
+/* ---- Dashboard apps table ----
+   One tbody per project with a quiet group row, so the project name is said
+   once instead of on every app. Numbers right-aligned in tabular figures so a
+   column of CPU readings lines up digit for digit. */
+.apps-table-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .apps-table-head h2 { margin: 0; }
+.realtime-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+
+/* Segmented filter: All / Running / Not running. */
+.seg { display: inline-flex; gap: 2px; padding: 3px; margin-bottom: 8px; background: var(--panel-2); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); }
+.seg button { background: none; border: none; box-shadow: none; padding: 5px 12px; font-size: 12.5px; font-weight: 600; color: var(--muted); border-radius: 6px; display: inline-flex; align-items: center; gap: 7px; }
+.seg button:hover { color: var(--text); background: none; }
+.seg button.active { color: var(--text); background: rgba(255, 255, 255, 0.07); }
+.seg-n { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted); background: rgba(255, 255, 255, 0.05); padding: 0 6px; border-radius: 999px; }
+.seg button.active .seg-n { color: var(--accent); background: rgba(180, 140, 255, 0.14); }
+
+.apps-table th { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding-top: 10px; }
+.apps-table td { padding-top: 9px; padding-bottom: 9px; }
+.apps-table .num { text-align: right; font-variant-numeric: tabular-nums; width: 96px; white-space: nowrap; }
+.apps-table td.num { font-size: 13px; color: var(--muted); }
+.apps-table .nil { opacity: 0.4; }
+.apps-table .act { width: 44px; text-align: right; }
+.apps-table tbody tr:not(.group-row):hover td { background: rgba(255, 255, 255, 0.02); }
+/* The last app of a group carries no rule; the next group row draws the break. */
+.apps-table tbody tr:last-child td { border-bottom: none; }
+.apps-table .group-row td { padding: 18px 0 6px; border-bottom: 1px solid var(--border-soft); }
+.apps-table tbody:first-of-type .group-row td { padding-top: 8px; }
+.group-row a { font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; }
+.group-row a:hover { color: var(--text); }
+.group-arrow { margin-left: 6px; opacity: 0; transition: opacity .15s; }
+.group-row a:hover .group-arrow { opacity: 1; }
+.app-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.app-name { color: var(--text); text-decoration: none; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-name:hover { color: var(--accent); }
+.type-chip { font-size: 11px; font-weight: 500; color: var(--muted); border: 1px solid var(--border-soft); border-radius: 999px; padding: 0 8px; white-space: nowrap; }
+/* Lifecycle icon shows on row hover; always on touch, and for rows not running
+   (the action you most likely came for). */
+.apps-table .act .iconbtn { opacity: 0; transition: opacity .15s; }
+.apps-table tr:hover .act .iconbtn,
+.apps-table .act .iconbtn:focus-visible,
+.apps-table tr:not([data-status="running"]) .act .iconbtn { opacity: 1; }
+@media (hover: none) { .apps-table .act .iconbtn { opacity: 1; } }
+
+/* Filters. A project group hides when none of its apps match. */
+.apps-table[data-filter="running"] tr[data-status]:not([data-status="running"]),
+.apps-table[data-filter="down"] tr[data-status="running"] { display: none; }
+.apps-table[data-filter="running"] tbody:not(:has(tr[data-status="running"])),
+.apps-table[data-filter="down"] tbody:not(:has(tr[data-status]:not([data-status="running"]))) { display: none; }
+.apps-empty { display: none; padding: 18px 0 4px; }
+.apps-table[data-filter="running"]:not(:has(tr[data-status="running"])) + .apps-empty,
+.apps-table[data-filter="down"]:not(:has(tr[data-status]:not([data-status="running"]))) + .apps-empty { display: block; }
+
+.empty-state { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 12px 0 4px; color: var(--muted); }
+.empty-state p { margin: 0; }
+
+/* Card header with a trailing link (Recent events → All events). */
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.card-head h3 { margin: 0; }
+.more-link { font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: none; white-space: nowrap; }
+.more-link:hover { text-decoration: underline; }
+
+.legend-dot.cpu { background: var(--accent); }
+.legend-dot.mem { background: var(--ok); margin-left: 12px; }
 .status-label { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; text-transform: capitalize; }
 .status-label.running { color: var(--ok); }
 .status-label.error { color: var(--danger); }
@@ -876,6 +937,21 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
 .event-row .dot.info { background: var(--accent); }
 .event-row .dot.warn { background: var(--warn); }
 .event-row .dot.error { background: var(--danger); }
+/* Timeline variant: dots strung on a hairline, message over a quiet timestamp. */
+.event-list.timeline { gap: 0; margin: 0; padding: 0; list-style: none; }
+.timeline .event-row { position: relative; padding-bottom: 14px; }
+.timeline .event-row:last-child { padding-bottom: 0; }
+.timeline .event-row:not(:last-child)::before { content: ""; position: absolute; left: 2.5px; top: 14px; bottom: 0; width: 1px; background: var(--border); }
+.timeline .event-row .dot { margin-top: 7px; box-shadow: 0 0 0 3px var(--bg); }
+.event-msg { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.event-ts { display: block; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Engine card: plain rows split by a rule, not boxes inside a box. */
+.runtime-grid { gap: 0; }
+.runtime-grid .runtime { background: none; border: none; border-radius: 0; padding: 10px 0; }
+.runtime-grid .runtime + .runtime { border-top: 1px solid var(--border-soft); }
+.runtime-grid .runtime .small-btn { margin-left: 0; }
+.runtime-note { margin: 10px 0 0; }
 
 /* ---- Projects list cards ---- */
 .row-16-10 { display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; margin-bottom: 18px; }

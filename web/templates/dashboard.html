@@ -50,8 +50,8 @@
       <div class="muted small">CPU &amp; memory · {{.Host.Hostname}}</div>
     </div>
     <span class="spacer"></span>
-    <span class="legend-dot" style="background:var(--accent)"></span><span class="muted small">CPU</span>
-    <span class="legend-dot" style="background:var(--ok);margin-left:12px"></span><span class="muted small">Memory</span>
+    <span class="legend-dot cpu"></span><span class="muted small">CPU</span>
+    <span class="legend-dot mem"></span><span class="muted small">Memory</span>
     <div class="range-pills">
       <span :class="{active: range==='1h'}" @click="load('1h')">1h</span>
       <span :class="{active: range==='24h'}" @click="load('24h')">24h</span>
@@ -64,36 +64,65 @@
 <div class="grid-main">
   <section class="card apps-table-card" x-data="appsRealtime()">
     <div class="apps-table-head">
-      <h2>Apps</h2>
+      <div>
+        <h2>Apps</h2>
+        <div class="muted small">Grouped by project, in your project order</div>
+      </div>
       <span class="spacer"></span>
-      <label class="switch" title="Live-poll CPU &amp; memory">
-        <input type="checkbox" @change="toggle($event.target.checked)">
-        <span class="slider"></span>
+      <label class="realtime-toggle" title="Live-poll CPU &amp; memory every 5s">
+        <span class="switch"><input type="checkbox" @change="toggle($event.target.checked)"><span class="slider"></span></span>
+        <span class="muted small">Live</span>
       </label>
-      <span class="muted small" style="margin:0 14px 0 8px">Realtime</span>
-      <a href="/projects" class="small" style="color:var(--accent);text-decoration:none;font-weight:600">All projects →</a>
     </div>
     {{if .Apps}}
-    <table class="table">
-      <tr class="muted small"><th style="text-align:left">App</th><th style="text-align:left">Type</th><th style="text-align:left">CPU</th><th style="text-align:left">Memory</th><th style="text-align:left">Status</th></tr>
+    <div class="seg" role="tablist" aria-label="Filter apps by status">
+      <button type="button" role="tab" :class="{active: filter==='all'}" :aria-selected="filter==='all'" @click="filter='all'">All <span class="seg-n">{{.TotalApps}}</span></button>
+      <button type="button" role="tab" :class="{active: filter==='running'}" :aria-selected="filter==='running'" @click="filter='running'">Running <span class="seg-n">{{.Running}}</span></button>
+      <button type="button" role="tab" :class="{active: filter==='down'}" :aria-selected="filter==='down'" @click="filter='down'">Not running <span class="seg-n">{{.Stopped}}</span></button>
+    </div>
+    {{/* The filter is pure CSS on [data-filter] (twstyles: .apps-table), so a
+         row whose status the start/stop handler flips moves between filters
+         without any of this script knowing. */}}
+    <table class="table apps-table" :data-filter="filter">
+      <thead>
+        <tr><th>App</th><th class="num">CPU</th><th class="num">Memory</th><th class="act"><span class="sr-only">Actions</span></th></tr>
+      </thead>
+      {{$proj := ""}}
       {{range .Apps}}
-      <tr data-app-id="{{.ID}}" data-status="{{.Status}}">
-        <td><a href="/projects/{{.ProjectSlug}}" style="color:var(--text);text-decoration:none;font-weight:600">{{.ProjectName}}<span class="muted">/</span>{{.Name}}</a></td>
-        <td class="muted">{{.Type}}</td>
-        <td><span id="cpu-{{.ID}}">{{if .HasMetrics}}{{f1 .CPUPct}}%{{else}}—{{end}}</span></td>
-        <td class="muted"><span id="mem-{{.ID}}">{{if .HasMetrics}}{{.MemMiB}} MiB{{else}}—{{end}}</span></td>
-        <td>
-          <span class="status-label {{.Status}}"><span class="status"></span>{{.Status}}</span>
-          <form class="inline act-start" method="post" action="/apps/{{.ID}}/start">
-            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-            <button type="submit" class="small-btn">Start</button>
-          </form>
-        </td>
-      </tr>
+      {{if ne .ProjectSlug $proj}}{{if $proj}}</tbody>{{end}}{{$proj = .ProjectSlug}}
+      <tbody>
+        <tr class="group-row"><td colspan="4"><a href="/projects/{{.ProjectSlug}}">{{.ProjectName}}<span class="group-arrow">→</span></a></td></tr>
       {{end}}
+        <tr data-app-id="{{.ID}}" data-status="{{.Status}}">
+          <td>
+            <div class="app-cell">
+              <span class="status-label {{.Status}}" title="{{.Status}}"><span class="status {{.Status}}"></span><span class="sr-only">{{.Status}}</span></span>
+              <a class="app-name" href="/apps/{{.ID}}/settings">{{.Name}}</a>
+              <span class="type-chip">{{.Type}}</span>
+            </div>
+          </td>
+          <td class="num"><span id="cpu-{{.ID}}">{{if .HasMetrics}}{{f1 .CPUPct}}%{{else}}<span class="nil">—</span>{{end}}</span></td>
+          <td class="num"><span id="mem-{{.ID}}">{{if .HasMetrics}}{{.MemMiB}} MiB{{else}}<span class="nil">—</span>{{end}}</span></td>
+          <td class="act">
+            <form class="inline act-start" method="post" action="/apps/{{.ID}}/start">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button type="submit" class="iconbtn go tip" data-tip="Start" aria-label="Start {{.Name}}">{{template "icon_play" $}}</button>
+            </form>
+            <form class="inline act-stop" method="post" action="/apps/{{.ID}}/stop">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button type="submit" class="iconbtn tip" data-tip="Stop" aria-label="Stop {{.Name}}">{{template "icon_stop" $}}</button>
+            </form>
+          </td>
+        </tr>
+      {{end}}
+      </tbody>
     </table>
+    <p class="apps-empty muted small">No apps match this filter.</p>
     {{else}}
-    <p class="muted small">No apps yet.</p>
+    <div class="empty-state">
+      <p>No apps yet.</p>
+      <a class="primary btn" href="/projects/new">Create your first project</a>
+    </div>
     {{end}}
   </section>
 
@@ -155,6 +184,7 @@ function hostChart() {
 // CPU/Memory cells in place. Off by default; interval cleared when switched off.
 function appsRealtime() {
   return {
+    filter: 'all',
     on: false,
     timer: null,
     toggle(v) {
