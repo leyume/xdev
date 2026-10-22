@@ -545,6 +545,8 @@ a.btn.small { padding: 5px 11px; font-size: 12.5px; margin-top: 0; }
 }
 .sidebar .brand { padding: 4px 10px 20px; }
 .sidenav { display: flex; flex-direction: column; gap: 2px; }
+/* Section label: separates everyday pages from admin ones. */
+.nav-section { margin: 18px 12px 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); opacity: 0.7; }
 .sidenav a.navlink {
   color: var(--text);
   text-decoration: none;
@@ -1128,6 +1130,13 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
 .tab { font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 6px 14px; border-radius: var(--radius-sm); cursor: pointer; }
 .tab.active { color: var(--accent); background: rgba(180, 140, 255, 0.12); }
 .tab-panel { margin-top: 14px; }
+/* Page-level tabs (app settings): an underline bar, quieter than the pill
+   tabs inside cards so the two levels read as different things. */
+.page-tabs { display: flex; gap: 4px; margin-bottom: var(--gap); border-bottom: 1px solid var(--border-soft); overflow-x: auto; }
+.page-tabs button { background: none; border: none; box-shadow: none; border-radius: 0; padding: 10px 14px; margin-bottom: -1px; font-size: 13.5px; font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; }
+.page-tabs button:hover { color: var(--text); background: none; }
+.page-tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+.other-places { margin-top: 20px; }
 .tab-panel a { color: var(--accent); text-decoration: none; }
 .tab-panel a:hover { text-decoration: underline; }
 .mini-chart { min-height: 100px; }

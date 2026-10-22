@@ -274,26 +274,23 @@ func actionsViewData(result *actionResult) viewData {
 	}
 }
 
-// Eleven maintenance commands are a reference, not something anyone is part-way
-// through — open, they pushed the settings form off the screen.
-func TestRunCommandSectionIsCollapsed(t *testing.T) {
+// The maintenance commands have the Console tab to themselves, so they show
+// expanded there — and running one lands on that tab, since the output is the
+// only thing the button was pressed for.
+func TestRunCommandLandsOnTheConsoleTab(t *testing.T) {
 	out := renderSettings(t, gitApp(), appSettingsForm{Name: "web"}, actionsViewData(nil))
 
-	box := regexp.MustCompile(`<details class="action-box"([^>]*)>`).FindStringSubmatch(out)
-	if box == nil {
-		t.Fatal("the run-command section is not collapsible at all")
+	if !strings.Contains(out, `data-tab="console"`) {
+		t.Fatal("no Console tab for an app that has commands")
 	}
-	if strings.Contains(box[1], "open") {
-		t.Errorf("it starts expanded (%q)", box[1])
+	if !strings.Contains(out, `settingsTabs('settings'`) {
+		t.Error("an ordinary visit does not open on Settings")
 	}
 
-	// …except right after running one: the output is the only thing the button
-	// was pressed for, and a collapsed section would hide it.
 	ran := renderSettings(t, gitApp(), appSettingsForm{Name: "web"},
 		actionsViewData(&actionResult{Label: "Migration status", Output: "Ran? Yes"}))
-	box = regexp.MustCompile(`<details class="action-box"([^>]*)>`).FindStringSubmatch(ran)
-	if box == nil || !strings.Contains(box[1], "open") {
-		t.Error("after running a command the section is still collapsed, hiding the output")
+	if !strings.Contains(ran, `settingsTabs('console', false`) {
+		t.Error("after running a command the page does not open on the Console tab")
 	}
 	if !strings.Contains(ran, "Ran? Yes") {
 		t.Error("the command output is not on the page")

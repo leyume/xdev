@@ -132,9 +132,10 @@
     <nav class="sidenav">
       <a class="navlink{{if eq .Path "/"}} active{{end}}" href="/">{{template "icon_dashboard" .}}Dashboard</a>
       <a class="navlink{{if or (hasPrefix .Path "/projects") (hasPrefix .Path "/apps/")}} active{{end}}" href="/projects">{{template "icon_projects" .}}Projects</a>
-      <a class="navlink{{if hasPrefix .Path "/events"}} active{{end}}" href="/events">{{template "icon_activity" .}}Activity</a>
       <a class="navlink{{if hasPrefix .Path "/database"}} active{{end}}" href="/database">{{template "icon_database" .}}Database</a>
       <a class="navlink{{if hasPrefix .Path "/wordpress"}} active{{end}}" href="/wordpress">{{template "icon_wordpress" .}}WordPress</a>
+      <a class="navlink{{if hasPrefix .Path "/events"}} active{{end}}" href="/events">{{template "icon_activity" .}}Activity</a>
+      <div class="nav-section">System</div>
       <a class="navlink{{if hasPrefix .Path "/admins"}} active{{end}}" href="/admins">{{template "icon_admins" .}}Admins</a>
       <a class="navlink{{if hasPrefix .Path "/settings"}} active{{end}}" href="/settings/env">{{template "icon_settings" .}}Configuration</a>
     </nav>
@@ -160,9 +161,9 @@
       <nav class="topnav">
         <a class="navlink{{if eq .Path "/"}} active{{end}}" href="/">{{template "icon_dashboard" .}}Dashboard</a>
         <a class="navlink{{if or (hasPrefix .Path "/projects") (hasPrefix .Path "/apps/")}} active{{end}}" href="/projects">{{template "icon_projects" .}}Projects</a>
-        <a class="navlink{{if hasPrefix .Path "/events"}} active{{end}}" href="/events">{{template "icon_activity" .}}Activity</a>
         <a class="navlink{{if hasPrefix .Path "/database"}} active{{end}}" href="/database">{{template "icon_database" .}}Database</a>
         <a class="navlink{{if hasPrefix .Path "/wordpress"}} active{{end}}" href="/wordpress">{{template "icon_wordpress" .}}WordPress</a>
+        <a class="navlink{{if hasPrefix .Path "/events"}} active{{end}}" href="/events">{{template "icon_activity" .}}Activity</a>
         <a class="navlink{{if hasPrefix .Path "/admins"}} active{{end}}" href="/admins">{{template "icon_admins" .}}Admins</a>
         <a class="navlink{{if hasPrefix .Path "/settings"}} active{{end}}" href="/settings/env">{{template "icon_settings" .}}Configuration</a>
         <span class="spacer"></span>

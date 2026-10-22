@@ -34,8 +34,28 @@
      "Deploy latest" scrolled its own progress out of sight — which is when
      anyone actually wants to watch it. The right column is sticky, so the build
      stays on screen however far down the settings form you are. */}}
+{{/* The page is tabbed: twelve cards in one scroll meant hunting for anything.
+     The tab a request lands on follows what just happened (a webhook toggled,
+     a key rotated, a command run); otherwise the last tab used on this app is
+     restored, so a form elsewhere on the page posting back does not bounce you
+     to Settings. Panels are only hidden, so the settings form still submits
+     every field with one Save. */}}
+{{$tab := "settings"}}{{$restore := true}}
+{{if or .HookState .Rotated}}{{$tab = "source"}}{{end}}
+{{with .Deploy}}{{if .NewToken}}{{$tab = "source"}}{{end}}{{end}}
+{{if .ActionResult}}{{$tab = "console"}}{{end}}
+{{if or .Error .Saved .JustStarted (ne $tab "settings")}}{{$restore = false}}{{end}}
 <div class="grid-main">
-<div class="main-col">
+<div class="main-col" x-data="settingsTabs('{{$tab}}', {{$restore}}, {{$app.ID}})">
+
+<nav class="page-tabs" role="tablist" aria-label="App settings sections">
+  <button type="button" role="tab" data-tab="settings" :class="{active: tab==='settings'}" @click="tab='settings'">Settings</button>
+  {{if or .Git .Deploy}}<button type="button" role="tab" data-tab="source" :class="{active: tab==='source'}" @click="tab='source'">Source &amp; deploy</button>{{end}}
+  {{if or .CanSwitchServer .CanToggleAdminer}}<button type="button" role="tab" data-tab="services" :class="{active: tab==='services'}" @click="tab='services'">Services</button>{{end}}
+  {{with .Actions}}<button type="button" role="tab" data-tab="console" :class="{active: tab==='console'}" @click="tab='console'">Console</button>{{end}}
+</nav>
+
+<div class="tab-pane" x-show="tab==='source'"{{if ne $tab "source"}} style="display:none"{{end}}>
 
 {{/* The repository a git-backed app deploys from. It sits outside the settings
      form because deploying and rotating a key are actions, not edits — and a
@@ -280,6 +300,9 @@ jobs:
 </section>
 {{end}}
 
+</div><!-- /source -->
+
+<div class="tab-pane" x-show="tab==='console'"{{if ne $tab "console"}} style="display:none"{{end}}>
 {{/* Maintenance commands, run inside the app's own container. A fixed list of
      named actions rather than a command box: this page is reachable from the
      internet behind a session cookie, and "run whatever you type as root next
@@ -287,11 +310,9 @@ jobs:
      code change in internal/apps/actions.go. */}}
 {{with .Actions}}
 <section class="card form-card">
-  {{/* Collapsed by default: eleven maintenance commands are a reference, not
-       something anyone is part-way through, and open they pushed the settings
-       form off the screen. Forced open when an action has just run — the output
-       is the only thing the button was pressed for. */}}
-  <details class="action-box"{{if $.ActionResult}} open{{end}}>
+  {{/* Open: it has the Console tab to itself now, so collapsing it would only
+       add a click between you and the commands. */}}
+  <details class="action-box" open>
     <summary class="action-summary">
       <span class="chevron">{{template "icon_chevron" .}}</span>
       <h3 style="margin:0">Run a command</h3>
@@ -375,6 +396,9 @@ jobs:
 </section>
 {{end}}
 
+</div><!-- /console -->
+
+<div class="tab-pane" x-show="tab==='services'"{{if ne $tab "services"}} style="display:none"{{end}}>
 {{/* Which PHP server this Laravel app runs. Its own card and its own form for
      the same reason Adminer has one: switching regenerates the whole compose
      file and replaces every container, which has no business happening inside
@@ -452,6 +476,9 @@ jobs:
 </section>
 {{end}}
 
+</div><!-- /services -->
+
+<div class="tab-pane" x-show="tab==='settings'"{{if ne $tab "settings"}} style="display:none"{{end}}>
 <form method="post" action="/apps/{{$app.ID}}/settings"
       x-data="appSettings({{json $form.ExtraDomains}}, {{json .SlotPorts}}, {{.MaxDomains}})">
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
@@ -641,8 +668,9 @@ jobs:
     <button class="primary" type="submit">Save{{if eq $app.Status "running"}} &amp; restart{{end}}</button>
   </div>
 </form>
+</div><!-- /settings -->
 
-<p class="muted small" style="margin-top:20px">Other places this app is configured:
+<p class="muted small other-places">Other places this app is configured:
   <a href="/apps/{{$app.ID}}/env">environment</a> ·
   <a href="/apps/{{$app.ID}}/backups">backups</a> ·
   <a href="/apps/{{$app.ID}}/logs">logs</a>.
@@ -826,6 +854,26 @@ function deployWatch(appID, running) {
 // Settings-page state: the compose domain rows (a row's position is its
 // ${PORT_n} slot) and the file loader. Ports come from the server — an existing
 // slot keeps the one it was allocated, a row added here gets its number on save.
+// Which settings tab shows. `restore` is false when the request itself says
+// where to look (see the $tab block at the top); otherwise the last tab used on
+// this app comes back. sessionStorage may be unavailable — the page then just
+// opens on the server's choice.
+function settingsTabs(initial, restore, appID) {
+  const key = 'xdev-settings-tab-' + appID;
+  return {
+    tab: initial,
+    init() {
+      if (restore) {
+        try {
+          const t = sessionStorage.getItem(key);
+          if (t && this.$root.querySelector('[data-tab="' + t + '"]')) this.tab = t;
+        } catch (e) {}
+      }
+      this.$watch('tab', (v) => { try { sessionStorage.setItem(key, v); } catch (e) {} });
+    },
+  };
+}
+
 function appSettings(domains, ports, maxDomains) {
   return {
     domains: domains || [],
