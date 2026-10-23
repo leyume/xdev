@@ -22,6 +22,7 @@
 {{if .Error}}<div class="alert form-error">{{.Error}}</div>{{end}}
 {{if .Saved}}<div class="alert ok">Saved{{if eq $app.Status "running"}} and restarted{{end}}.</div>{{end}}
 {{if .Cleared}}<div class="alert ok">Cleared {{.Cleared}} deploy log(s).</div>{{end}}
+{{if .Uploaded}}<div class="alert ok">Uploaded build published — the site now serves the new files.</div>{{end}}
 {{if .JustStarted}}<div class="alert ok">Deploy started — it runs in the background; watch it in <strong>Deploys</strong> on the right.</div>{{end}}
 {{if eq .HookState "on"}}<div class="alert ok">Webhook enabled. Add the URL and secret below to the repository.</div>{{end}}
 {{if eq .HookState "off"}}<div class="alert warn-banner">Webhook disabled — that URL now answers nothing. Remove it from the repository too.</div>{{end}}
@@ -105,8 +106,10 @@
      and Caddy routes only those paths, so nothing else of xdev is published by
      switching one on. */}}
 {{with .Deploy}}
-<section class="card form-card" x-data="{ tab: '{{if .PushURL}}{{if not .HookURL}}push{{else}}hook{{end}}{{else}}hook{{end}}' }">
-  <h3>Deploy from GitHub</h3>
+{{/* Open on the upload tab for an app with no repository: the webhook half
+     needs one, so "push to GitHub" is a panel it can only explain, not offer. */}}
+<section class="card form-card" x-data="{ tab: '{{if not $.Git}}push{{else if .PushURL}}{{if not .HookURL}}push{{else}}hook{{end}}{{else}}hook{{end}}' }">
+  <h3>Deploy</h3>
 
   {{if .NewToken}}
   <div class="alert warn-banner">
@@ -119,7 +122,7 @@
 
   <div class="tabs">
     <span class="tab" :class="{active: tab==='hook'}" @click="tab='hook'">Push to GitHub → xdev builds</span>
-    <span class="tab" :class="{active: tab==='push'}" @click="tab='push'">GitHub Actions builds → uploads</span>
+    <span class="tab" :class="{active: tab==='push'}" @click="tab='push'">Upload a build</span>
   </div>
 
   {{/* --- pull: a webhook, xdev does the build ------------------------- */}}
@@ -186,8 +189,27 @@
     {{if .PushBlocked}}
     <p class="muted small">This app can't take an uploaded build: {{.PushBlocked}}</p>
     {{else}}
+    {{/* Upload from here, which needs neither a token nor a repository — the
+         common case for a static site is somebody with a folder of files and no
+         CI at all. The same swap either way: unpacked beside the live directory
+         and renamed into place, so the site is never half-published. */}}
+    <form method="post" action="/apps/{{$app.ID}}/upload" enctype="multipart/form-data" class="upload-build">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <label>Upload a .zip or .tar.gz <span class="muted">(replaces <code>{{.PushTarget}}</code>)</span>
+        <input type="file" name="code_archive" required
+               accept=".zip,.tar.gz,.tgz,application/zip,application/gzip,application/x-gzip">
+      </label>
+      <button class="primary" type="submit">Upload and publish</button>
+      <p class="muted small">
+        Everything currently in that folder is replaced. If the archive holds a single folder —
+        what you get from zipping a directory — that folder is dropped, so its contents land at the
+        top rather than one level down.
+      </p>
+    </form>
+
+    <h4 class="upload-ci-head">Or have CI upload it</h4>
     <p class="muted small">
-      Your workflow builds, tars the output, and POSTs it here. xdev unpacks it into
+      Your workflow builds, archives the output, and POSTs it to the same place. xdev unpacks it into
       <code>{{.PushTarget}}</code> in one move, so the site is never half-swapped.
       Use this when the build needs private packages, a big cache, or anything you'd rather not
       install on this server.

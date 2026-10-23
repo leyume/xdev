@@ -1014,6 +1014,14 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
    covers narrow desktop windows, where dragging works normally. */
 @media (hover: none) { .drag-handle { opacity: 0.75; } }
 
+/* Upload-a-build form on the app settings page. A row that wraps: the file
+   input and its button belong on one line, and the note under them takes the
+   full width because it says what gets replaced. */
+.upload-build { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.upload-build label { margin: 0; font-size: 12.5px; }
+.upload-build p { flex-basis: 100%; margin: 2px 0 0; max-width: 62ch; }
+.upload-ci-head { font-size: 13px; font-weight: 700; margin: 18px 0 4px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
+
 /* Base domain + environment, edited in place of the meta line under the title.
    Laid out as a row that wraps, so the two fields sit side by side on a wide
    page and stack on a narrow one without a breakpoint of their own. */

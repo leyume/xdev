@@ -235,13 +235,21 @@ func (s *Service) PushDeploy(id int64, archive io.Reader, trigger string) (targe
 		return "", err
 	}
 	defer os.RemoveAll(staging)
-	if err := untarGz(archive, staging); err != nil {
+	// extractUpload rather than untarGz: the same endpoint now backs the upload
+	// button on the settings page, and somebody replacing a static site by hand
+	// has a .zip far more often than a .tar.gz. CI is unaffected — the format is
+	// read from the archive's first bytes, so a workflow that has always sent
+	// tar.gz keeps working, and can now send either.
+	if err := extractUpload(archive, staging); err != nil {
 		return "", fmt.Errorf("unpack upload: %w", err)
 	}
 	if empty, err := isEmptyDir(staging); err != nil {
 		return "", err
 	} else if empty {
 		return "", errors.New("the uploaded archive is empty — nothing to publish")
+	}
+	if err := carryOverDBEnv(app, target, staging); err != nil {
+		return "", err
 	}
 
 	// Rename the live directory out of the way first: two renames, so the window
@@ -274,6 +282,43 @@ func (s *Service) PushDeploy(id int64, archive io.Reader, trigger string) (targe
 		s.store.SetAppStatus(app.ID, store.AppRunning)
 	}
 	return target, nil
+}
+
+// carryOverDBEnv copies the app's generated .env into a staged upload.
+//
+// A push replaces its target directory wholesale, and for an app with no
+// separate build output that target *is* the app directory — which is where
+// provisionHostAppDB wrote the database name, user and password it created on
+// the shared server. Without this, uploading a build would take the app's own
+// credentials with it, and the app would come back up unable to reach a
+// database that still exists and still belongs to it.
+//
+// Only for an app xdev provisioned a database for, and only when the archive
+// did not bring its own .env — supplying one is how you replace these settings
+// deliberately, as opposed to losing them by not thinking about it.
+func carryOverDBEnv(app store.App, target, staging string) error {
+	if app.DBMode != store.DBShared {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(staging, ".env")); err == nil {
+		return nil // the upload brought its own
+	}
+	live := filepath.Join(target, ".env")
+	if _, err := os.Stat(live); err != nil {
+		return nil // nothing there to keep
+	}
+	return copyFileMode(live, filepath.Join(staging, ".env"), 0o600)
+}
+
+// copyFileMode copies src to dst with an explicit mode. Separate from the
+// install package's copier: this one is about a secrets file, and 0600 is not
+// negotiable by whatever umask the process happens to have.
+func copyFileMode(src, dst string, mode os.FileMode) error {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, b, mode)
 }
 
 // PushTarget reports which directory an uploaded build would replace, or why

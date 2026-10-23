@@ -256,3 +256,68 @@ func TestServiceLabel(t *testing.T) {
 		}
 	}
 }
+
+// staticNoRepo is the app this whole upload path exists for: files, a served
+// folder, and no repository to deploy from.
+func staticNoRepo() store.App {
+	return store.App{
+		ID: 4, Name: "site", Slug: "site", Type: store.TypeStatic, Status: store.AppRunning,
+		Domain: "site.demo.test", ServeMode: store.ServeStatic, RootDir: "dist",
+	}
+}
+
+// TestSettingsOffersAnUploadWithoutCI: a static site with no repository and no
+// deploy token still has to be able to take a new build. Before this the only
+// route was issuing a token and running curl.
+func TestSettingsOffersAnUploadWithoutCI(t *testing.T) {
+	out := renderSettings(t, staticNoRepo(), appSettingsForm{Name: "site", Domain: "site.demo.test"},
+		viewData{"Deploy": &deployInfo{PushTarget: "/p/demo/site/dist", Ref: "the default branch"}})
+
+	if !strings.Contains(out, `action="/apps/4/upload"`) {
+		t.Fatal("no upload form on the settings page")
+	}
+	form := between(out, `action="/apps/4/upload"`, "</form>")
+	for _, want := range []string{`name="code_archive"`, "multipart/form-data", `name="csrf_token"`} {
+		if !strings.Contains(form, want) && !strings.Contains(
+			between(out, `action="/apps/4/upload"`, ">"), want) {
+			t.Errorf("upload form is missing %s", want)
+		}
+	}
+	// What it replaces, said before the button is pressed — the swap is
+	// wholesale and there is no undo.
+	if !strings.Contains(form, "/p/demo/site/dist") {
+		t.Error("the form does not say which folder gets replaced")
+	}
+	if !strings.Contains(form, "replaced") {
+		t.Error("nothing warns that the folder's current contents go")
+	}
+}
+
+// TestSettingsHidesUploadWhenItCannotWork: an app pointed at a folder of the
+// user's own, or a checkout with no build output named, must not be offered a
+// button that would refuse — or worse, overwrite what it was told not to.
+func TestSettingsHidesUploadWhenItCannotWork(t *testing.T) {
+	out := renderSettings(t, staticNoRepo(), appSettingsForm{Name: "site", Domain: "site.demo.test"},
+		viewData{"Deploy": &deployInfo{
+			PushBlocked: "this app runs from a folder of your own, which xdev will not replace",
+			Ref:         "the default branch",
+		}})
+
+	if strings.Contains(out, `action="/apps/4/upload"`) {
+		t.Error("an upload form was offered for an app that cannot take one")
+	}
+	if !strings.Contains(out, "folder of your own") {
+		t.Error("the page does not say why uploading is unavailable")
+	}
+}
+
+// The upload tab is where a repo-less app lands, since the other half of the
+// card is a GitHub webhook it has nothing to hook.
+func TestSettingsOpensOnUploadWithoutARepo(t *testing.T) {
+	out := renderSettings(t, staticNoRepo(), appSettingsForm{Name: "site", Domain: "site.demo.test"},
+		viewData{"Deploy": &deployInfo{PushTarget: "/p/demo/site/dist", Ref: "the default branch"}})
+
+	if !strings.Contains(out, `tab: 'push'`) {
+		t.Error("an app with no repository opens on the webhook tab, which it cannot use")
+	}
+}

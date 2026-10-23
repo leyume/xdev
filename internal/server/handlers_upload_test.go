@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -191,4 +192,80 @@ func appNamed(t *testing.T, srv *Server, slug string) (store.App, bool) {
 		}
 	}
 	return store.App{}, false
+}
+
+// uploadRequest posts the settings page's upload form for one app.
+func uploadRequest(t *testing.T, id int64, filename string, body []byte) *http.Request {
+	t.Helper()
+	r := createRequest(t, nil, "code_archive", filename, body, false)
+	r.SetPathValue("id", strconv.FormatInt(id, 10))
+	return r
+}
+
+// TestAppUploadPublishesTheBuild is the feature: a static site's files replaced
+// from the browser, with no deploy token and no CI.
+func TestAppUploadPublishesTheBuild(t *testing.T) {
+	srv, app, _, _ := deployFixture(t)
+
+	proj, err := srv.store.ProjectByID(app.ProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := filepath.Join(proj.Dir, app.Slug, app.RootDir)
+	if err := os.MkdirAll(served, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(served, "old.html"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	srv.handleAppUpload(w, uploadRequest(t, app.ID, "site.zip",
+		codeZipBytes(t, map[string]string{"index.html": "<h1>new</h1>"})))
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	if loc := w.Header().Get("Location"); !strings.Contains(loc, "uploaded=1") {
+		t.Errorf("Location = %q, want the settings page with a confirmation", loc)
+	}
+	if _, err := os.Stat(filepath.Join(served, "index.html")); err != nil {
+		t.Errorf("the uploaded file was not published: %v", err)
+	}
+	// Replaced, not merged: a stale page left behind would still be served.
+	if _, err := os.Stat(filepath.Join(served, "old.html")); err == nil {
+		t.Error("the previous build survived — the swap is meant to replace the folder")
+	}
+}
+
+// A missing file is the likeliest mistake at this form, and it has to say so
+// rather than publish an empty directory over a working site.
+func TestAppUploadNeedsAFile(t *testing.T) {
+	srv, app, _, _ := deployFixture(t)
+
+	r := createRequest(t, map[string]string{"csrf_token": "x"}, "", "", nil, false)
+	r.SetPathValue("id", strconv.FormatInt(app.ID, 10))
+	w := httptest.NewRecorder()
+	srv.handleAppUpload(w, r)
+
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "error=") {
+		t.Fatalf("an upload with no file was accepted (Location %q)", loc)
+	}
+	if !strings.Contains(loc, "zip") {
+		t.Errorf("error %q does not say what to upload", loc)
+	}
+}
+
+// The extension is checked before anything is unpacked, because it is what the
+// user can see and fix.
+func TestAppUploadRejectsANonArchive(t *testing.T) {
+	srv, app, _, _ := deployFixture(t)
+
+	w := httptest.NewRecorder()
+	srv.handleAppUpload(w, uploadRequest(t, app.ID, "site.rar", []byte("Rar!\x1a\x07\x00")))
+
+	if !strings.Contains(w.Header().Get("Location"), "error=") {
+		t.Fatalf("a .rar was accepted: %s", w.Header().Get("Location"))
+	}
 }

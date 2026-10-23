@@ -157,6 +157,7 @@ func (s *Server) renderAppSettingsWith(w http.ResponseWriter, r *http.Request, a
 		"Saved":       r.URL.Query().Get("saved") != "",
 		"JustStarted": r.URL.Query().Get("deploying") != "",
 		"Rotated":     r.URL.Query().Get("rotated") != "",
+		"Uploaded":    r.URL.Query().Get("uploaded") != "",
 		"HookState":   r.URL.Query().Get("hook"),
 	})
 }
