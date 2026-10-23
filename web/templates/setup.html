@@ -8,7 +8,7 @@
       <input type="email" name="email" required autofocus value="{{.Email}}">
     </label>
     <label>Password <span class="muted">(min 8 characters)</span>
-      <input type="password" name="password" required minlength="8">
+      {{template "password_input" (dict "Auto" "new-password" "Min" 8)}}
     </label>
     <button class="primary" type="submit">Create admin</button>
   </form>
