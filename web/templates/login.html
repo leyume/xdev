@@ -8,7 +8,7 @@
       <input type="email" name="email" required autofocus value="{{.Email}}">
     </label>
     <label>Password
-      <input type="password" name="password" required>
+      {{template "password_input" (dict "Auto" "current-password")}}
     </label>
     <button class="primary" type="submit">Sign in</button>
   </form>
