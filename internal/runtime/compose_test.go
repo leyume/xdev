@@ -23,6 +23,12 @@ func TestSalient(t *testing.T) {
 			": something happened",
 		},
 		{"strips carriage returns", "\rbind: address already in use\n", ": bind: address already in use"},
+		{
+			"skips podman's external-provider wrapper line",
+			"Error: External network [xdev_bizepp] does not exist. Create it first with: podman network create 'xdev_bizepp'\n" +
+				"Error: executing /usr/local/bin/podman-compose -p bizepp_api -f compose.yml up -d: exit status 1\n",
+			": Error: External network [xdev_bizepp] does not exist. Create it first with: podman network create 'xdev_bizepp'",
+		},
 	}
 	for _, c := range cases {
 		if got := salient(c.out); got != c.want {

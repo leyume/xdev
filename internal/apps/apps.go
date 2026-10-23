@@ -967,7 +967,7 @@ func (s *Service) Start(id int64) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), composeTimeout)
 	defer cancel()
-	if _, err := runtime.Up(ctx, engine, workdir, pname, file); err != nil {
+	if _, err := runtime.Up(ctx, engine, workdir, pname, file, proj.NetworkName); err != nil {
 		s.store.SetAppStatus(app.ID, store.AppError)
 		return err
 	}

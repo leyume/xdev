@@ -43,6 +43,12 @@ func salient(out string) string {
 		if line == "" {
 			continue
 		}
+		// podman's own wrapper around an external compose provider: always the
+		// last line, always just "exit status 1". The provider's real error is
+		// above it, so this one must not win.
+		if strings.HasPrefix(line, "Error: executing ") {
+			continue
+		}
 		last = line
 		if low := strings.ToLower(line); strings.Contains(low, "error") ||
 			strings.Contains(low, "failed") || strings.Contains(low, "cannot") {
@@ -62,8 +68,20 @@ func salient(out string) string {
 	return ": " + last
 }
 
-// Up brings the stack up in the background (detached).
-func Up(ctx context.Context, engine Engine, workdir, project, file string) (string, error) {
+// Up brings the stack up in the background (detached), first creating any of
+// the external networks it joins that are missing. Those are made once, when
+// the project is, and the engine can lose them later — a recreated podman
+// machine, a `network prune` — after which every `up` fails with "external
+// network does not exist" until someone recreates it by hand.
+func Up(ctx context.Context, engine Engine, workdir, project, file string, networks ...string) (string, error) {
+	for _, n := range networks {
+		if n == "" {
+			continue
+		}
+		if err := NetworkCreate(ctx, engine, n); err != nil {
+			return "", err
+		}
+	}
 	return Compose(ctx, engine, workdir, project, file, "up", "-d")
 }
 
