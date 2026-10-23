@@ -68,11 +68,6 @@
     {{end}}
   </a>
   {{end}}
-  <a class="card project-card project-card-new" href="/projects/new" x-ref="newTile" draggable="false">
-    <div class="new-plus">+</div>
-    <div style="font-weight:600">New project</div>
-    <div class="muted small">network + base domain + auto-SSL</div>
-  </a>
 </div>
 {{else}}
 <div class="empty card">
@@ -136,9 +131,8 @@ function projectBoard(csrf) {
       if (!this.dragging) return;
       const ref = this.cardBefore(e.clientX, e.clientY);
       if (ref === this.dragging) return;
-      // Never past the "New project" tile: it lives in the same grid but is not
-      // one of the things being ordered, and it belongs last.
-      this.grid.insertBefore(this.dragging, ref || this.$refs.newTile);
+      // No card after the pointer: it goes last (insertBefore null appends).
+      this.grid.insertBefore(this.dragging, ref || null);
     },
     // Which card the dragged one belongs in front of. A single column is
     // decided vertically, by midpoint; a grid has to be read the way the eye

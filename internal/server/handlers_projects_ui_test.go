@@ -53,8 +53,8 @@ func TestProjectCardsAreDraggable(t *testing.T) {
 			t.Errorf("card id %s missing — the saved order would be blank", want)
 		}
 	}
-	if n := strings.Count(out, `draggable="false"`); n < 3 {
-		t.Errorf("%d cards start undraggable, want all three (two projects + the new-project tile) — an <a> drags its own link otherwise", n)
+	if n := strings.Count(out, `draggable="false"`); n < 2 {
+		t.Errorf("%d cards start undraggable, want both — an <a> drags its own link otherwise", n)
 	}
 	for _, want := range []string{`@dragstart="onDragStart($event)"`, `@dragend="onDragEnd($event)"`, `@dragover.prevent="onDragOver($event)"`} {
 		if !strings.Contains(out, want) {
