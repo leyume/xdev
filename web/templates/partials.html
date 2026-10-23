@@ -119,7 +119,7 @@
 
 {{define "engine_card"}}
 <section class="card">
-  <h3>Container engine</h3>
+  <div class="card-head"><h3>Container engine</h3></div>
   {{if .EngineMsg}}<div class="alert ok">{{.EngineMsg}}</div>{{end}}
   <div class="runtime-grid">
     {{with .Runtime.Podman}}
@@ -206,26 +206,30 @@
 </section>
 {{end}}
 
+{{/* The first five events as a timeline. Callers load six: a sixth existing is
+     what puts "See all" in their header (see more_events). */}}
+{{define "event_timeline"}}
+<ol class="event-list timeline">
+  {{range $i, $e := .}}{{if lt $i 5}}
+  <li class="event-row">
+    <span class="dot {{$e.Level}}"></span>
+    <div class="min-w-0">
+      <div class="event-msg">{{$e.Message}}</div>
+      <time class="event-ts">{{$e.TS}}</time>
+    </div>
+  </li>
+  {{end}}{{end}}
+</ol>
+{{end}}
+
 {{define "events_card"}}
+{{if .Events}}
 <section class="card">
   <div class="card-head">
     <h3>Recent events</h3>
-    {{if .Events}}<a href="/events" class="more-link">All events →</a>{{end}}
+    {{if and .Events (gt (len .Events) 5)}}<a href="/events" class="more-link">See all →</a>{{end}}
   </div>
-  {{if .Events}}
-  <ol class="event-list timeline">
-    {{range .Events}}
-    <li class="event-row">
-      <span class="dot {{.Level}}"></span>
-      <div class="min-w-0">
-        <div class="event-msg">{{.Message}}</div>
-        <time class="event-ts">{{.TS}}</time>
-      </div>
-    </li>
-    {{end}}
-  </ol>
-  {{else}}
-  <p class="muted small">No activity yet.</p>
-  {{end}}
+  {{template "event_timeline" .Events}}
 </section>
+{{end}}
 {{end}}

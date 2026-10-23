@@ -918,9 +918,25 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
 .empty-state { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 12px 0 4px; color: var(--muted); }
 .empty-state p { margin: 0; }
 
-/* Card header with a trailing link (Recent events → All events). */
-.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+/* Card header: the title, any trailing link or icon buttons, and a rule under
+   it that separates the title from a list. Shared by every side-panel card so
+   they all read the same way. */
+.card-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 28px; padding-bottom: 12px; margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
 .card-head h3 { margin: 0; }
+.card-head .more-link { margin-left: auto; }
+.card-head .spacer + .more-link { margin-left: 0; }
+.danger-title { color: var(--danger); }
+
+/* Deploys: five show, the rest behind "Show older deploys" — which itself only
+   appears when there is a sixth. */
+.deploys-wrap:not(.show-all) .deploy-row:nth-child(n+6) { display: none; }
+.deploy-more { display: none; margin-top: 14px; color: var(--accent); font-weight: 600; }
+.card:has(.deploy-row:nth-child(6)) .deploy-more { display: inline-block; }
+.deploy-more:hover { color: var(--text); }
 .more-link { font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: none; white-space: nowrap; }
 .more-link:hover { text-decoration: underline; }
 
@@ -1027,6 +1043,37 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
 .app-card > .app-card-head { cursor: pointer; user-select: none; }
 .chevron { display: inline-flex; align-items: center; color: var(--muted); transition: transform 0.2s; }
 .chevron.is-collapsed { transform: rotate(-90deg); }
+
+/* ---- Expand / collapse motion ----
+   The app card body animates its height with the grid-rows trick (0fr → 1fr),
+   which needs no measured height and no JS. Not x-transition: on xdev's
+   vendored Alpine it leaves elements stuck at opacity 0. Closed content is
+   also made invisible, so it is not focusable or read out while hidden. */
+.app-card-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .28s cubic-bezier(.2, .7, .2, 1); }
+.app-card-body.open { grid-template-rows: 1fr; }
+.app-card-body-inner { min-height: 0; overflow: hidden; opacity: 0; visibility: hidden; transition: opacity .2s ease, visibility 0s linear .28s; }
+.app-card-body.open > .app-card-body-inner { opacity: 1; visibility: visible; transition: opacity .25s ease .05s, visibility 0s; }
+
+/* A tab panel eases in each time it is shown (x-show flips display, which
+   restarts the animation). */
+.tab-panel { animation: panel-in .22s ease both; }
+@keyframes panel-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* <details> sections (Run a command, deploy rows, build steps) open smoothly
+   where the browser can animate to height:auto; elsewhere they just open. */
+@supports (interpolate-size: allow-keywords) {
+  :root { interpolate-size: allow-keywords; }
+  details::details-content {
+    block-size: 0; overflow: hidden;
+    transition: block-size .25s ease, content-visibility .25s allow-discrete;
+  }
+  details[open]::details-content { block-size: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-card-body, .app-card-body-inner, details::details-content { transition: none; }
+  .tab-panel { animation: none; }
+}
 /* The same chevron as a <details> marker, driven by [open] instead of a class.
    The native marker is hidden per-summary above; this replaces the ▸/▾ glyphs
    that stood in for it, which depend on the font having those code points and
@@ -1140,6 +1187,7 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
 .tab-panel a { color: var(--accent); text-decoration: none; }
 .tab-panel a:hover { text-decoration: underline; }
 .mini-chart { min-height: 100px; }
+.mini-chart.is-empty { min-height: 0; }
 .mini-chart + .mini-chart { margin-top: 10px; }
 
 /* ---- Database page: server strip, page-level tabs, DB cards ---- */

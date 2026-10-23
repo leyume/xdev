@@ -685,8 +685,8 @@ jobs:
   <section class="card"
            x-data="deployWatch({{$app.ID}}, {{if .Deploying}}true{{else}}false{{end}})"
            x-init="start()">
-    <div class="title-row">
-      <h3 style="margin:0">Deploys</h3>
+    <div class="card-head">
+      <h3>Deploys</h3>
       <span class="spacer"></span>
       <button class="iconbtn tip tip-below" type="button" data-tip="Refresh" aria-label="Refresh"
               @click="refresh()">{{template "icon_refresh" .}}</button>
@@ -702,7 +702,12 @@ jobs:
       </form>
       {{end}}
     </div>
-    <div x-ref="list">{{template "deploy_list" .}}</div>
+    {{/* Five deploys show; the rest wait behind "Show older". The class sits on
+         this wrapper, not in the fragment, so a refresh that swaps the list
+         keeps whichever way it was toggled. */}}
+    <div x-ref="list" class="deploys-wrap" :class="{'show-all': all}">{{template "deploy_list" .}}</div>
+    <button type="button" class="link small deploy-more" @click="all = !all"
+            x-text="all ? 'Show fewer' : 'Show older deploys'">Show older deploys</button>
   </section>
 </div>
 {{end}}
@@ -807,6 +812,7 @@ function runAction(form) {
 
 function deployWatch(appID, running) {
   return {
+    all: false,
     busy: running,
     start() { if (this.busy) this.tick(); },
     tick() { setTimeout(() => this.refresh(), 3000); },

@@ -392,15 +392,35 @@ func (s *Server) handleEventsClear(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, target+"?cleared="+strconv.FormatInt(n, 10), http.StatusSeeOther)
 }
 
-// handleEvents shows the audit log.
+// handleEvents shows the audit log — every project's, or one project's when
+// ?project=<slug> names it (the "See all" link on a project's activity card).
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
-	events, err := s.store.ListEvents(200)
+	var (
+		events []store.Event
+		err    error
+		proj   *store.Project
+	)
+	if slug := r.URL.Query().Get("project"); slug != "" {
+		p, perr := s.store.ProjectBySlug(slug)
+		if perr != nil {
+			http.NotFound(w, r)
+			return
+		}
+		proj = &p
+		events, err = s.store.ListEventsByProject(p.ID, 200)
+	} else {
+		events, err = s.store.ListEvents(200)
+	}
 	if err != nil {
 		http.Error(w, "could not load events", http.StatusInternalServerError)
 		return
 	}
+	title := "Activity · xdev"
+	if proj != nil {
+		title = "Activity · " + proj.Name + " · xdev"
+	}
 	cleared, _ := strconv.Atoi(r.URL.Query().Get("cleared"))
 	s.render(w, r, "events", viewData{
-		"Title": "Activity · xdev", "Events": events, "Cleared": cleared,
+		"Title": title, "Events": events, "Cleared": cleared, "Project": proj,
 	})
 }

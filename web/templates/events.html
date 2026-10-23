@@ -1,16 +1,20 @@
 {{define "content"}}
 <section class="page-head">
-  <h1>Activity</h1>
+  <div>
+    <h1>Activity</h1>
+    {{with .Project}}<div class="muted small">{{.Name}} only · <a href="/events">Show every project</a></div>{{end}}
+  </div>
   <div class="form-actions">
     {{if .Events}}
-    {{/* No project_id: this page shows every project's activity, so Clear here
-         means all of it — including rows belonging to projects that no longer
-         exist, which nothing else can reach. */}}
+    {{/* Without a project this page shows everything, so Clear means all of it —
+         including rows of projects that no longer exist, which nothing else can
+         reach. Filtered to one project, it clears only that project's. */}}
     <form class="inline" method="post" action="/events/clear"
-          data-confirm="Clear the entire activity log for every project?">
+          data-confirm="{{if .Project}}Clear the activity log for {{.Project.Name}}?{{else}}Clear the entire activity log for every project?{{end}}">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      {{with .Project}}<input type="hidden" name="project_id" value="{{.ID}}">{{end}}
       <button class="iconbtn tip danger" type="submit"
-              data-tip="Clear all activity" aria-label="Clear all activity">{{template "icon_trash" .}}</button>
+              data-tip="Clear activity" aria-label="Clear activity">{{template "icon_trash" .}}</button>
     </form>
     {{end}}
     <a class="btn" href="/">← Dashboard</a>

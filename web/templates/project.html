@@ -168,7 +168,7 @@
         </form>
       </div>
 
-      <div class="app-card-body" x-show="!collapsed">
+      <div class="app-card-body" :class="{open: !collapsed}"><div class="app-card-body-inner">
       {{/* What this app is reachable at, one labelled entry per fact rather than
            a single dot-separated run. The old row put a hostname, a port, a
            repository URL and a resource limit side by side in the same grey,
@@ -289,7 +289,7 @@
         <div class="muted small"><a href="/apps/{{.ID}}/backups">manage backups ↗</a></div>
       </div>
       {{end}}
-      </div>
+      </div></div>
     </div>
     {{end}}
     {{else}}
@@ -300,10 +300,12 @@
   </div>
 
   <div class="side-col">
+    {{if .Activity}}
     <section class="card">
-      <div class="title-row">
-        <h3 style="margin:0">Project activity</h3>
+      <div class="card-head">
+        <h3>Project activity</h3>
         <span class="spacer"></span>
+        {{if and .Activity (gt (len .Activity) 5)}}<a href="/events?project={{.Project.Slug}}" class="more-link">See all →</a>{{end}}
         {{/* Scoped to this project — the same handler clears everything when no
              project id is sent, which is what the Activity page does. */}}
         {{if .Activity}}
@@ -316,25 +318,12 @@
         </form>
         {{end}}
       </div>
-      {{if .Activity}}
-      <div class="event-list">
-        {{range .Activity}}
-        <div class="event-row">
-          <span class="dot {{.Level}}"></span>
-          <div>
-            <div class="small" style="font-weight:600">{{.Message}}</div>
-            <div class="muted small">{{.TS}}</div>
-          </div>
-        </div>
-        {{end}}
-      </div>
-      {{else}}
-      <p class="muted small">No activity yet.</p>
-      {{end}}
+      {{template "event_timeline" .Activity}}
     </section>
+    {{end}}
 
     <section class="card danger-zone">
-      <h3 style="color:var(--danger)">Danger zone</h3>
+      <div class="card-head"><h3 class="danger-title">Danger zone</h3></div>
       <p class="muted small">Removes every app, the network, and all volumes.</p>
       <form method="post" action="/projects/{{.Project.Slug}}/delete"
         onsubmit="return confirm('Delete project {{.Project.Name}} and all its apps?')">
@@ -1147,8 +1136,9 @@ function detectComposePorts(text, maxSlots) {
       const r = await fetch(`/apps/${id}/metrics.json`, { credentials: 'same-origin' });
       const d = await r.json();
       if (!d.t || d.t.length === 0) {
-        cpuEl.innerHTML = '<p class="muted small">No samples yet.</p>';
-        memEl.innerHTML = '';
+        cpuEl.innerHTML = '<p class="muted small">No samples yet — they appear once the app has run for a minute.</p>';
+        cpuEl.classList.add('is-empty');
+        memEl.remove();
         return;
       }
       new uPlot(opts('CPU %', '#b48cff', w), [d.t, d.cpu], cpuEl);

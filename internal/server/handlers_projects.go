@@ -125,7 +125,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			running++
 		}
 	}
-	activity, _ := s.store.ListEventsByProject(proj.ID, 8)
+	activity, _ := s.store.ListEventsByProject(proj.ID, 6) // 5 shown; a 6th means "See all"
 	// Where each app is actually reachable, worked out once here rather than
 	// reassembled from domain + proxy state + port in the template. On a
 	// domainless install these are the only addresses there are.

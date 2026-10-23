@@ -149,7 +149,7 @@ func (s *Server) handleHomeDashboard(w http.ResponseWriter, r *http.Request) {
 			firstStopped = a.ProjectSlug + "/" + a.Slug
 		}
 	}
-	events, _ := s.store.ListEvents(6)
+	events, _ := s.store.ListEvents(6) // 5 shown; a 6th means "See all"
 
 	// KPI aggregates: real container/cert/backup counts, degrading to "—".
 	containers, containersOK := s.engine.RunningContainers()
@@ -258,7 +258,7 @@ func (s *Server) handleProjectsList(w http.ResponseWriter, r *http.Request) {
 		}
 		cards = append(cards, projectCard{Project: p, Apps: apps, Stopped: stopped})
 	}
-	events, _ := s.store.ListEvents(8)
+	events, _ := s.store.ListEvents(6) // 5 shown; a 6th means "See all"
 	s.render(w, r, "projects", viewData{
 		"Title":     "Projects · xdev",
 		"Projects":  cards,
