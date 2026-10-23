@@ -41,7 +41,7 @@
      to Settings. Panels are only hidden, so the settings form still submits
      every field with one Save. */}}
 {{$tab := "settings"}}{{$restore := true}}
-{{if or .HookState .Rotated}}{{$tab = "source"}}{{end}}
+{{if or .HookState .Rotated .Uploaded}}{{$tab = "source"}}{{end}}
 {{with .Deploy}}{{if .NewToken}}{{$tab = "source"}}{{end}}{{end}}
 {{if .ActionResult}}{{$tab = "console"}}{{end}}
 {{if or .Error .Saved .JustStarted (ne $tab "settings")}}{{$restore = false}}{{end}}
