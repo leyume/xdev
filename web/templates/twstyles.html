@@ -1271,4 +1271,32 @@ button.copybtn.copied { color: var(--ok); border-color: rgba(140, 232, 184, 0.45
 .toggle-row .grow { flex: 1; min-width: 0; }
 .toggle-row form { flex: none; }
 .toggle-row button { margin-top: 0; }
+
+/* Admins / WordPress: quiet rows with hover-revealed icon actions, pop-ups for edits. */
+.person-list { list-style: none; margin: 0; padding: 0; }
+.person-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border-soft); }
+.person-list li:first-child { border-top: none; padding-top: 0; }
+.person-list li:last-child { padding-bottom: 0; }
+.avatar { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: rgba(180, 140, 255, 0.12); color: var(--accent); font-weight: 700; font-size: 13px; text-transform: uppercase; }
+.avatar .ico { margin: 0; }
+.person-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.person-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person-name .chip { margin-left: 6px; vertical-align: 1px; }
+.row-acts { display: flex; gap: 4px; }
+.row-acts .iconbtn { opacity: 0; transition: opacity .15s; }
+.person-list li:hover .row-acts .iconbtn, .row-acts .iconbtn:focus-visible { opacity: 1; }
+@media (hover: none) { .row-acts .iconbtn { opacity: 1; } }
+.card-head .chip { margin-left: 8px; }
+.modal-narrow { max-width: 420px; }
+.modal .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.empty-line { text-align: center; margin: 8px 0; }
+.info-tip { cursor: help; margin-left: 2px; }
+.info-tip::after { white-space: normal; width: 280px; font-weight: 500; text-align: left; }
+.dropzone { position: relative; display: grid; place-items: center; text-align: center; min-height: 140px; margin: 12px 0 0; padding: 20px; border: 1.5px dashed var(--border); border-radius: var(--radius-sm); background: var(--panel-2); cursor: pointer; transition: border-color .15s, background .15s; }
+.dropzone:hover, .dropzone:focus-within, .dropzone.picked { border-color: var(--accent); background: rgba(180, 140, 255, 0.06); }
+.dropzone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.toast { position: fixed; right: 24px; bottom: 24px; z-index: 60; display: flex; align-items: center; gap: 12px; max-width: min(420px, calc(100vw - 32px)); padding: 10px 10px 10px 16px; border-radius: var(--radius-sm); background: var(--panel-2); border: 1px solid rgba(140, 232, 184, 0.35); border-left: 3px solid var(--ok); box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.7); animation: toast-in .25s ease-out; }
+.toast.bad { border-color: rgba(245, 140, 140, 0.35); border-left-color: var(--danger); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+@media (max-width: 600px) { .toast { left: 16px; right: 16px; bottom: 16px; } }
 </style>{{end}}

@@ -1,56 +1,85 @@
 {{define "content"}}
+<div x-data="{ add: false, reset: null, del: null }"
+     @keydown.escape.window="add = false; reset = null; del = null"
+     x-effect="document.body.classList.toggle('modal-open', add || !!reset || !!del)">
 <section class="page-head">
-  <h1>Admins</h1>
-  <a class="btn" href="/">← Dashboard</a>
+  <div>
+    <h1>Admins</h1>
+    <div class="muted small">Every admin has full access.</div>
+  </div>
+  <button class="primary" type="button" @click="add = true">+ Add admin</button>
 </section>
 
-{{if .Msg}}<div class="alert" style="border-color:#2f855a;color:#2f855a">{{.Msg}}</div>{{end}}
-{{if .Err}}<div class="alert">{{.Err}}</div>{{end}}
-
-<p class="muted small">Every admin has full access — there are no roles yet. You
-can't delete the account you're signed in as, so at least one admin always
-remains.</p>
+{{template "flash" .}}
 
 <div class="card">
-  <table class="table">
-    <tr><th>Email</th><th>Added</th><th></th></tr>
+  <div class="card-head"><h3>Accounts</h3><span class="chip">{{len .Admins}}</span></div>
+  <ul class="person-list">
     {{range .Admins}}
-    <tr>
-      <td>{{.Email}}{{if and $.User (eq .ID $.User.ID)}} <span class="muted small">(you)</span>{{end}}</td>
-      <td class="muted small nowrap">{{.CreatedAt}}</td>
-      <td class="nowrap">
-        <form method="post" action="/admins/{{.ID}}/password" class="inline"
-              onsubmit="return confirm('Reset password for {{.Email}}?')">
-          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-          <input type="password" name="password" required minlength="8" placeholder="new password" style="width:11rem">
-          <button class="btn" type="submit">Reset</button>
-        </form>
-        {{if not (and $.User (eq .ID $.User.ID))}}
-        <form method="post" action="/admins/{{.ID}}/delete" class="inline"
-              onsubmit="return confirm('Remove admin {{.Email}}?')">
-          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-          <button class="btn danger" type="submit">Remove</button>
-        </form>
+    {{$me := and $.User (eq .ID $.User.ID)}}
+    <li>
+      <span class="avatar" aria-hidden="true">{{printf "%.1s" .Email}}</span>
+      <span class="person-main">
+        <span class="person-name">{{.Email}}{{if $me}} <span class="chip">You</span>{{end}}</span>
+        <span class="muted small" title="{{.CreatedAt}}">Added {{printf "%.10s" .CreatedAt}}</span>
+      </span>
+      <span class="row-acts">
+        <button type="button" class="iconbtn tip" data-tip="Reset password" aria-label="Reset password for {{.Email}}"
+                data-email="{{.Email}}" @click="reset = { id: {{.ID}}, email: $el.dataset.email }">{{template "icon_key" $}}</button>
+        {{if not $me}}
+        <button type="button" class="iconbtn danger tip" data-tip="Remove" aria-label="Remove {{.Email}}"
+                data-email="{{.Email}}" @click="del = { id: {{.ID}}, email: $el.dataset.email }">{{template "icon_trash" $}}</button>
         {{end}}
-      </td>
-    </tr>
+      </span>
+    </li>
     {{end}}
-  </table>
+  </ul>
 </div>
 
-<div class="card form-card">
-  <h2>Add an admin</h2>
-  <form method="post" action="/admins">
-    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-    <label>Email
-      <input type="email" name="email" required placeholder="person@example.com">
-    </label>
-    <label>Password <span class="muted">(min 8 characters)</span>
-      <input type="password" name="password" required minlength="8" placeholder="set a password">
-    </label>
-    <div class="form-actions">
-      <button class="primary" type="submit">Add admin</button>
+<div class="modal-overlay" x-show="add" x-cloak @click.self="add = false">
+  <div class="modal card form-card" role="dialog" aria-modal="true" aria-label="Add admin">
+    <div class="modal-head">
+      <h3 style="margin:0">Add admin</h3>
+      <button type="button" class="link iconbtn" aria-label="Close" @click="add = false">✕</button>
     </div>
-  </form>
+    <form method="post" action="/admins">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <label>Email
+        <input type="email" name="email" required placeholder="person@example.com" autocomplete="off">
+      </label>
+      <label>Password <span class="muted">(min 8 characters)</span>
+        {{template "password_input" (dict "Auto" "new-password" "Min" 8)}}
+      </label>
+      <div class="form-actions"><button class="primary" type="submit">Add admin</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" x-show="reset" x-cloak @click.self="reset = null">
+  <div class="modal card form-card" role="dialog" aria-modal="true" aria-label="Reset password">
+    <div class="modal-head">
+      <h3 style="margin:0">Reset password</h3>
+      <button type="button" class="link iconbtn" aria-label="Close" @click="reset = null">✕</button>
+    </div>
+    <p class="muted small">New password for <strong x-text="reset && reset.email"></strong>.</p>
+    <form method="post" :action="reset && '/admins/' + reset.id + '/password'">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      {{template "password_input" (dict "Auto" "new-password" "Min" 8)}}
+      <div class="form-actions"><button class="primary" type="submit">Reset password</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" x-show="del" x-cloak @click.self="del = null">
+  <div class="modal modal-narrow card form-card" role="dialog" aria-modal="true" aria-label="Remove admin">
+    <div class="modal-head"><h3 style="margin:0">Remove admin?</h3></div>
+    <p class="muted"><strong x-text="del && del.email"></strong> will no longer be able to sign in.</p>
+    <form method="post" :action="del && '/admins/' + del.id + '/delete'" class="form-actions">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button type="button" class="btn" @click="del = null">Cancel</button>
+      <button class="danger" type="submit">Remove</button>
+    </form>
+  </div>
+</div>
 </div>
 {{end}}

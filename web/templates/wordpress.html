@@ -1,55 +1,82 @@
 {{define "content"}}
+<div x-data="{ tab: location.hash === '#themes' ? 'themes' : 'plugins', up: false, kind: 'plugins', file: '', del: null }"
+     @keydown.escape.window="up = false; del = null"
+     x-effect="document.body.classList.toggle('modal-open', up || !!del)">
 <section class="page-head">
   <div>
     <h1>WordPress</h1>
-    <div class="muted small">Central plugins &amp; themes — installed once, shared into every shared-host WordPress site alongside its own.</div>
+    <div class="muted small">Shared plugins &amp; themes, installed once for every shared-host site.
+      <span class="tip info-tip" tabindex="0" data-tip="Each .zip is stored once and symlinked into every shared site's wp-content. Activation stays per-site; a site's own copy with the same name wins.">ⓘ</span></div>
   </div>
-  <a class="btn" href="/">← Dashboard</a>
+  <button class="primary" type="button" @click="kind = tab; file = ''; up = true">Upload .zip</button>
 </section>
 
-{{if .Msg}}<div class="alert" style="border-color:#2f855a;color:#2f855a">{{.Msg}}</div>{{end}}
-{{if .Err}}<div class="alert">{{.Err}}</div>{{end}}
+{{template "flash" .}}
 
-<p class="muted small">Upload a plugin or theme <code>.zip</code> (the same file you'd get from wordpress.org).
-  It's stored once and symlinked into each shared site's <code>wp-content</code>, so every site shares one copy.
-  Activation stays per-site. A site can still install its own plugin/theme with the same name — that one wins for that site.</p>
+<div class="seg" role="tablist">
+  <button type="button" :class="{active: tab === 'plugins'}" @click="tab = 'plugins'; history.replaceState(null, '', '#plugins')">Plugins <span class="seg-n">{{with .Plugins}}{{len .}}{{else}}0{{end}}</span></button>
+  <button type="button" :class="{active: tab === 'themes'}" @click="tab = 'themes'; history.replaceState(null, '', '#themes')">Themes <span class="seg-n">{{with .Themes}}{{len .}}{{else}}0{{end}}</span></button>
+</div>
 
-{{template "wp_pool" dict "Kind" "plugins" "Title" "Plugins" "Items" .Plugins "CSRF" .CSRF}}
-{{template "wp_pool" dict "Kind" "themes" "Title" "Themes" "Items" .Themes "CSRF" .CSRF}}
+{{template "wp_pool" dict "Kind" "plugins" "Label" "plugin" "Items" .Plugins}}
+{{template "wp_pool" dict "Kind" "themes" "Label" "theme" "Items" .Themes}}
+
+<div class="modal-overlay" x-show="up" x-cloak @click.self="up = false">
+  <div class="modal card form-card" role="dialog" aria-modal="true" aria-label="Upload plugin or theme">
+    <div class="modal-head">
+      <h3 style="margin:0">Upload to shared pool</h3>
+      <button type="button" class="link iconbtn" aria-label="Close" @click="up = false">✕</button>
+    </div>
+    <form method="post" action="/wordpress/pool/upload" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input type="hidden" name="kind" value="plugins" :value="kind">
+      <div class="seg">
+        <button type="button" :class="{active: kind === 'plugins'}" @click="kind = 'plugins'">Plugin</button>
+        <button type="button" :class="{active: kind === 'themes'}" @click="kind = 'themes'">Theme</button>
+      </div>
+      <label class="dropzone" :class="{picked: file}">
+        <input type="file" name="file" accept=".zip" required @change="file = $event.target.files[0] ? $event.target.files[0].name : ''">
+        <span x-show="!file"><strong>Drop a .zip here</strong> or click to choose<br><span class="muted small">the same file you'd get from wordpress.org</span></span>
+        <span x-show="file" x-text="file"></span>
+      </label>
+      <div class="form-actions"><button class="primary" type="submit">Upload</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" x-show="del" x-cloak @click.self="del = null">
+  <div class="modal modal-narrow card form-card" role="dialog" aria-modal="true" aria-label="Remove from shared pool">
+    <div class="modal-head"><h3 style="margin:0">Remove from all sites?</h3></div>
+    <p class="muted"><strong x-text="del && del.name"></strong> is unlinked from every shared site that uses it.</p>
+    <form method="post" action="/wordpress/pool/remove" class="form-actions">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input type="hidden" name="kind" :value="del && del.kind">
+      <input type="hidden" name="name" :value="del && del.name">
+      <button type="button" class="btn" @click="del = null">Cancel</button>
+      <button class="danger" type="submit">Remove</button>
+    </form>
+  </div>
+</div>
+</div>
 {{end}}
 
 {{define "wp_pool"}}
-<div class="card">
-  <div class="app-card-head" style="margin-bottom:10px">
-    <h2 style="margin:0">{{.Title}}</h2>
-    <span class="spacer"></span>
-    <form class="inline" method="post" action="/wordpress/pool/upload" enctype="multipart/form-data">
-      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <input type="hidden" name="kind" value="{{.Kind}}">
-      <input type="file" name="file" accept=".zip" required>
-      <button class="primary" type="submit">Upload</button>
-    </form>
-  </div>
+<div class="card tab-pane" x-show="tab === '{{.Kind}}'"{{if eq .Kind "themes"}} x-cloak{{end}}>
   {{if .Items}}
-  <table class="table">
-    <tr><th>Name</th><th></th></tr>
+  <ul class="person-list">
     {{range .Items}}
-    <tr>
-      <td><code>{{.Name}}</code></td>
-      <td class="nowrap">
-        <form class="inline" method="post" action="/wordpress/pool/remove"
-              onsubmit="return confirm('Remove shared {{$.Kind}} {{.Name}} from all sites?')">
-          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-          <input type="hidden" name="kind" value="{{.Kind}}">
-          <input type="hidden" name="name" value="{{.Name}}">
-          <button class="danger" type="submit">Remove</button>
-        </form>
-      </td>
-    </tr>
+    <li>
+      <span class="avatar" aria-hidden="true">{{if eq $.Kind "plugins"}}{{template "icon_plugin" $}}{{else}}{{template "icon_theme" $}}{{end}}</span>
+      <span class="person-main"><span class="person-name">{{.Name}}</span></span>
+      <span class="row-acts">
+        <button type="button" class="iconbtn danger tip" data-tip="Remove" aria-label="Remove {{.Name}}"
+                data-name="{{.Name}}" @click="del = { kind: '{{$.Kind}}', name: $el.dataset.name }">{{template "icon_trash" $}}</button>
+      </span>
+    </li>
     {{end}}
-  </table>
+  </ul>
   {{else}}
-  <p class="muted small">No shared {{.Kind}} yet.</p>
+  <p class="empty-line muted">No shared {{.Kind}} yet · <a href="#" @click.prevent="kind = '{{.Kind}}'; file = ''; up = true">Upload one</a></p>
   {{end}}
 </div>
 {{end}}

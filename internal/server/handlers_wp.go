@@ -69,5 +69,8 @@ func (s *Server) redirectWP(w http.ResponseWriter, r *http.Request, msg, errMsg 
 	if e := q.Encode(); e != "" {
 		dest += "?" + e
 	}
+	if r.FormValue("kind") == "themes" {
+		dest += "#themes" // land back on the tab that was changed
+	}
 	http.Redirect(w, r, dest, http.StatusSeeOther)
 }

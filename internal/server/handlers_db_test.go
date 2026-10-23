@@ -108,7 +108,7 @@ func TestWordPressPageRenders(t *testing.T) {
 		"Themes":  nil,
 	})
 	for _, want := range []string{"akismet", "/wordpress/pool/upload", "/wordpress/pool/remove",
-		`name="kind" value="plugins"`, `name="kind" value="themes"`} {
+		`name="kind" value="plugins" :value="kind"`, `data-name="akismet"`, "No shared themes yet"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("wordpress page missing %q", want)
 		}

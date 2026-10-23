@@ -250,3 +250,20 @@
   </button>
 </div>
 {{end}}
+
+{{define "icon_key"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3L21 2"/><path d="M16 7l3 3"/><path d="M19 4l2 2"/></svg>{{end}}
+{{define "icon_plugin"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6"/><path d="M15 2v6"/><path d="M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/></svg>{{end}}
+{{define "icon_theme"}}<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>{{end}}
+
+{{/* The ?msg= / ?err= flash as a corner toast. Success fades after a few
+     seconds; an error stays until dismissed. The query is dropped from the URL
+     so a reload doesn't replay it. Takes the page's root data. */}}
+{{define "flash"}}
+{{if or .Msg .Err}}
+<div class="toast{{if .Err}} bad{{end}}" role="{{if .Err}}alert{{else}}status{{end}}" x-data="{ on: true }" x-show="on"
+     x-init="history.replaceState(null, '', location.pathname + location.hash){{if not .Err}}; setTimeout(() => on = false, 4000){{end}}">
+  <span>{{if .Err}}{{.Err}}{{else}}{{.Msg}}{{end}}</span>
+  <button type="button" class="link iconbtn" aria-label="Dismiss" @click="on = false">✕</button>
+</div>
+{{end}}
+{{end}}
