@@ -77,14 +77,24 @@ func TestDatabaseDetailRenders(t *testing.T) {
 	d := apps.SharedDBDetail{
 		Name: "demo_api", SizeMB: "1.5", App: "Demo / api",
 		Host: "xdev-db", Port: 3306, AdminerPort: 34567, Found: true,
-		Tables: []apps.SharedTable{{Name: "wp_users", Rows: "42", SizeMB: "0.30"}},
+		Tables: []apps.SharedTable{{Name: "wp_users", Rows: "42", SizeMB: "0.30",
+			Columns: []apps.DBColumn{{Name: "user_email", Type: "varchar(100)", Null: "NO", Key: "UNI"}}}},
+		Users: []apps.DBGrantee{{User: "demo_api", Host: "%", Privs: []string{"ALL"}}},
 	}
-	out := renderNamed(t, "database_detail", viewData{"D": d})
+	out := renderNamed(t, "database_detail", viewData{"D": d, "AdminerURL": "http://127.0.0.1:34567/?server=xdev-db&db=demo_api"})
 	for _, want := range []string{"demo_api", "Demo / api", "1.5", "wp_users", "42",
-		"db=demo_api", "/database/db/drop", "Drop database", "Tables"} {
+		"db=demo_api", "/database/db/drop", "Drop database", "Tables",
+		"user_email", "varchar(100)", "key-UNI", "Users with access"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("db detail page missing %q", want)
 		}
+	}
+
+	// A dedicated database links back to its app and can't be dropped from here.
+	d.Dedicated, d.ProjectSlug, d.AppID = true, "demo", 7
+	out = renderNamed(t, "database_detail", viewData{"D": d})
+	if !strings.Contains(out, "/projects/demo#app-7") || strings.Contains(out, "/database/db/drop") {
+		t.Errorf("dedicated detail page: want app link and no drop form")
 	}
 }
 

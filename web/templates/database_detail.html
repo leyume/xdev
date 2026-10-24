@@ -2,52 +2,92 @@
 {{$d := .D}}
 <div x-data="{ drop: false, typed: '' }" @keydown.escape.window="drop = false"
      x-effect="document.body.classList.toggle('modal-open', drop)">
-<div class="crumbs"><a href="/database">Databases</a> / <strong>{{$d.Name}}</strong></div>
+<div class="crumbs"><a href="/database">Databases</a> / <strong>{{if $d.Dedicated}}{{$d.App}}{{else}}{{$d.Name}}{{end}}</strong></div>
 <section class="page-head">
   <div>
     <div class="title-row">
       <h1 class="mono-title">{{$d.Name}}</h1>
       <span class="badge">{{if $d.App}}{{$d.App}}{{else}}external{{end}}</span>
+      {{if $d.Dedicated}}<span class="chip">dedicated</span>{{end}}
     </div>
   </div>
   <div class="head-acts">
-    {{if $d.AdminerPort}}
-    <a class="btn" href="http://127.0.0.1:{{$d.AdminerPort}}/?server={{$d.Host}}&db={{$d.Name}}" target="_blank">Open in Adminer ↗</a>
-    {{end}}
+    {{if $d.Dedicated}}<a class="btn" href="/projects/{{$d.ProjectSlug}}#app-{{$d.AppID}}">Open app</a>{{end}}
+    {{with .AdminerURL}}<a class="btn primary" href="{{.}}" target="_blank">Open in Adminer ↗</a>{{end}}
+    {{if not $d.Dedicated}}
     <button class="iconbtn danger tip" type="button" data-tip="Drop database" aria-label="Drop database {{$d.Name}}" @click="typed = ''; drop = true">{{template "icon_trash" $}}</button>
+    {{end}}
   </div>
 </section>
 
 {{template "flash" .}}
 
 <div class="card">
-  <div class="db-stat-grid">
-    <div class="db-stat"><div class="db-stat-label">Size</div><div class="db-stat-num">{{$d.SizeMB}} <span class="db-stat-unit">MB</span></div></div>
-    <div class="db-stat"><div class="db-stat-label">Tables</div><div class="db-stat-num">{{len $d.Tables}}</div></div>
-    <div class="db-stat"><div class="db-stat-label">Owner</div><div class="db-stat-num db-stat-text">{{if $d.App}}{{$d.App}}{{else}}<span class="muted">external</span>{{end}}</div></div>
-    <div class="db-stat"><div class="db-stat-label">Host (from apps)</div><div class="db-stat-num db-stat-text"><code>{{$d.Host}}:{{$d.Port}}</code></div></div>
+  <div class="db-tiles">
+    <div class="db-tile"><div class="db-stat-label">Size</div><div class="db-stat-num">{{$d.SizeMB}} <span class="db-stat-unit">MB</span></div></div>
+    <div class="db-tile"><div class="db-stat-label">Tables</div><div class="db-stat-num">{{len $d.Tables}}</div></div>
+    <div class="db-tile"><div class="db-stat-label">Rows</div><div class="db-stat-num">{{$d.TotalRows}}</div><div class="muted small">approximate</div></div>
+    <div class="db-tile"><div class="db-stat-label">Host (from apps)</div><div class="db-stat-num db-stat-text mono">{{$d.Host}}:{{$d.Port}}</div></div>
   </div>
-  {{if not $d.AdminerPort}}
-  <p class="muted small" style="margin:16px 0 0">Start Adminer on the <a href="/database">Databases</a> page to browse this database in a web console.</p>
+  {{if not .AdminerURL}}
+  <p class="muted small" style="margin:16px 0 0">{{if $d.Dedicated}}No Adminer link for this app — turn Adminer on in the app's settings (it is served through the proxy) to browse the data.{{else}}Start Adminer on the <a href="/database">Databases</a> page to browse this database in a web console.{{end}}</p>
   {{end}}
 </div>
 
-{{if $d.Tables}}
-<div class="card">
-  <div class="card-head"><h3>Tables</h3><span class="chip">{{len $d.Tables}}</span></div>
-  <table class="table">
-    <tr><th>Table</th><th class="right">Rows</th><th class="right">Size (MB)</th></tr>
-    {{range $d.Tables}}
-    <tr>
-      <td><code>{{.Name}}</code></td>
-      <td class="right nowrap">{{.Rows}}</td>
-      <td class="right nowrap">{{.SizeMB}}</td>
-    </tr>
-    {{end}}
-  </table>
-</div>
-{{end}}
+<div class="{{if $d.Users}}row-16-10{{else}}stack{{end}}">
+  {{if $d.Tables}}
+  <div class="card">
+    <div class="card-head"><h3>Tables</h3><span class="chip">{{len $d.Tables}}</span><span class="spacer"></span><span class="muted small">click a table for its columns</span></div>
+    <div class="tbl-list">
+      <div class="tbl-row tbl-headrow"><span>Table</span><span class="right">Rows</span><span class="right">Size (MB)</span></div>
+      {{range $d.Tables}}
+      <details class="tbl-item">
+        <summary class="tbl-row">
+          <span class="mono"><span class="chevron ico">{{template "icon_chevron" $}}</span>{{.Name}}</span>
+          <span class="right nowrap">{{.Rows}}</span>
+          <span class="right nowrap">{{.SizeMB}}</span>
+        </summary>
+        {{if .Columns}}
+        <table class="table cols">
+          <tr><th>Column</th><th>Type</th><th>Null</th><th>Default</th></tr>
+          {{range .Columns}}
+          <tr>
+            <td class="mono">{{.Name}}{{with .Key}} <span class="chip key-{{.}}">{{.}}</span>{{end}}</td>
+            <td class="mono muted">{{.Type}}{{with .Extra}} <span class="small">{{.}}</span>{{end}}</td>
+            <td class="muted">{{if eq .Null "YES"}}yes{{else}}—{{end}}</td>
+            <td class="mono muted">{{.Default}}</td>
+          </tr>
+          {{end}}
+        </table>
+        {{end}}
+      </details>
+      {{end}}
+    </div>
+  </div>
+  {{else}}
+  <div class="card"><p class="empty-line muted">No tables yet — this database is empty.</p></div>
+  {{end}}
 
+  {{if $d.Users}}
+  <div class="card">
+    <div class="card-head"><h3>Users with access</h3><span class="chip">{{len $d.Users}}</span></div>
+    <ul class="row-list">
+      {{range $d.Users}}
+      <li>
+        <span class="avatar" aria-hidden="true">{{printf "%.1s" .User}}</span>
+        <span class="row-main">
+          <span class="row-name mono">{{.User}}<span class="muted">@{{.Host}}</span></span>
+          <span class="priv-chips">{{if .Global}}<span class="chip">all databases</span>{{else}}{{range .Privs}}<span class="chip">{{.}}</span>{{end}}{{end}}</span>
+        </span>
+      </li>
+      {{end}}
+    </ul>
+    {{if not $d.Dedicated}}<p class="muted small" style="margin:14px 0 0">Add or change users on the <a href="/database#users">Users</a> tab.</p>{{end}}
+  </div>
+  {{end}}
+</div>
+
+{{if not $d.Dedicated}}
 <div class="modal-overlay" x-show="drop" x-cloak @click.self="drop = false">
   <div class="modal modal-narrow card form-card" role="dialog" aria-modal="true" aria-label="Drop database">
     <div class="modal-head"><h3 style="margin:0">Drop database?</h3></div>
@@ -65,5 +105,6 @@
     </form>
   </div>
 </div>
+{{end}}
 </div>
 {{end}}

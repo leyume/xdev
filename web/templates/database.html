@@ -16,85 +16,97 @@
 
 {{template "flash" .}}
 
-<!-- The shared server: identity and controls in the head, then what it's doing. -->
+<!-- The shared server: who it is and its controls, how to reach it, then
+     what it's doing. A vital with nothing to say is left out. -->
 {{if $db.Configured}}
-<div class="card db-server">
-  <div class="card-head">
-    <span class="status {{if $db.Running}}running{{else}}stopped{{end}}"></span>
-    <h3>Shared MariaDB</h3>
-    <span class="chip">{{if $db.Running}}running{{else}}stopped{{end}}</span>
+{{$u := dbuse $.Usage $db.Container}}
+{{$st := $.Stats}}
+<div class="card db-hero">
+  <div class="db-hero-head">
+    <span class="db-hero-icon" aria-hidden="true">{{template "icon_database" $}}</span>
+    <div class="db-hero-title">
+      <h2>Shared MariaDB</h2>
+      <div class="muted small">{{if $st.Version}}MariaDB {{$st.Version}}{{else}}{{$db.Image}}{{end}}{{if $st.Uptime}} · up {{$st.Uptime}}{{end}} · {{len $db.Databases}} database{{if ne (len $db.Databases) 1}}s{{end}}</div>
+    </div>
+    <span class="status-label {{if $db.Running}}running{{else}}stopped{{end}}"><span class="status {{if $db.Running}}running{{else}}stopped{{end}}"></span>{{if $db.Running}}running{{else}}stopped{{end}}</span>
     <span class="spacer"></span>
-    {{if $db.Running}}
-    {{if $db.AdminerPort}}
-    <a class="btn small-btn" href="http://127.0.0.1:{{$db.AdminerPort}}/?server={{$db.Host}}" target="_blank">Adminer ↗</a>
-    <form class="inline" method="post" action="/database/adminer">
-      <input type="hidden" name="csrf_token" value="{{.CSRF}}"><input type="hidden" name="action" value="stop">
-      <button class="iconbtn tip" type="submit" data-tip="Stop Adminer" aria-label="Stop Adminer">{{template "icon_stop" $}}</button>
-    </form>
-    {{else}}
-    <form class="inline" method="post" action="/database/adminer">
-      <input type="hidden" name="csrf_token" value="{{.CSRF}}"><button class="btn small-btn" type="submit">Start Adminer</button>
-    </form>
-    {{end}}
-    {{end}}
-    <form class="inline" method="post" action="/database/restart">
-      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <button class="iconbtn tip" type="submit" data-tip="{{if $db.Running}}Restart{{else}}Start{{end}}" aria-label="{{if $db.Running}}Restart{{else}}Start{{end}} the shared server">{{if $db.Running}}{{template "icon_refresh" $}}{{else}}{{template "icon_play" $}}{{end}}</button>
-    </form>
-    <button class="iconbtn tip" type="button" data-tip="Update image" aria-label="Update the MariaDB image" @click="update = true">{{template "icon_deploy" $}}</button>
+    <div class="db-hero-acts">
+      {{if $db.Running}}
+      {{if $db.AdminerPort}}
+      <a class="btn small-btn" href="http://127.0.0.1:{{$db.AdminerPort}}/?server={{$db.Host}}&username=root" target="_blank">Open Adminer ↗</a>
+      {{else}}
+      <form class="inline" method="post" action="/database/adminer">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}"><button class="btn small-btn" type="submit">Start Adminer</button>
+      </form>
+      {{end}}
+      {{end}}
+      <div class="icon-group">
+        {{if $db.AdminerPort}}
+        <form class="inline" method="post" action="/database/adminer">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}"><input type="hidden" name="action" value="stop">
+          <button class="iconbtn tip" type="submit" data-tip="Stop Adminer" aria-label="Stop Adminer">{{template "icon_stop" $}}</button>
+        </form>
+        {{end}}
+        <form class="inline" method="post" action="/database/restart">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          <button class="iconbtn tip" type="submit" data-tip="{{if $db.Running}}Restart{{else}}Start{{end}}" aria-label="{{if $db.Running}}Restart{{else}}Start{{end}} the shared server">{{if $db.Running}}{{template "icon_refresh" $}}{{else}}{{template "icon_play" $}}{{end}}</button>
+        </form>
+        <button class="iconbtn tip" type="button" data-tip="Update image" aria-label="Update the MariaDB image" @click="update = true">{{template "icon_deploy" $}}</button>
+      </div>
+    </div>
   </div>
 
-  <dl class="db-meta">
-    <div><dt>Container</dt><dd><code>{{$db.Container}}</code></dd></div>
-    <div><dt>Image</dt><dd><code>{{$db.Image}}</code></dd></div>
-    <div><dt>Host</dt><dd><code>{{$db.Host}}:{{$db.Port}}</code></dd></div>
+  <dl class="db-conn">
+    <div><dt>Host</dt><dd class="mono">{{$db.Host}}:{{$db.Port}}</dd></div>
+    <div><dt>Container</dt><dd class="mono">{{$db.Container}}</dd></div>
+    <div><dt>Image</dt><dd class="mono">{{$db.Image}}</dd></div>
     <div x-data="{ show: false }"><dt>Root password</dt>
-      <dd><code x-show="!show">••••••••</code><code x-show="show" x-cloak>{{$db.RootPass}}</code>
-        <button class="link small" type="button" @click="show = !show" x-text="show ? 'hide' : 'reveal'">reveal</button></dd></div>
+      <dd class="mono"><span x-show="!show">••••••••</span><span x-show="show" x-cloak>{{$db.RootPass}}</span>
+        <button class="iconbtn tip" type="button" :data-tip="show ? 'Hide' : 'Reveal'" data-tip="Reveal" aria-label="Show or hide the root password" @click="show = !show">{{template "icon_eye" $}}</button></dd></div>
   </dl>
 
-  <!-- What the server is doing: container cost (metrics collector) and
-       MariaDB's own counters. A tile with nothing to say is left out. -->
   {{if $db.Running}}
-  {{$u := dbuse $.Usage $db.Container}}
-  {{$st := $.Stats}}
-  <div class="db-stat-grid">
+  <div class="db-tiles">
     {{if $u.TS}}
-    <div class="db-stat"><div class="db-stat-label">Memory</div><div class="db-stat-num">{{mib $u.MemBytes}} <span class="db-stat-unit">MB</span></div></div>
-    <div class="db-stat"><div class="db-stat-label">CPU</div><div class="db-stat-num">{{printf "%.1f" $u.CPUPct}}<span class="db-stat-unit">%</span></div></div>
+    <div class="db-tile"><div class="db-stat-label">Memory</div><div class="db-stat-num">{{mib $u.MemBytes}} <span class="db-stat-unit">MB</span></div></div>
+    <div class="db-tile"><div class="db-stat-label">CPU</div><div class="db-stat-num">{{printf "%.1f" $u.CPUPct}}<span class="db-stat-unit">%</span></div>
+      <div class="bar"><span style="width: {{printf "%.0f" $u.CPUPct}}%"></span></div></div>
     {{end}}
-    {{if $st.Uptime}}<div class="db-stat"><div class="db-stat-label">Uptime</div><div class="db-stat-num">{{$st.Uptime}}</div></div>{{end}}
     {{if $st.Available}}
-    <div class="db-stat"><div class="db-stat-label">Connections</div><div class="db-stat-num">{{$st.Threads}}</div>
+    <div class="db-tile"><div class="db-stat-label">Connections</div><div class="db-stat-num">{{$st.Threads}} <span class="db-stat-unit">of {{$st.MaxConns}}</span></div>
       <div class="muted small">{{$st.Running}} running · peak {{$st.MaxUsed}} of {{$st.MaxConns}}</div></div>
     {{end}}
-    {{if $st.QPS}}<div class="db-stat"><div class="db-stat-label">Queries</div><div class="db-stat-num">{{$st.QPS}}<span class="db-stat-unit">/s</span></div>
-      <div class="muted small">{{$st.Questions}} since start · avg, not current</div></div>{{end}}
-    {{if $st.PoolPct}}<div class="db-stat"><div class="db-stat-label">Buffer pool</div><div class="db-stat-num">{{$st.PoolPct}}<span class="db-stat-unit">%</span></div>
+    {{if $st.PoolPct}}<div class="db-tile"><div class="db-stat-label">Buffer pool</div><div class="db-stat-num">{{$st.PoolPct}}<span class="db-stat-unit">%</span></div>
+      <div class="bar"><span style="width: {{$st.PoolPct}}%"></span></div>
       {{if $st.PoolSize}}<div class="muted small">{{$st.PoolUsed}} of {{$st.PoolSize}}</div>{{end}}</div>{{end}}
+    {{if $st.QPS}}<div class="db-tile"><div class="db-stat-label">Queries</div><div class="db-stat-num">{{$st.QPS}}<span class="db-stat-unit">/s</span></div>
+      <div class="muted small">{{$st.Questions}} since start · avg, not current</div></div>{{end}}
     {{if $st.Available}}
-    <div class="db-stat"><div class="db-stat-label">Tables</div><div class="db-stat-num">{{$st.TableCount}}</div>
+    <div class="db-tile"><div class="db-stat-label">Tables</div><div class="db-stat-num">{{$st.TableCount}}</div>
       <div class="muted small">across {{len $db.Databases}} database{{if ne (len $db.Databases) 1}}s{{end}}</div></div>
-    <div class="db-stat"><div class="db-stat-label">Slow / aborted</div><div class="db-stat-num">{{$st.SlowLog}} <span class="db-stat-unit">/</span> {{$st.Aborted}}</div>
+    <div class="db-tile"><div class="db-stat-label">Slow / aborted</div><div class="db-stat-num">{{$st.SlowLog}} <span class="db-stat-unit">/</span> {{$st.Aborted}}</div>
       {{if $st.Version}}<div class="muted small">MariaDB {{$st.Version}}</div>{{end}}</div>
     {{end}}
+    {{if $st.Uptime}}<div class="db-tile"><div class="db-stat-label">Uptime</div><div class="db-stat-num">{{$st.Uptime}}</div></div>{{end}}
   </div>
   {{if not $st.Available}}
-  <p class="muted small">The server is running but did not answer a status query — counters unavailable.</p>
+  <p class="muted small" style="margin:16px 0 0">The server is running but did not answer a status query — counters unavailable.</p>
   {{end}}
   {{end}}
 </div>
 {{else}}
-<div class="card db-server">
-  <div class="card-head">
-    <span class="status stopped"></span>
-    <h3>Shared MariaDB</h3>
+<div class="card db-hero">
+  <div class="db-hero-head">
+    <span class="db-hero-icon" aria-hidden="true">{{template "icon_database" $}}</span>
+    <div class="db-hero-title">
+      <h2>Shared MariaDB</h2>
+      <div class="muted small">Shared server not started — created automatically when you add a shared-mode app.</div>
+    </div>
     <span class="spacer"></span>
     <form class="inline" method="post" action="/database/restart">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}"><button class="btn small-btn" type="submit">Start shared MariaDB</button>
     </form>
   </div>
-  <p class="muted small" style="margin:0">Shared server not started — created automatically when you add a shared-mode app.</p>
 </div>
 {{end}}
 
@@ -154,7 +166,8 @@
         {{if $u.TS}}<span class="muted small nowrap">{{mib $u.MemBytes}} MB · {{printf "%.1f" $u.CPUPct}}% CPU</span>{{end}}
         <span class="status-label {{if .Running}}running{{else}}stopped{{end}}">
           <span class="status {{if .Running}}running{{else}}stopped{{end}}"></span>{{if .Running}}running{{else}}stopped{{end}}</span>
-      </a></li>
+      </a>
+      <a class="row-sublink" href="/database/app/{{.AppID}}">Database details →</a></li>
       {{end}}
     </ul>
   </div>

@@ -1206,13 +1206,43 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
 .mini-chart + .mini-chart { margin-top: 10px; }
 
 /* ---- Database pages: server card, vitals, DB lists ---- */
-.db-server .card-head .status { align-self: center; margin: 0 2px 0 0; }
-.db-server .card-head form.inline { margin: 0; }
-.db-server .card-head .small-btn { margin-left: 0; }
-.db-meta { display: flex; flex-wrap: wrap; gap: 12px 32px; margin: 0; }
-.db-meta dt { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
-.db-meta dd { margin: 0; font-size: 13px; display: flex; align-items: center; gap: 8px; }
-.db-meta + .db-stat-grid { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border-soft); }
+/* Shared server hero: identity + controls, a connection panel, vitals tiles. */
+.db-hero-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.db-hero-icon { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; color: var(--accent); background: linear-gradient(135deg, rgba(180, 140, 255, 0.22), rgba(180, 140, 255, 0.06)); border: 1px solid rgba(180, 140, 255, 0.25); }
+.db-hero-icon .ico { width: 22px; height: 22px; margin: 0; }
+.db-hero-title h2 { margin: 0 0 2px; font-size: 17px; }
+.db-hero-acts { display: flex; align-items: center; gap: 10px; }
+.db-hero-acts .small-btn { margin-left: 0; }
+.db-hero-acts form.inline { margin: 0; }
+.icon-group { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); }
+.db-conn { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px 24px; margin: 20px 0 0; padding: 16px 18px; background: var(--panel-2); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); }
+.db-conn dt, .db-tile .db-stat-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.db-conn dd { margin: 0; font-size: 13px; display: flex; align-items: center; gap: 6px; min-height: 26px; overflow-wrap: anywhere; }
+.db-conn dd .iconbtn { padding: 3px; }
+.db-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 900px) { .db-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.db-conn + .db-tiles { margin-top: 16px; }
+.db-tile { padding: 14px 16px; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 4px; }
+.db-tile .bar { margin: 6px 0 2px; }
+.db-tile .db-stat-label { margin-bottom: 0; }
+/* Dedicated tiles: the database's own page, beside the link to its app. */
+.row-sublink { flex: none; font-size: 12.5px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 0 4px 0 12px; white-space: nowrap; }
+.row-sublink:hover { color: var(--accent); }
+.row-list.is-grid .row-sublink { align-self: stretch; padding: 10px 16px; border-top: 1px solid var(--border-soft); }
+/* Detail page: tables expand to their columns. */
+.tbl-row { display: grid; grid-template-columns: 1fr 90px 90px; gap: 12px; align-items: center; padding: 10px 8px; }
+.tbl-headrow { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding-top: 0; }
+.tbl-item { border-top: 1px solid var(--border-soft); }
+.tbl-item > summary { list-style: none; cursor: pointer; border-radius: var(--radius-sm); }
+.tbl-item > summary::-webkit-details-marker { display: none; }
+.tbl-item > summary:hover { background: rgba(255, 255, 255, 0.035); }
+.tbl-item .chevron { margin-right: 6px; transform: rotate(-90deg); transition: transform .2s; color: var(--muted); }
+.tbl-item[open] .chevron { transform: none; }
+.tbl-item .cols { margin: 2px 0 12px 30px; width: calc(100% - 30px); font-size: 12.5px; }
+.cols td, .cols th { padding: 6px 8px; }
+.key-PRI { color: var(--accent); }
+.key-UNI { color: var(--ok); }
+.priv-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 /* Vitals. auto-fit rather than a fixed column count so the row reflows to one
    column on a phone without a second breakpoint. */
 .db-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 18px 22px; }
@@ -1240,7 +1270,8 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
 .tabbar .seg { margin-bottom: 0; }
 /* .row-list as tiles: the same rows, stacked inside small bordered cards.
    Status and row actions pin to the tile's top-right corner. */
-.row-list.is-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.row-list.is-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 640px) { .row-list.is-grid { grid-template-columns: 1fr; } }
 .row-list.is-grid li,
 .row-list.is-grid li:first-child,
 .row-list.is-grid li:last-child { position: relative; flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.015); }

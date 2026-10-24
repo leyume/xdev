@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -45,9 +47,39 @@ func (s *Server) handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 		s.redirectDB(w, r, "", "Database "+name+" not found.")
 		return
 	}
+	adminer := ""
+	if d.AdminerPort > 0 {
+		adminer = fmt.Sprintf("http://127.0.0.1:%d/?server=%s&username=root&db=%s", d.AdminerPort, d.Host, d.Name)
+	}
 	s.render(w, r, "database_detail", viewData{
-		"Title": name + " · Database · xdev",
-		"D":     d,
+		"Title":      name + " · Database · xdev",
+		"D":          d,
+		"AdminerURL": adminer,
+	})
+}
+
+// handleDedicatedDBDetail is the same detail view for the database inside an
+// app's own container. Adminer is the app's bundled one, when it has one.
+func (s *Server) handleDedicatedDBDetail(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	d, err := s.apps.DedicatedDatabaseDetail(ctx, id)
+	if err != nil {
+		s.redirectDB(w, r, "", firstLine(err.Error()))
+		return
+	}
+	adminer := ""
+	if h := s.store.AppServiceDomain(id); h != "" && s.proxyEnabled() {
+		if s.httpsPort != 443 {
+			h += ":" + strconv.Itoa(s.httpsPort)
+		}
+		adminer = "https://" + h + "/?server=db&username=root&db=" + d.Name
+	}
+	s.render(w, r, "database_detail", viewData{
+		"Title":      d.App + " · Database · xdev",
+		"D":          d,
+		"AdminerURL": adminer,
 	})
 }
 

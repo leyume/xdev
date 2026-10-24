@@ -337,9 +337,10 @@ func (s *Service) sharedDatabases(ctx context.Context, engine runtime.Engine, ro
 
 // SharedTable is one table within a database (for the DB detail view).
 type SharedTable struct {
-	Name   string
-	Rows   string // approximate for InnoDB (as information_schema reports it)
-	SizeMB string
+	Name    string
+	Rows    string // approximate for InnoDB (as information_schema reports it)
+	SizeMB  string
+	Columns []DBColumn
 }
 
 // SharedDBDetail is one database's full view: owner, size, and its tables.
@@ -351,7 +352,15 @@ type SharedDBDetail struct {
 	Port        int
 	AdminerPort int // host port of the running Adminer helper; 0 = not running
 	Tables      []SharedTable
-	Found       bool // schema exists on the server
+	Users       []DBGrantee
+	TotalRows   int64 // sum of the (approximate) per-table row counts
+	Found       bool  // schema exists on the server
+
+	// Set for a dedicated per-app database rather than one on the shared server.
+	Dedicated   bool
+	Container   string
+	ProjectSlug string
+	AppID       int64
 }
 
 // SharedDatabaseDetail returns one database's owner, total size, and table list.
@@ -373,41 +382,7 @@ func (s *Service) SharedDatabaseDetail(ctx context.Context, name string) (Shared
 		d.AdminerPort, _ = strconv.Atoi(p)
 	}
 	d.App = s.sharedDBOwners()[name]
-	// name is validIdent-checked above, so interpolating it into the schema
-	// filter is injection-safe (same pattern as the other admin DDL here).
-	q := fmt.Sprintf(`SELECT table_name, COALESCE(table_rows,0),
-			ROUND((COALESCE(data_length,0)+COALESCE(index_length,0))/1048576,2)
-		FROM information_schema.tables WHERE table_schema='%s' ORDER BY table_name;`, name)
-	out, err := runtime.Exec(ctx, engine, "exec", "-e", "MYSQL_PWD="+rootPass,
-		sharedDBContainer, "mariadb", "-uroot", "-N", "-B", "-e",
-		fmt.Sprintf("SELECT schema_name FROM information_schema.schemata WHERE schema_name='%s';\n%s", name, q))
-	if err != nil {
-		return d, err
-	}
-	var total float64
-	for i, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		if line == "" {
-			continue
-		}
-		if i == 0 {
-			d.Found = true // first line is the schema_name existence probe
-			continue
-		}
-		f := strings.Split(line, "\t")
-		t := SharedTable{Name: f[0]}
-		if len(f) > 1 {
-			t.Rows = f[1]
-		}
-		if len(f) > 2 {
-			t.SizeMB = f[2]
-			if v, e := strconv.ParseFloat(f[2], 64); e == nil {
-				total += v
-			}
-		}
-		d.Tables = append(d.Tables, t)
-	}
-	d.SizeMB = strconv.FormatFloat(total, 'f', 1, 64)
-	return d, nil
+	return d, describeDB(ctx, engine, sharedDBContainer, rootPass, &d)
 }
 
 // sharedDBOwners maps each shared database name back to a "project / app" label
@@ -464,14 +439,10 @@ func (s *Service) DedicatedDatabases() []DedicatedDB {
 			if !UsesDB(a.Type) || a.DBMode == store.DBShared || a.IsSharedWP() {
 				continue
 			}
-			dbName := "laravel"
-			if a.Type == "wordpress" {
-				dbName = "wordpress"
-			}
 			out = append(out, DedicatedDB{
 				ProjectName: p.Name, ProjectSlug: p.Slug, AppID: a.ID, AppName: a.Name,
 				Container: p.Slug + "_" + a.Slug + "_db",
-				DBName:    dbName, Running: a.Status == "running",
+				DBName:    dedicatedDBName(a), Running: a.Status == "running",
 			})
 		}
 	}

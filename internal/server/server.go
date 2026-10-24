@@ -172,6 +172,7 @@ func (s *Server) routes() {
 	// Shared MariaDB (platform service).
 	mux.HandleFunc("GET /database", s.auth.RequireAuth(s.handleDatabase))
 	mux.HandleFunc("GET /database/{name}", s.auth.RequireAuth(s.handleDatabaseDetail))
+	mux.HandleFunc("GET /database/app/{id}", s.auth.RequireAuth(s.handleDedicatedDBDetail))
 	mux.HandleFunc("POST /database/restart", s.auth.RequireAuth(s.handleDBRestart))
 	mux.HandleFunc("POST /database/update", s.auth.RequireAuth(s.handleDBUpdate))
 	mux.HandleFunc("POST /database/adminer", s.auth.RequireAuth(s.handleAdminer))
