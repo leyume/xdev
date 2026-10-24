@@ -81,7 +81,7 @@ func TestDatabaseDetailRenders(t *testing.T) {
 	}
 	out := renderNamed(t, "database_detail", viewData{"D": d})
 	for _, want := range []string{"demo_api", "Demo / api", "1.5", "wp_users", "42",
-		"db=demo_api", "/database/db/drop", "Overview", "Tables"} {
+		"db=demo_api", "/database/db/drop", "Drop database", "Tables"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("db detail page missing %q", want)
 		}

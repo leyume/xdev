@@ -14,13 +14,13 @@
 
 <div class="card">
   <div class="card-head"><h3>Accounts</h3><span class="chip">{{len .Admins}}</span></div>
-  <ul class="person-list">
+  <ul class="row-list">
     {{range .Admins}}
     {{$me := and $.User (eq .ID $.User.ID)}}
     <li>
       <span class="avatar" aria-hidden="true">{{printf "%.1s" .Email}}</span>
-      <span class="person-main">
-        <span class="person-name">{{.Email}}{{if $me}} <span class="chip">You</span>{{end}}</span>
+      <span class="row-main">
+        <span class="row-name">{{.Email}}{{if $me}} <span class="chip">You</span>{{end}}</span>
         <span class="muted small" title="{{.CreatedAt}}">Added {{printf "%.10s" .CreatedAt}}</span>
       </span>
       <span class="row-acts">

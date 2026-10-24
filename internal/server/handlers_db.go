@@ -158,5 +158,8 @@ func (s *Server) redirectDB(w http.ResponseWriter, r *http.Request, msg, errMsg 
 	if e := q.Encode(); e != "" {
 		dest += "?" + e
 	}
+	if strings.HasPrefix(r.URL.Path, "/database/user/") {
+		dest += "#users" // land back on the Users tab
+	}
 	http.Redirect(w, r, dest, http.StatusSeeOther)
 }

@@ -1,69 +1,69 @@
 {{define "content"}}
 {{$d := .D}}
+<div x-data="{ drop: false, typed: '' }" @keydown.escape.window="drop = false"
+     x-effect="document.body.classList.toggle('modal-open', drop)">
 <div class="crumbs"><a href="/database">Databases</a> / <strong>{{$d.Name}}</strong></div>
 <section class="page-head">
   <div>
     <div class="title-row">
       <h1 class="mono-title">{{$d.Name}}</h1>
-      {{if $d.App}}<span class="badge">{{$d.App}}</span>{{else}}<span class="badge">external</span>{{end}}
+      <span class="badge">{{if $d.App}}{{$d.App}}{{else}}external{{end}}</span>
     </div>
-    <div class="muted small">{{len $d.Tables}} table{{if ne (len $d.Tables) 1}}s{{end}} · {{$d.SizeMB}} MB · on <code>{{$d.Host}}:{{$d.Port}}</code></div>
   </div>
-  <div class="form-actions" style="margin-top:0">
+  <div class="head-acts">
     {{if $d.AdminerPort}}
     <a class="btn" href="http://127.0.0.1:{{$d.AdminerPort}}/?server={{$d.Host}}&db={{$d.Name}}" target="_blank">Open in Adminer ↗</a>
     {{end}}
-    <form class="inline" method="post" action="/database/db/drop"
-          onsubmit="return confirm('Drop database {{$d.Name}}? This cannot be undone.')">
-      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <input type="hidden" name="name" value="{{$d.Name}}">
-      <button class="danger" type="submit">Drop database</button>
-    </form>
+    <button class="iconbtn danger tip" type="button" data-tip="Drop database" aria-label="Drop database {{$d.Name}}" @click="typed = ''; drop = true">{{template "icon_trash" $}}</button>
   </div>
 </section>
 
-<div x-data="{ tab: 'overview' }">
-  <div class="pagetabs">
-    <span class="tab" :class="{active: tab==='overview'}" @click="tab='overview'">Overview</span>
-    <span class="tab" :class="{active: tab==='tables'}" @click="tab='tables'">Tables <span class="muted">({{len $d.Tables}})</span></span>
-  </div>
+{{template "flash" .}}
 
-  <div x-show="tab==='overview'">
-    <div class="card">
-      <table class="table">
-        <tr><td class="muted small">Database</td><td><code>{{$d.Name}}</code></td></tr>
-        <tr><td class="muted small">Owner</td><td>{{if $d.App}}{{$d.App}}{{else}}<span class="muted">external · not tied to an app</span>{{end}}</td></tr>
-        <tr><td class="muted small">Size</td><td>{{$d.SizeMB}} MB</td></tr>
-        <tr><td class="muted small">Tables</td><td>{{len $d.Tables}}</td></tr>
-        <tr><td class="muted small">Host (from apps)</td><td><code>{{$d.Host}}:{{$d.Port}}</code></td></tr>
-      </table>
-    </div>
-    {{if $d.AdminerPort}}
-    <p class="muted small">Browse and query this database in
-      <a href="http://127.0.0.1:{{$d.AdminerPort}}/?server={{$d.Host}}&db={{$d.Name}}" target="_blank">Adminer ↗</a>
-      (localhost only — over SSH tunnel on a remote host).</p>
-    {{else}}
-    <p class="muted small">Start Adminer from the <a href="/database">Databases</a> page to browse this database in a web console.</p>
+<div class="card">
+  <div class="db-stat-grid">
+    <div class="db-stat"><div class="db-stat-label">Size</div><div class="db-stat-num">{{$d.SizeMB}} <span class="db-stat-unit">MB</span></div></div>
+    <div class="db-stat"><div class="db-stat-label">Tables</div><div class="db-stat-num">{{len $d.Tables}}</div></div>
+    <div class="db-stat"><div class="db-stat-label">Owner</div><div class="db-stat-num db-stat-text">{{if $d.App}}{{$d.App}}{{else}}<span class="muted">external</span>{{end}}</div></div>
+    <div class="db-stat"><div class="db-stat-label">Host (from apps)</div><div class="db-stat-num db-stat-text"><code>{{$d.Host}}:{{$d.Port}}</code></div></div>
+  </div>
+  {{if not $d.AdminerPort}}
+  <p class="muted small" style="margin:16px 0 0">Start Adminer on the <a href="/database">Databases</a> page to browse this database in a web console.</p>
+  {{end}}
+</div>
+
+{{if $d.Tables}}
+<div class="card">
+  <div class="card-head"><h3>Tables</h3><span class="chip">{{len $d.Tables}}</span></div>
+  <table class="table">
+    <tr><th>Table</th><th class="right">Rows</th><th class="right">Size (MB)</th></tr>
+    {{range $d.Tables}}
+    <tr>
+      <td><code>{{.Name}}</code></td>
+      <td class="right nowrap">{{.Rows}}</td>
+      <td class="right nowrap">{{.SizeMB}}</td>
+    </tr>
     {{end}}
-  </div>
+  </table>
+</div>
+{{end}}
 
-  <div x-show="tab==='tables'" x-cloak style="display:none">
-    <div class="card">
-      {{if $d.Tables}}
-      <table class="table">
-        <tr><th>Table</th><th class="right">Rows</th><th class="right">Size (MB)</th></tr>
-        {{range $d.Tables}}
-        <tr>
-          <td><code>{{.Name}}</code></td>
-          <td class="right nowrap">{{.Rows}}</td>
-          <td class="right nowrap">{{.SizeMB}}</td>
-        </tr>
-        {{end}}
-      </table>
-      {{else}}
-      <p class="muted small">No tables yet — this database is empty.</p>
-      {{end}}
-    </div>
+<div class="modal-overlay" x-show="drop" x-cloak @click.self="drop = false">
+  <div class="modal modal-narrow card form-card" role="dialog" aria-modal="true" aria-label="Drop database">
+    <div class="modal-head"><h3 style="margin:0">Drop database?</h3></div>
+    <p class="muted"><code>{{$d.Name}}</code> and all {{len $d.Tables}} of its tables are deleted. This cannot be undone.</p>
+    <form method="post" action="/database/db/drop">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input type="hidden" name="name" value="{{$d.Name}}">
+      <label>Type <code>{{$d.Name}}</code> to confirm
+        <input type="text" x-model="typed" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="form-actions">
+        <button type="button" class="btn" @click="drop = false">Cancel</button>
+        <button class="danger" type="submit" data-name="{{$d.Name}}" :disabled="typed !== $el.dataset.name">Drop database</button>
+      </div>
+    </form>
   </div>
+</div>
 </div>
 {{end}}

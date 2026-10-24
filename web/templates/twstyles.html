@@ -936,7 +936,7 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
    it that separates the title from a list. Shared by every side-panel card so
    they all read the same way. */
 .card-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  display: flex; align-items: center; gap: 10px;
   min-height: 28px; padding-bottom: 12px; margin-bottom: 16px;
   border-bottom: 1px solid var(--border-soft);
 }
@@ -1204,25 +1204,35 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
 .mini-chart.is-empty { min-height: 0; }
 .mini-chart + .mini-chart { margin-top: 10px; }
 
-/* ---- Database page: server strip, page-level tabs, DB cards ---- */
-/* Condensed server status row (replaces the old full-height details card). */
-.db-server { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-.db-server .btn { padding: 6px 12px; font-size: 12.5px; }
-
-/* Shared-server vitals. auto-fit rather than a fixed column count so the row
-   reflows to one column on a phone without a second breakpoint. */
-.db-stats { margin-top: 12px; }
+/* ---- Database pages: server card, vitals, DB lists ---- */
+.db-server .card-head .status { align-self: center; margin: 0 2px 0 0; }
+.db-server .card-head form.inline { margin: 0; }
+.db-server .card-head .small-btn { margin-left: 0; }
+.db-meta { display: flex; flex-wrap: wrap; gap: 12px 32px; margin: 0; }
+.db-meta dt { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.db-meta dd { margin: 0; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.db-meta + .db-stat-grid { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border-soft); }
+/* Vitals. auto-fit rather than a fixed column count so the row reflows to one
+   column on a phone without a second breakpoint. */
 .db-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 18px 22px; }
-.db-stat-label { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-.db-stat-num { font-size: 20px; font-weight: 600; line-height: 1.3; margin-top: 2px; }
+.db-stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.db-stat-num { font-size: 20px; font-weight: 600; line-height: 1.3; margin-top: 4px; }
+.db-stat-num.db-stat-text { font-size: 14px; line-height: 1.6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .db-stat-unit { font-size: 13px; font-weight: 500; color: var(--muted); }
-/* Page-level tab bar (Databases / Users; Overview / Tables) — reuses .tab. */
-.pagetabs { display: flex; align-items: center; gap: 4px; margin: 6px 0 20px; }
-/* DB cards show the schema name as a plain monospace title, not a boxed code. */
-.db-card code { background: none; border: none; padding: 0; font-size: 15px; }
-.mono-title { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -0.01em; }
-/* Keep the add-user form tidy instead of stretching across the whole card. */
-.add-user form { max-width: 620px; }
+.mono-title, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -0.01em; }
+.head-acts { display: flex; align-items: center; gap: 8px; }
+.stack { display: flex; flex-direction: column; gap: var(--gap); }
+.stack > .card { margin-bottom: 0; }
+/* A whole-row link inside .row-list: the row lifts on hover, a chevron hints it opens. */
+.row-list li:has(> .row-link) { padding: 0; }
+.row-link { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; padding: 10px 8px; margin: 0 -8px; border-radius: var(--radius-sm); color: inherit; text-decoration: none; transition: background .15s; }
+.row-list li:first-child > .row-link { margin-top: -6px; }
+.row-list li:last-child > .row-link { margin-bottom: -6px; }
+.row-link:hover { background: rgba(255, 255, 255, 0.035); color: inherit; }
+.row-link:hover .row-name { color: var(--accent); }
+.row-chev { color: var(--muted); font-size: 18px; line-height: 1; transition: transform .15s; }
+.row-link:hover .row-chev { transform: translateX(2px); color: var(--text); }
+.row-link .status-label { min-width: 74px; justify-content: flex-end; }
 
 /* ---- Copy-to-clipboard field ----
    A value xdev generated and you have to paste somewhere else: a webhook URL, a
@@ -1275,18 +1285,18 @@ button.copybtn.copied { color: var(--ok); border-color: rgba(140, 232, 184, 0.45
 .toggle-row button { margin-top: 0; }
 
 /* Admins / WordPress: quiet rows with hover-revealed icon actions, pop-ups for edits. */
-.person-list { list-style: none; margin: 0; padding: 0; }
-.person-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border-soft); }
-.person-list li:first-child { border-top: none; padding-top: 0; }
-.person-list li:last-child { padding-bottom: 0; }
+.row-list { list-style: none; margin: 0; padding: 0; }
+.row-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border-soft); }
+.row-list li:first-child { border-top: none; padding-top: 0; }
+.row-list li:last-child { padding-bottom: 0; }
 .avatar { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: rgba(180, 140, 255, 0.12); color: var(--accent); font-weight: 700; font-size: 13px; text-transform: uppercase; }
 .avatar .ico { margin: 0; }
-.person-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.person-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.person-name .chip { margin-left: 6px; vertical-align: 1px; }
+.row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.row-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-name .chip { margin-left: 6px; vertical-align: 1px; }
 .row-acts { display: flex; gap: 4px; }
 .row-acts .iconbtn { opacity: 0; transition: opacity .15s; }
-.person-list li:hover .row-acts .iconbtn, .row-acts .iconbtn:focus-visible { opacity: 1; }
+.row-list li:hover .row-acts .iconbtn, .row-acts .iconbtn:focus-visible { opacity: 1; }
 @media (hover: none) { .row-acts .iconbtn { opacity: 1; } }
 .card-head .chip { margin-left: 8px; }
 .modal-narrow { max-width: 420px; }

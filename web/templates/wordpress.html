@@ -63,11 +63,11 @@
 {{define "wp_pool"}}
 <div class="card tab-pane" x-show="tab === '{{.Kind}}'"{{if eq .Kind "themes"}} x-cloak{{end}}>
   {{if .Items}}
-  <ul class="person-list">
+  <ul class="row-list">
     {{range .Items}}
     <li>
       <span class="avatar" aria-hidden="true">{{if eq $.Kind "plugins"}}{{template "icon_plugin" $}}{{else}}{{template "icon_theme" $}}{{end}}</span>
-      <span class="person-main"><span class="person-name">{{.Name}}</span></span>
+      <span class="row-main"><span class="row-name">{{.Name}}</span></span>
       <span class="row-acts">
         <button type="button" class="iconbtn danger tip" data-tip="Remove" aria-label="Remove {{.Name}}"
                 data-name="{{.Name}}" @click="del = { kind: '{{$.Kind}}', name: $el.dataset.name }">{{template "icon_trash" $}}</button>
