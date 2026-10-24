@@ -1,7 +1,8 @@
 {{define "content"}}
 {{$db := .DB}}
-<div x-data="{ tab: location.hash === '#users' ? 'users' : 'databases', newdb: false, update: false, adduser: false, reset: null, drop: null }"
+<div x-data="{ tab: location.hash === '#users' ? 'users' : 'databases', view: 'grid', newdb: false, update: false, adduser: false, reset: null, drop: null }"
      @keydown.escape.window="newdb = false; update = false; adduser = false; reset = null; drop = null"
+     x-init="try { if (localStorage.getItem('xdev.database.view') === 'list') view = 'list' } catch (e) {}"
      x-effect="document.body.classList.toggle('modal-open', newdb || update || adduser || !!reset || !!drop)">
 <section class="page-head">
   <div>
@@ -97,9 +98,20 @@
 </div>
 {{end}}
 
-<div class="seg" role="tablist">
-  <button type="button" :class="{active: tab === 'databases'}" @click="tab = 'databases'; history.replaceState(null, '', '#databases')">Databases</button>
-  {{if $db.Configured}}<button type="button" :class="{active: tab === 'users'}" @click="tab = 'users'; history.replaceState(null, '', '#users')">Users <span class="seg-n">{{with .Users}}{{len .}}{{else}}0{{end}}</span></button>{{end}}
+<div class="tabbar">
+  <div class="seg" role="tablist">
+    <button type="button" :class="{active: tab === 'databases'}" @click="tab = 'databases'; history.replaceState(null, '', '#databases')">Databases</button>
+    {{if $db.Configured}}<button type="button" :class="{active: tab === 'users'}" @click="tab = 'users'; history.replaceState(null, '', '#users')">Users <span class="seg-n">{{with .Users}}{{len .}}{{else}}0{{end}}</span></button>{{end}}
+  </div>
+  {{/* Same two-button switch as Projects; per-browser, so localStorage. */}}
+  <div class="viewswitch" role="group" aria-label="View">
+    <button type="button" class="viewbtn tip" data-tip="Cards" aria-label="Card view"
+            :class="{active: view==='grid'}" :aria-pressed="(view==='grid').toString()"
+            @click="view = 'grid'; try { localStorage.setItem('xdev.database.view', 'grid') } catch (e) {}">{{template "icon_grid" .}}</button>
+    <button type="button" class="viewbtn tip" data-tip="List" aria-label="List view"
+            :class="{active: view==='list'}" :aria-pressed="(view==='list').toString()"
+            @click="view = 'list'; try { localStorage.setItem('xdev.database.view', 'list') } catch (e) {}">{{template "icon_list" .}}</button>
+  </div>
 </div>
 
 <!-- Databases tab: shared schemas, then the dedicated per-app containers. -->
@@ -108,7 +120,7 @@
   <div class="card">
     <div class="card-head"><h3>Shared server</h3><span class="chip">{{$db.Container}}</span></div>
     {{if $db.Databases}}
-    <ul class="row-list">
+    <ul class="row-list" :class="{'is-grid': view === 'grid'}">
       {{range $db.Databases}}
       <li><a class="row-link" href="/database/{{.Name}}">
         <span class="avatar" aria-hidden="true">{{template "icon_database" $}}</span>
@@ -130,7 +142,7 @@
   {{if .Dedicated}}
   <div class="card">
     <div class="card-head"><h3>Dedicated</h3><span class="chip">own container per app</span></div>
-    <ul class="row-list">
+    <ul class="row-list" :class="{'is-grid': view === 'grid'}">
       {{range .Dedicated}}
       <li><a class="row-link" href="/projects/{{.ProjectSlug}}">
         <span class="avatar" aria-hidden="true">{{template "icon_database" $}}</span>
@@ -164,7 +176,7 @@
       <button class="btn small-btn" type="button" @click="adduser = true">+ Add user</button>
     </div>
     {{if .Users}}
-    <ul class="row-list">
+    <ul class="row-list" :class="{'is-grid': view === 'grid'}">
       {{range .Users}}
       <li>
         <span class="avatar" aria-hidden="true">{{printf "%.1s" .Name}}</span>

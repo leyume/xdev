@@ -1234,6 +1234,26 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
 .row-link:hover .row-chev { transform: translateX(2px); color: var(--text); }
 .row-link .status-label { min-width: 74px; justify-content: flex-end; }
 
+/* Databases tab bar: tabs left, the card/list switch right. */
+.tabbar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.tabbar .seg { margin-bottom: 0; }
+/* .row-list as tiles: the same rows, stacked inside small bordered cards.
+   Status and row actions pin to the tile's top-right corner. */
+.row-list.is-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.row-list.is-grid li,
+.row-list.is-grid li:first-child,
+.row-list.is-grid li:last-child { position: relative; flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.015); }
+.row-list.is-grid li:has(> .row-link) { padding: 0; }
+.row-list.is-grid .row-link,
+.row-list.is-grid li:first-child > .row-link,
+.row-list.is-grid li:last-child > .row-link { flex-direction: column; align-items: flex-start; gap: 10px; width: 100%; margin: 0; padding: 16px; }
+.row-list.is-grid li:has(> .row-link):hover { border-color: var(--border); }
+.row-list.is-grid .row-main { width: 100%; }
+.row-list.is-grid .row-chev { display: none; }
+.row-list.is-grid .status-label,
+.row-list.is-grid .row-acts { position: absolute; top: 14px; right: 14px; min-width: 0; }
+.row-list.is-grid .row-name { padding-right: 4px; }
+
 /* ---- Copy-to-clipboard field ----
    A value xdev generated and you have to paste somewhere else: a webhook URL, a
    signing secret, a deploy key, a token shown once. Selecting a 3-line base64
