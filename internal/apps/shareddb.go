@@ -438,6 +438,7 @@ func (s *Service) sharedDBOwners() map[string]string {
 type DedicatedDB struct {
 	ProjectName string
 	ProjectSlug string
+	AppID       int64
 	AppName     string
 	Container   string // <project>_<app>_db (matches the compose container_name)
 	DBName      string // "laravel" | "wordpress" (the schema inside the container)
@@ -468,7 +469,7 @@ func (s *Service) DedicatedDatabases() []DedicatedDB {
 				dbName = "wordpress"
 			}
 			out = append(out, DedicatedDB{
-				ProjectName: p.Name, ProjectSlug: p.Slug, AppName: a.Name,
+				ProjectName: p.Name, ProjectSlug: p.Slug, AppID: a.ID, AppName: a.Name,
 				Container: p.Slug + "_" + a.Slug + "_db",
 				DBName:    dbName, Running: a.Status == "running",
 			})

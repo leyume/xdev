@@ -144,7 +144,7 @@
     <div class="card-head"><h3>Dedicated</h3><span class="chip">own container per app</span></div>
     <ul class="row-list" :class="{'is-grid': view === 'grid'}">
       {{range .Dedicated}}
-      <li><a class="row-link" href="/projects/{{.ProjectSlug}}">
+      <li><a class="row-link" href="/projects/{{.ProjectSlug}}#app-{{.AppID}}">
         <span class="avatar" aria-hidden="true">{{template "icon_database" $}}</span>
         <span class="row-main">
           <span class="row-name">{{.ProjectName}} <span class="muted">/</span> {{.AppName}}</span>

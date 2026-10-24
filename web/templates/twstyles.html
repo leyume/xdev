@@ -1063,6 +1063,7 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
    which needs no measured height and no JS. Not x-transition: on xdev's
    vendored Alpine it leaves elements stuck at opacity 0. Closed content is
    also made invisible, so it is not focusable or read out while hidden. */
+.app-card { scroll-margin-top: 24px; }
 .app-card-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .28s cubic-bezier(.2, .7, .2, 1); }
 .app-card-body.open { grid-template-rows: 1fr; }
 .app-card-body-inner { min-height: 0; overflow: hidden; opacity: 0; visibility: hidden; transition: opacity .2s ease, visibility 0s linear .28s; }

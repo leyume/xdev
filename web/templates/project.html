@@ -113,7 +113,8 @@
     <div class="alert ok order-saved" x-show="saved" x-cloak x-transition.opacity>Order saved</div>
     {{if .Apps}}
     {{range .Apps}}
-    <div class="card app-card" data-app-id="{{.ID}}"
+    <div class="card app-card" id="app-{{.ID}}" data-app-id="{{.ID}}"
+         x-init="if (location.hash === '#app-{{.ID}}') { collapsed = false; $nextTick(() => $el.scrollIntoView({ block: 'start' })) }"
          @dragstart="onDragStart($event)" @dragend="onDragEnd($event)"
          x-data="{collapsed:true, tab:'metrics', loaded:{},
         open(t){ this.tab=t; if(t!=='metrics' && !this.loaded[t]){ this.loaded[t]=true; this.fetchPartial(t); } },
