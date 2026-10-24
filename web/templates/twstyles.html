@@ -173,7 +173,9 @@ h3 {
 }
 
 /* Forms */
-label { display: block; margin: var(--field) 0 6px; font-size: 12.5px; font-weight: 600; }
+label { display: block; margin: var(--field) 0 8px; font-size: 12.5px; font-weight: 600; }
+/* A field wrapped by its label sits under the label text with the same 8px. */
+label > :is(input:not([type=checkbox], [type=radio], [type=hidden], [type=file]), select, textarea, .pw-field) { margin-top: 8px; }
 label .muted { font-weight: 400; }
 /* The hint under a field belongs to the field above it, not to the next one. */
 label + p.muted, input + p.muted, select + p.muted, textarea + p.muted { margin: 6px 0 0; }
