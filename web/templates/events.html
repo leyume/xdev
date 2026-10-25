@@ -1,20 +1,31 @@
 {{define "content"}}
+<div x-data="{ view: (() => { try { return localStorage.getItem('xdev.activity.view') === 'table' ? 'table' : 'timeline' } catch (e) { return 'timeline' } })() }">
 <section class="page-head">
   <div>
     <h1>Activity</h1>
     <div class="muted small">{{.Total}} entr{{if eq .Total 1}}y{{else}}ies{{end}}{{with .Project}} in {{.Name}}{{end}}</div>
   </div>
   {{if .Events}}
-  {{/* Without a project this clears everything — including rows of projects
-       that no longer exist, which nothing else can reach. Inside a project it
-       clears only that project's. */}}
-  <form class="inline" method="post" action="/events/clear"
-        data-confirm="{{if .Project}}Clear the activity log for {{.Project.Name}}?{{else}}Clear the entire activity log for every project?{{end}}">
-    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-    {{with .Project}}<input type="hidden" name="project_id" value="{{.ID}}">{{end}}
-    <button class="iconbtn tip danger" type="submit"
-            data-tip="Clear {{if .Project}}this project's {{end}}activity" aria-label="Clear activity">{{template "icon_trash" .}}</button>
-  </form>
+  <div class="head-acts">
+    {{/* Everything matching the tabs, not only the page on screen. */}}
+    <details class="menu">
+      <summary class="btn small-btn">Export</summary>
+      <div class="menu-pop">
+        <a href="/events/export{{.Filter}}" download>CSV <span class="muted small">spreadsheet</span></a>
+        <a href="/events/export{{if .Filter}}{{.Filter}}&{{else}}?{{end}}format=json" download>JSON <span class="muted small">for scripts</span></a>
+      </div>
+    </details>
+    {{/* Without a project this clears everything — including rows of projects
+         that no longer exist, which nothing else can reach. Inside a project it
+         clears only that project's. */}}
+    <form class="inline" method="post" action="/events/clear"
+          data-confirm="{{if .Project}}Clear the activity log for {{.Project.Name}}?{{else}}Clear the entire activity log for every project?{{end}}">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      {{with .Project}}<input type="hidden" name="project_id" value="{{.ID}}">{{end}}
+      <button class="iconbtn tip danger" type="submit"
+              data-tip="Clear {{if .Project}}this project's {{end}}activity" aria-label="Clear activity">{{template "icon_trash" .}}</button>
+    </form>
+  </div>
   {{end}}
 </section>
 
@@ -23,14 +34,46 @@
 <nav class="act-tabs" aria-label="Project">
   {{range .Tabs}}<a href="{{.Href}}" class="act-tab{{if .Active}} active{{end}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}} <span class="seg-n">{{.Count}}</span></a>{{end}}
 </nav>
-{{if .AppTabs}}
-<nav class="act-apps" aria-label="App">
-  {{range .AppTabs}}<a href="{{.Href}}" class="act-chip{{if .Active}} active{{end}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}} <span>{{.Count}}</span></a>{{end}}
-</nav>
-{{end}}
+
+<div class="act-toolbar">
+  {{if .AppTabs}}
+  <nav class="act-apps" aria-label="App">
+    {{range .AppTabs}}<a href="{{.Href}}" class="act-chip{{if .Active}} active{{end}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}} <span>{{.Count}}</span></a>{{end}}
+  </nav>
+  {{end}}
+  <span class="spacer"></span>
+  {{if and .Events .Per}}
+  {{/* Page size: a preset submits on change; Custom swaps in a number box. Only
+       one of the two carries name="per" at a time. */}}
+  <form class="per-form" method="get" action="/events" x-data="{ custom: {{if .PerPreset}}false{{else}}true{{end}} }">
+    {{with .Slug}}<input type="hidden" name="project" value="{{.}}">{{end}}
+    {{with .AppID}}<input type="hidden" name="app" value="{{.}}">{{end}}
+    <span class="muted small">Per page</span>
+    <select x-show="!custom" :name="custom ? '' : 'per'" name="per" aria-label="Entries per page"
+            @change="if ($event.target.value === 'custom') { custom = true; $nextTick(() => $refs.n.select()) } else $el.form.submit()">
+      <option value="10"{{if eq .Per 10}} selected{{end}}>10</option>
+      <option value="25"{{if eq .Per 25}} selected{{end}}>25</option>
+      <option value="50"{{if eq .Per 50}} selected{{end}}>50</option>
+      <option value="custom"{{if not .PerPreset}} selected{{end}}>Custom…</option>
+    </select>
+    <span class="per-custom" x-show="custom" x-cloak>
+      <input type="number" x-ref="n" :name="custom ? 'per' : ''" min="1" max="500" value="{{.Per}}" aria-label="Custom entries per page">
+      <button class="btn small-btn" type="submit">Go</button>
+    </span>
+  </form>
+  <div class="viewswitch" role="group" aria-label="View">
+    <button type="button" class="viewbtn tip" data-tip="Timeline" aria-label="Timeline view"
+            :class="{active: view === 'timeline'}" :aria-pressed="(view === 'timeline').toString()"
+            @click="view = 'timeline'; try { localStorage.setItem('xdev.activity.view', 'timeline') } catch (e) {}">{{template "icon_activity" .}}</button>
+    <button type="button" class="viewbtn tip" data-tip="Table" aria-label="Table view"
+            :class="{active: view === 'table'}" :aria-pressed="(view === 'table').toString()"
+            @click="view = 'table'; try { localStorage.setItem('xdev.activity.view', 'table') } catch (e) {}">{{template "icon_list" .}}</button>
+  </div>
+  {{end}}
+</div>
 
 {{if .Events}}
-<div class="card act-card">
+<div class="card act-card" x-show="view === 'timeline'">
   {{range .Events}}
   {{if .Day}}<div class="act-day">{{.Day}}</div>{{end}}
   <div class="act-row">
@@ -57,6 +100,23 @@
   {{end}}
 </div>
 
+<div class="card act-table-card" x-show="view === 'table'" x-cloak>
+  <table class="table act-table">
+    <thead><tr><th>Time</th><th>Level</th>{{if not .Project}}<th>Project</th>{{end}}<th>App</th><th>Event</th></tr></thead>
+    <tbody>
+    {{range .Events}}
+    <tr>
+      <td class="nowrap muted" title="{{.Full}}">{{.Short}}</td>
+      <td class="nowrap"><span class="lvl-dot k-{{.Kind}}"></span>{{if .Level}}{{.Level}}{{else}}info{{end}}</td>
+      {{if not $.Project}}<td class="nowrap">{{if .ProjectName}}<a href="/events?project={{.ProjectSlug}}">{{.ProjectName}}</a>{{else}}<span class="muted">—</span>{{end}}</td>{{end}}
+      <td class="nowrap">{{if .AppName}}<a href="/projects/{{.ProjectSlug}}#app-{{.AppID}}">{{.AppName}}</a>{{else}}<span class="muted">—</span>{{end}}</td>
+      <td>{{.Message}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+
 {{if or .PrevHref .NextHref}}
 <nav class="pager" aria-label="Pages">
   <span class="muted small">{{.From}}–{{.To}} of {{.Total}}</span>
@@ -69,4 +129,5 @@
 {{else}}
 <div class="empty card"><p class="muted">No activity {{if .Project}}for {{.Project.Name}} {{end}}yet.</p></div>
 {{end}}
+</div>
 {{end}}

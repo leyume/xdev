@@ -1,6 +1,10 @@
 package server
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http/httptest"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -497,5 +501,31 @@ func TestActivityKindAndDayLabel(t *testing.T) {
 		if got := dayLabel(in, now); got != want {
 			t.Errorf("dayLabel(%v) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// Export is the whole filtered log, not the page: CSV by default, JSON on ask.
+func TestActivityExport(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "xdev.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	srv := &Server{store: st}
+	for i := 0; i < 30; i++ {
+		st.AddEvent(0, 0, "info", fmt.Sprintf("entry, %d", i))
+	}
+	rec := httptest.NewRecorder()
+	srv.handleEventsExport(rec, httptest.NewRequest("GET", "/events/export", nil))
+	body := rec.Body.String()
+	if !strings.HasPrefix(body, "time,level,project,app,message\n") || strings.Count(body, "\n") != 31 ||
+		!strings.Contains(body, `"entry, 29"`) {
+		t.Errorf("csv export:\n%s", body)
+	}
+	rec = httptest.NewRecorder()
+	srv.handleEventsExport(rec, httptest.NewRequest("GET", "/events/export?format=json", nil))
+	var rows []map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil || len(rows) != 30 || rows[0]["message"] != "entry, 29" {
+		t.Errorf("json export: %d rows, %v", len(rows), err)
 	}
 }

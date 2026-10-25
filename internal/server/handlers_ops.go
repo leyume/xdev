@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -407,47 +408,41 @@ type activityTab struct {
 // picks its icon, and a day heading on the first entry of each day.
 type activityRow struct {
 	store.Activity
-	Day, Time, Full, Kind string
+	Day, Time, Full, Short, Kind string
 }
 
 // handleEvents shows the activity log, paged, with a tab per project and,
 // inside a project, per app. ?project=<slug>|other, ?app=<id>, ?page=<n>.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	var (
-		projectID int64
-		proj      *store.Project
-	)
-	switch slug := q.Get("project"); slug {
-	case "":
-	case "other":
-		projectID = store.SystemProject
-	default:
-		p, err := s.store.ProjectBySlug(slug)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		proj, projectID = &p, p.ID
-	}
-	appID, _ := strconv.ParseInt(q.Get("app"), 10, 64)
-	if proj == nil {
-		appID = 0 // app tabs only exist inside a project
+	projectID, appID, proj, ok := s.activityFilter(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
 	}
 	page, _ := strconv.Atoi(q.Get("page"))
 	if page < 1 {
 		page = 1
 	}
-	rows, total, err := s.store.ActivityPage(projectID, appID, activityPageSize, (page-1)*activityPageSize)
+	// Page size: the 10/25/50 presets or any custom number, within reason.
+	per, _ := strconv.Atoi(q.Get("per"))
+	if per < 1 {
+		per = activityPageSize
+	}
+	per = min(per, 500)
+	rows, total, err := s.store.ActivityPage(projectID, appID, per, (page-1)*per)
 	byProject, byApp, cerr := s.store.ActivityCounts()
 	if err != nil || cerr != nil {
 		http.Error(w, "could not load events", http.StatusInternalServerError)
 		return
 	}
-	pages := max(1, (total+activityPageSize-1)/activityPageSize)
+	pages := max(1, (total+per-1)/per)
 
 	href := func(project string, app int64, page int) string {
 		v := url.Values{}
+		if per != activityPageSize {
+			v.Set("per", strconv.Itoa(per))
+		}
 		if project != "" {
 			v.Set("project", project)
 		}
@@ -503,7 +498,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		row := activityRow{Activity: a, Kind: activityKind(a.Level, a.Message)}
 		if t, err := time.ParseInLocation("2006-01-02 15:04:05", a.TS, time.UTC); err == nil {
 			t = t.Local()
-			row.Time, row.Full = t.Format("15:04"), t.Format("Mon 2 Jan 2006, 15:04:05")
+			row.Time, row.Full, row.Short = t.Format("15:04"), t.Format("Mon 2 Jan 2006, 15:04:05"), t.Format("2 Jan 2006 15:04")
 			if d := dayLabel(t, now); d != lastDay {
 				row.Day, lastDay = d, d
 			}
@@ -519,8 +514,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	data := viewData{
 		"Title": title, "Events": view, "Project": proj, "Tabs": tabs, "AppTabs": appTabs,
-		"Total": total, "Page": page, "Pages": pages,
-		"From": (page-1)*activityPageSize + 1, "To": (page-1)*activityPageSize + len(view),
+		"Total": total, "Page": page, "Pages": pages, "Per": per,
+		"From": (page-1)*per + 1, "To": (page-1)*per + len(view),
+		"Filter": strings.TrimPrefix(href(slug, appID, 1), "/events"),
+		"Slug":   slug, "AppID": appID, "PerPreset": per == 10 || per == 25 || per == 50,
 	}
 	if page > 1 {
 		data["PrevHref"] = href(slug, appID, page-1)
@@ -532,6 +529,78 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		data["Msg"] = fmt.Sprintf("Activity log cleared (%d entries).", n)
 	}
 	s.render(w, r, "events", data)
+}
+
+// activityFilter reads the activity page's ?project=<slug>|other and ?app=<id>.
+// ok is false for a project slug that doesn't exist.
+func (s *Server) activityFilter(r *http.Request) (projectID, appID int64, proj *store.Project, ok bool) {
+	q := r.URL.Query()
+	switch slug := q.Get("project"); slug {
+	case "":
+	case "other":
+		projectID = store.SystemProject
+	default:
+		p, err := s.store.ProjectBySlug(slug)
+		if err != nil {
+			return 0, 0, nil, false
+		}
+		proj, projectID = &p, p.ID
+	}
+	if proj != nil { // app tabs only exist inside a project
+		appID, _ = strconv.ParseInt(q.Get("app"), 10, 64)
+	}
+	return projectID, appID, proj, true
+}
+
+// handleEventsExport downloads every entry matching the activity page's tabs
+// (not just the page on screen) as CSV, or JSON with ?format=json.
+func (s *Server) handleEventsExport(w http.ResponseWriter, r *http.Request) {
+	projectID, appID, proj, ok := s.activityFilter(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	rows, _, err := s.store.ActivityPage(projectID, appID, -1, 0) // -1: SQLite for no limit
+	if err != nil {
+		http.Error(w, "could not load events", http.StatusInternalServerError)
+		return
+	}
+	name := "xdev-activity"
+	if proj != nil {
+		name += "-" + proj.Slug
+	}
+	name += "-" + time.Now().Format("2006-01-02")
+	type entry struct {
+		Time    string `json:"time"`
+		Level   string `json:"level"`
+		Project string `json:"project,omitempty"`
+		App     string `json:"app,omitempty"`
+		Message string `json:"message"`
+	}
+	out := make([]entry, 0, len(rows))
+	for _, a := range rows {
+		ts := a.TS
+		if t, err := time.ParseInLocation("2006-01-02 15:04:05", a.TS, time.UTC); err == nil {
+			ts = t.Format(time.RFC3339)
+		}
+		out = append(out, entry{ts, a.Level, a.ProjectName, a.AppName, a.Message})
+	}
+	if r.URL.Query().Get("format") == "json" {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+name+`.json"`)
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(out)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`.csv"`)
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"time", "level", "project", "app", "message"})
+	for _, e := range out {
+		_ = cw.Write([]string{e.Time, e.Level, e.Project, e.App, e.Message})
+	}
+	cw.Flush()
 }
 
 // activityKind sorts an entry into the handful of kinds the page gives an icon

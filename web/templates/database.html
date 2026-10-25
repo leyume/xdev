@@ -1,8 +1,7 @@
 {{define "content"}}
 {{$db := .DB}}
-<div x-data="{ tab: location.hash === '#users' ? 'users' : 'databases', view: 'grid', newdb: false, update: false, adduser: false, reset: null, drop: null }"
+<div x-data="{ tab: location.hash === '#users' ? 'users' : 'databases', view: (() => { try { return localStorage.getItem('xdev.database.view') === 'list' ? 'list' : 'grid' } catch (e) { return 'grid' } })(), newdb: false, update: false, adduser: false, reset: null, drop: null }"
      @keydown.escape.window="newdb = false; update = false; adduser = false; reset = null; drop = null"
-     x-init="try { if (localStorage.getItem('xdev.database.view') === 'list') view = 'list' } catch (e) {}"
      x-effect="document.body.classList.toggle('modal-open', newdb || update || adduser || !!reset || !!drop)">
 <section class="page-head">
   <div>

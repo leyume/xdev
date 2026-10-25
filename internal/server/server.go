@@ -162,6 +162,7 @@ func (s *Server) routes() {
 
 	// Activity / audit log.
 	mux.HandleFunc("GET /events", s.auth.RequireAuth(s.handleEvents))
+	mux.HandleFunc("GET /events/export", s.auth.RequireAuth(s.handleEventsExport))
 	mux.HandleFunc("POST /events/clear", s.auth.RequireAuth(s.handleEventsClear))
 
 	// Settings.
