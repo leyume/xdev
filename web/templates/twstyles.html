@@ -1347,7 +1347,14 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
 /* Table view: the same entries, one dense row each. */
 .act-table-card { padding: 6px 0; overflow-x: auto; }
 html[data-act-view="table"] .act-card, html:not([data-act-view="table"]) .act-table-card { display: none; }
-.act-table { font-size: 13px; }
+.act-table { font-size: 13px; table-layout: fixed; width: 100%; }
+/* Time and level are short and fixed; names get a modest column; the event
+   message takes what is left. */
+.act-table .c-time { width: 160px; }
+.act-table .c-level { width: 96px; }
+.act-table .c-name { width: 150px; }
+.act-table td { overflow: hidden; text-overflow: ellipsis; }
+.act-table td:last-child { white-space: normal; overflow-wrap: anywhere; }
 .act-table th, .act-table td { padding: 9px 16px; }
 .act-table :is(th, td):first-child { padding-left: 22px; }
 .act-table :is(th, td):last-child { padding-right: 22px; }

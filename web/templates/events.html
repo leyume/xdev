@@ -77,7 +77,7 @@
 
 <div class="card act-table-card">
   <table class="table act-table">
-    <thead><tr><th>Time</th><th>Level</th>{{if not .Project}}<th>Project</th>{{end}}<th>App</th><th>Event</th></tr></thead>
+    <thead><tr><th class="c-time">Time</th><th class="c-level">Level</th>{{if not .Project}}<th class="c-name">Project</th>{{end}}<th class="c-name">App</th><th>Event</th></tr></thead>
     <tbody>
     {{range .Events}}
     <tr>
