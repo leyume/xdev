@@ -247,86 +247,148 @@ func parseDBEnv(out string) []DBEnvVar {
 // compose would read as ${interpolation}.
 var dbPassRE = regexp.MustCompile(`^[A-Za-z0-9._~@%^*+=!-]{8,128}$`)
 
-// The compose keys each password travels under — the db service's own and the
-// ones the app reads it from. Laravel's fpm/prod stacks spell the user one as
-// ${DB_PASSWORD:-secret}; a literal replaces that.
+// The compose keys each credential travels under — the db service's own and the
+// ones the app reads it from. Laravel's fpm/prod stacks spell the user password
+// as ${DB_PASSWORD:-secret}; a literal replaces that.
 var (
 	dbUserPassKeys = []string{"MYSQL_PASSWORD", "MARIADB_PASSWORD", "DB_PASSWORD", "WORDPRESS_DB_PASSWORD"}
 	dbRootPassKeys = []string{"MYSQL_ROOT_PASSWORD", "MARIADB_ROOT_PASSWORD"}
+	dbUserNameKeys = []string{"MYSQL_USER", "MARIADB_USER", "DB_USERNAME", "WORDPRESS_DB_USER"}
 )
 
-// SetDedicatedDBPassword changes the app user's password (or root's) in an app's
-// own MariaDB, writes it into the compose file (and _/laravel.env) the app
-// connects with, and recreates the stack so both sides hold the new value. The
-// database must be running: the change is made through it.
-func (s *Service) SetDedicatedDBPassword(ctx context.Context, appID int64, root bool, pass string) error {
-	if !dbPassRE.MatchString(pass) {
-		return fmt.Errorf("use 8–128 characters: letters, digits and . _ ~ @ %% ^ * + = ! -")
-	}
+// dedicatedDB is an app's own running database, ready to change.
+type dedicatedDB struct {
+	app       store.App
+	engine    runtime.Engine
+	container string
+	user      string // the account the app connects as
+}
+
+func (s *Service) runningDedicatedDB(ctx context.Context, appID int64) (dedicatedDB, error) {
 	app, proj, err := s.dedicatedApp(appID)
 	if err != nil {
-		return err
+		return dedicatedDB{}, err
 	}
-	container := proj.Slug + "_" + app.Slug + "_db"
-	engine := s.dedicatedEngine(app)
-	if !containerRunning(ctx, engine, container) {
-		return fmt.Errorf("%s's database isn't running — start the app first", app.Name)
+	d := dedicatedDB{app: app, engine: s.dedicatedEngine(app), container: proj.Slug + "_" + app.Slug + "_db"}
+	if !containerRunning(ctx, d.engine, d.container) {
+		return d, fmt.Errorf("%s's database isn't running — start the app first", app.Name)
 	}
-	user, keys := "root", dbRootPassKeys
-	if !root {
-		keys = dbUserPassKeys
-		user = ""
-		for _, e := range dbContainerEnv(ctx, engine, container) {
-			if e.Key == "MYSQL_USER" || e.Key == "MARIADB_USER" {
-				user = e.Value
-			}
-		}
-		if !validIdent(user) {
-			return fmt.Errorf("can't tell which user %s's database gives the app", app.Name)
+	for _, e := range dbContainerEnv(ctx, d.engine, d.container) {
+		if e.Key == "MYSQL_USER" || e.Key == "MARIADB_USER" {
+			d.user = e.Value
 		}
 	}
-	hosts, err := dbSQL(ctx, engine, container, "", fmt.Sprintf("SELECT host FROM mysql.user WHERE user='%s';", user))
+	if !validIdent(d.user) {
+		return d, fmt.Errorf("can't tell which user %s's database gives the app", app.Name)
+	}
+	return d, nil
+}
+
+// accountStmts builds one statement per host the user has an account on.
+func (d dedicatedDB) accountStmts(ctx context.Context, user, format string, args ...any) (string, error) {
+	hosts, err := dbSQL(ctx, d.engine, d.container, "", fmt.Sprintf("SELECT host FROM mysql.user WHERE user='%s';", user))
 	if err != nil {
-		return fmt.Errorf("read %s's accounts: %w", user, err)
+		return "", fmt.Errorf("read %s's accounts: %w", user, err)
 	}
 	var stmts string
 	for _, h := range strings.Fields(hosts) {
-		stmts += fmt.Sprintf("ALTER USER '%s'@'%s' IDENTIFIED BY '%s';", user, sqlStr(h), pass)
+		stmts += fmt.Sprintf(format, append([]any{user, sqlStr(h)}, args...)...)
 	}
 	if stmts == "" {
-		return fmt.Errorf("no %s account in %s's database", user, app.Name)
+		return "", fmt.Errorf("no %s account in %s's database", user, d.app.Name)
 	}
-	// Files first, database last: a failed write leaves everything as it was,
-	// and once the ALTER lands the files already say what the app needs.
+	return stmts, nil
+}
+
+// apply writes value under keys in the compose file (and dotenvKey in
+// _/laravel.env, when given), runs stmts, and recreates the stack so the app
+// and the database container both carry the new value. Files go first and come
+// back if the SQL fails, so nothing is left half-changed.
+func (s *Service) applyDedicatedDB(ctx context.Context, d dedicatedDB, keys []string, dotenvKey, value, stmts, event string) error {
+	app := d.app
 	b, err := os.ReadFile(app.ComposePath)
 	if err != nil {
 		return err
 	}
-	if err := writeComposeEdit(app.ComposePath, setComposeKeys(string(b), keys, pass)); err != nil {
+	if err := writeComposeEdit(app.ComposePath, setComposeKeys(string(b), keys, value)); err != nil {
 		return err
 	}
 	dotenv := filepath.Join(filepath.Dir(app.ComposePath), "laravel.env")
 	prevEnv, envErr := os.ReadFile(dotenv)
-	if !root && envErr == nil {
-		re := regexp.MustCompile(`(?m)^DB_PASSWORD=.*$`)
-		if err := os.WriteFile(dotenv, re.ReplaceAll(prevEnv, []byte("DB_PASSWORD="+pass)), 0o600); err != nil {
+	envChanged := dotenvKey != "" && envErr == nil
+	if envChanged {
+		re := regexp.MustCompile(`(?m)^` + dotenvKey + `=.*$`)
+		if err := os.WriteFile(dotenv, re.ReplaceAll(prevEnv, []byte(dotenvKey+"="+value)), 0o600); err != nil {
 			return err
 		}
 	}
-	if _, err := dbSQL(ctx, engine, container, "", stmts+"FLUSH PRIVILEGES;"); err != nil {
-		// The database kept the old password, so the files go back to it.
+	if _, err := dbSQL(ctx, d.engine, d.container, "", stmts+"FLUSH PRIVILEGES;"); err != nil {
 		os.Rename(app.ComposePath+".bak", app.ComposePath)
-		if !root && envErr == nil {
+		if envChanged {
 			os.WriteFile(dotenv, prevEnv, 0o600)
 		}
-		return fmt.Errorf("change the password: %w", err)
+		return err
 	}
-	s.store.AddEvent(app.ProjectID, app.ID, "info", "Changed the "+user+" password of "+app.Name+"'s database")
+	s.store.AddEvent(app.ProjectID, app.ID, "info", event)
 	// Recreate, not restart: a container keeps the environment it was created with.
 	if _, eng, workdir, pname, file, err := s.composeCtx(app.ID); err == nil {
 		runtime.Down(ctx, eng, workdir, pname, file)
 	}
 	return s.Start(app.ID)
+}
+
+// SetDedicatedDBPassword changes the app user's password (or root's) in an
+// app's own MariaDB and everywhere the app reads it from.
+func (s *Service) SetDedicatedDBPassword(ctx context.Context, appID int64, root bool, pass string) error {
+	if !dbPassRE.MatchString(pass) {
+		return fmt.Errorf("use 8–128 characters: letters, digits and . _ ~ @ %% ^ * + = ! -")
+	}
+	d, err := s.runningDedicatedDB(ctx, appID)
+	if err != nil {
+		return err
+	}
+	user, keys, dotenvKey := d.user, dbUserPassKeys, "DB_PASSWORD"
+	if root {
+		user, keys, dotenvKey = "root", dbRootPassKeys, ""
+	}
+	stmts, err := d.accountStmts(ctx, user, "ALTER USER '%s'@'%s' IDENTIFIED BY '%s';", pass)
+	if err != nil {
+		return err
+	}
+	if err := s.applyDedicatedDB(ctx, d, keys, dotenvKey, pass, stmts,
+		"Changed the "+user+" password of "+d.app.Name+"'s database"); err != nil {
+		return fmt.Errorf("change the password: %w", err)
+	}
+	return nil
+}
+
+// RenameDedicatedDBUser renames the account the app connects as. RENAME USER
+// carries its password and grants along.
+func (s *Service) RenameDedicatedDBUser(ctx context.Context, appID int64, name string) error {
+	if !validIdent(name) || systemAccounts[name] {
+		return fmt.Errorf("use letters, digits and _ (up to 64), and not a system account name")
+	}
+	d, err := s.runningDedicatedDB(ctx, appID)
+	if err != nil {
+		return err
+	}
+	if name == d.user {
+		return nil
+	}
+	if n, err := dbSQL(ctx, d.engine, d.container, "", fmt.Sprintf("SELECT COUNT(*) FROM mysql.user WHERE user='%s';", name)); err != nil {
+		return err
+	} else if strings.TrimSpace(n) != "0" {
+		return fmt.Errorf("%s already exists in this database", name)
+	}
+	stmts, err := d.accountStmts(ctx, d.user, "RENAME USER '%s'@'%s' TO '%s'@'%[2]s';", name)
+	if err != nil {
+		return err
+	}
+	if err := s.applyDedicatedDB(ctx, d, dbUserNameKeys, "DB_USERNAME", name, stmts,
+		"Renamed "+d.app.Name+"'s database user "+d.user+" to "+name); err != nil {
+		return fmt.Errorf("rename the user: %w", err)
+	}
+	return nil
 }
 
 // setComposeKeys sets every `KEY: value` environment entry named in keys to v.
@@ -335,13 +397,13 @@ func setComposeKeys(yaml string, keys []string, v string) string {
 	return re.ReplaceAllString(yaml, "${1}${2}: \""+v+"\"")
 }
 
-// carryDBPasswords copies the dedicated database passwords set in prev (an
+// carryDBPasswords copies the dedicated database credentials set in prev (an
 // app's current compose file) into next (its regenerated one), so regenerating
-// a stack never reverts a changed password and locks the app out.
+// a stack never reverts a changed password or user and locks the app out.
 func carryDBPasswords(prev, next string) string {
-	for _, k := range append(append([]string{}, dbUserPassKeys...), dbRootPassKeys...) {
+	for _, k := range append(append(append([]string{}, dbUserPassKeys...), dbRootPassKeys...), dbUserNameKeys...) {
 		m := regexp.MustCompile(`(?m)^[ \t]+` + k + `:[ \t]*"?([^"\n]*)"?[ \t]*$`).FindStringSubmatch(prev)
-		if m != nil && dbPassRE.MatchString(m[1]) {
+		if m != nil && (dbPassRE.MatchString(m[1]) || validIdent(m[1])) {
 			next = setComposeKeys(next, []string{k}, m[1])
 		}
 	}

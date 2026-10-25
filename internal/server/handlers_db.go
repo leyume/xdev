@@ -101,6 +101,20 @@ func (s *Server) handleDedicatedDBPassword(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, fmt.Sprintf("/database/app/%d?%s", id, q.Encode()), http.StatusSeeOther)
 }
 
+// handleDedicatedDBUser renames the account an app's own database gives it.
+func (s *Server) handleDedicatedDBUser(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	defer cancel()
+	q := url.Values{}
+	if err := s.apps.RenameDedicatedDBUser(ctx, id, strings.TrimSpace(r.FormValue("name"))); err != nil {
+		q.Set("err", firstLine(err.Error()))
+	} else {
+		q.Set("msg", "User renamed and the app restarted with it.")
+	}
+	http.Redirect(w, r, fmt.Sprintf("/database/app/%d?%s", id, q.Encode()), http.StatusSeeOther)
+}
+
 // dbAction runs one shared-DB admin action and redirects back with a flash.
 func (s *Server) dbAction(w http.ResponseWriter, r *http.Request, okMsg string, fn func(context.Context) error) {
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)

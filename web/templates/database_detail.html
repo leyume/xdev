@@ -1,7 +1,7 @@
 {{define "content"}}
 {{$d := .D}}
-<div x-data="{ drop: false, typed: '', pw: null }" @keydown.escape.window="drop = false; pw = null"
-     x-effect="document.body.classList.toggle('modal-open', drop || !!pw)">
+<div x-data="{ drop: false, typed: '', pw: null, rename: false }" @keydown.escape.window="drop = false; pw = null; rename = false"
+     x-effect="document.body.classList.toggle('modal-open', drop || !!pw || rename)">
 <div class="crumbs"><a href="/database">Databases</a> / <strong>{{if $d.Dedicated}}{{$d.App}}{{else}}{{$d.Name}}{{end}}</strong></div>
 <section class="page-head">
   <div>
@@ -38,6 +38,9 @@
         <button class="iconbtn tip" type="button" :data-tip="show ? 'Hide' : 'Reveal'" data-tip="Reveal" aria-label="Show or hide {{.Key}}" @click="show = !show">{{template "icon_eye" $}}</button>
         {{- else}}{{.Value}}{{end}}
         <button class="iconbtn tip" type="button" data-tip="Copy" aria-label="Copy {{.Key}}" data-copy="{{.Value}}">{{template "icon_copy" $}}</button>
+        {{- if eq .Key "MYSQL_USER" "MARIADB_USER"}}
+        <button class="iconbtn tip" type="button" data-tip="Rename" aria-label="Rename the database user" @click="rename = true">{{template "icon_pencil" $}}</button>
+        {{- end}}
         {{- if .Secret}}
         <button class="iconbtn tip" type="button" data-tip="Change" aria-label="Change {{.Key}}"
                 data-key="{{.Key}}" data-account="{{if eq .Key "MYSQL_ROOT_PASSWORD" "MARIADB_ROOT_PASSWORD"}}root{{else}}user{{end}}"
@@ -131,6 +134,28 @@
   </div>
 </div>
 {{end}}
+
+{{range $d.Env}}{{if eq .Key "MYSQL_USER" "MARIADB_USER"}}
+<div class="modal-overlay" x-show="rename" x-cloak @click.self="rename = false">
+  <div class="modal modal-narrow card form-card" role="dialog" aria-modal="true" aria-label="Rename the database user">
+    <div class="modal-head"><h3 style="margin:0">Rename <span class="mono">{{.Value}}</span></h3></div>
+    <p class="muted">The account keeps its password and access. The app is updated to connect as the new name and restarts — a few seconds of downtime.</p>
+    <form method="post" action="/database/app/{{$d.AppID}}/user"
+          @submit="$el.querySelector('[type=submit]').classList.add('is-busy')">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <label>New user name
+        <input type="text" name="name" value="{{.Value}}" required maxlength="64" pattern="[A-Za-z0-9_]+"
+               autocomplete="off" spellcheck="false" autocapitalize="off" x-init="$watch('rename', v => v && $nextTick(() => $el.select()))">
+      </label>
+      <p class="muted small" style="margin:8px 0 0">Letters, digits and <code>_</code>.</p>
+      <div class="form-actions">
+        <button type="button" class="btn" @click="rename = false">Cancel</button>
+        <button class="primary" type="submit">Rename user</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}{{end}}
 
 {{if not $d.Dedicated}}
 <div class="modal-overlay" x-show="drop" x-cloak @click.self="drop = false">
