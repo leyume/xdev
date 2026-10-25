@@ -15,7 +15,7 @@
   <div class="card">
     <div class="card-head">
       <h3>xdev.env</h3>
-      {{if .Editable}}<span class="chip" x-show="dirty" x-cloak>unsaved changes</span>{{else}}<span class="chip">read-only</span>{{end}}
+      {{if .Editable}}<span class="chip" x-show="dirty" x-cloak>unsaved changes</span>{{else if .Readable}}<span class="chip">read-only</span>{{else}}<span class="chip">unreadable</span>{{end}}
     </div>
     <dl class="db-conn env-meta">
       <div><dt>File</dt><dd class="mono">{{.File}}
@@ -32,9 +32,11 @@
         <button class="btn" type="reset" :disabled="!dirty">Discard changes</button>
       </div>
     </form>
-    {{else}}
+    {{else if .Readable}}
     <p class="muted small" style="margin:0 0 12px">xdev can't write this file as the user it runs as, so it is shown read-only.</p>
     <pre class="env-editor"><code>{{.Content}}</code></pre>
+    {{else}}
+    <p class="muted small" style="margin:0">xdev can't read this file as the user it runs as. Give it read access (for example <code>chmod o+r</code> or group ownership) to see it here.</p>
     {{end}}
   </div>
 

@@ -34,6 +34,7 @@ func (s *Server) handleEnvSettings(w http.ResponseWriter, r *http.Request) {
 			data["Err"] = "Could not read " + path + ": " + err.Error()
 		} else {
 			data["Content"] = string(b)
+			data["Readable"] = true
 			data["Editable"] = writableFile(path) == nil
 		}
 	}
