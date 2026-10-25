@@ -133,6 +133,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST "+store.PushPath, s.handlePushDeploy)
 
 	mux.HandleFunc("POST /apps/{id}/start", s.auth.RequireAuth(s.handleAppStart))
+	mux.HandleFunc("POST /apps/{id}/port", s.auth.RequireAuth(s.handleAppPort))
 	mux.HandleFunc("POST /apps/{id}/stop", s.auth.RequireAuth(s.handleAppStop))
 	mux.HandleFunc("POST /apps/{id}/delete", s.auth.RequireAuth(s.handleAppDelete))
 

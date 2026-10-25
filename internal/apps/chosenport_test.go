@@ -1,6 +1,7 @@
 package apps
 
 import (
+	"errors"
 	"net"
 	"path/filepath"
 	"testing"
@@ -90,4 +91,39 @@ func freePortOutsideRange(t *testing.T) int {
 	}
 	t.Skip("no free port below the allocation range")
 	return 0
+}
+
+// TestMovePort: an app whose port is held elsewhere can be moved — to a port
+// xdev picks, or to one chosen — but not onto a busy port or another app's.
+func TestMovePort(t *testing.T) {
+	svc, st, proj := editFixture(t)
+	app := hostAppIn(t, svc, st, proj, "web", "", store.ServeCommand)
+	other := hostAppIn(t, svc, st, proj, "other", "", store.ServeCommand)
+
+	got, err := svc.MovePort(app.ID, 0)
+	if err != nil || got == app.Port || got == other.Port {
+		t.Fatalf("MovePort(auto) = %d, %v; want a fresh port", got, err)
+	}
+	if fresh, _ := st.AppByID(app.ID); fresh.Port != got {
+		t.Errorf("stored port = %d, want %d", fresh.Port, got)
+	}
+
+	want := freePortOutsideRange(t)
+	if got, err := svc.MovePort(app.ID, want); err != nil || got != want {
+		t.Errorf("MovePort(%d) = %d, %v", want, got, err)
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	busy := ln.Addr().(*net.TCPAddr).Port
+	var inUse *PortInUseError
+	if _, err := svc.MovePort(app.ID, busy); !errors.As(err, &inUse) || inUse.Port != busy {
+		t.Errorf("MovePort(busy %d) err = %v, want PortInUseError", busy, err)
+	}
+	if _, err := svc.MovePort(app.ID, other.Port); err == nil {
+		t.Errorf("MovePort onto another app's port %d should be refused", other.Port)
+	}
 }

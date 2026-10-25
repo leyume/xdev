@@ -553,6 +553,32 @@ func extraDomains(r *http.Request) []string {
 func (s *Server) handleAppStart(w http.ResponseWriter, r *http.Request) {
 	s.appAction(w, r, "Started", s.apps.Start)
 }
+
+// handleAppPort moves an app that runs its own process to another host port
+// (blank = let xdev pick) and starts it there: the way out when its port is
+// held by something outside xdev.
+func (s *Server) handleAppPort(w http.ResponseWriter, r *http.Request) {
+	s.appAction(w, r, "Started", func(id int64) error {
+		port, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("port")))
+		if _, err := s.apps.MovePort(id, port); err != nil {
+			return err
+		}
+		return s.apps.Start(id)
+	})
+}
+
+// writePortConflict answers an in-place start that hit a busy port with what
+// the port pop-up needs: which port, and a free one to offer instead.
+func (s *Server) writePortConflict(w http.ResponseWriter, app store.App, port int, err error, retry bool) {
+	suggest, _ := s.apps.FreePort()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusConflict)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error": clampError(err.Error()), "port": port, "suggest": suggest,
+		"app": app.ID, "name": app.Name, "retry": retry,
+	})
+}
+
 func (s *Server) handleAppStop(w http.ResponseWriter, r *http.Request) {
 	s.appAction(w, r, "Stopped", s.apps.Stop)
 }
@@ -585,6 +611,18 @@ func (s *Server) appAction(w http.ResponseWriter, r *http.Request, verb string, 
 	target := "/projects/" + proj.Slug
 	asJSON := wantsJSON(r)
 	if err := fn(id); err != nil {
+		// A busy port, or any refusal of the port typed into the port pop-up,
+		// goes back to that pop-up rather than to an error page.
+		var busy *apps.PortInUseError
+		retry := strings.HasSuffix(r.URL.Path, "/port")
+		if asJSON && (retry || errors.As(err, &busy)) {
+			port := app.Port
+			if busy != nil {
+				port = busy.Port
+			}
+			s.writePortConflict(w, app, port, err, retry)
+			return
+		}
 		if asJSON {
 			// Non-2xx so the client falls back to a native submit and lands on
 			// the server-rendered error banner.

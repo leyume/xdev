@@ -46,30 +46,51 @@
       if (e.defaultPrevented) return; // the confirm above was declined
       var f = e.target;
       var act = f.getAttribute && f.getAttribute('action');
-      if (!act || !/^\/apps\/\d+\/(start|stop|delete)$/.test(act)) return;
+      if (!act || !/^\/apps\/\d+\/(start|stop|delete|port)$/.test(act)) return;
       e.preventDefault();
-      var host = f.closest('[data-app-id]');
+      // The port pop-up's form lives outside the app's card; it names the app.
+      var host = f.closest('[data-app-id]') ||
+                 document.querySelector('[data-app-id="' + f.dataset.appId + '"][data-status]');
       var b = e.submitter || f.querySelector('button:not([type=button])');
+      var idle = function () {
+        if (b) b.classList.remove('is-busy');
+        if (host) host.classList.remove('is-busy');
+      };
+      var paint = function (status) {
+        if (!host) return;
+        host.dataset.status = status;
+        host.querySelectorAll('.status').forEach(function (el) { el.className = 'status ' + status; });
+        host.querySelectorAll('.status-label').forEach(function (el) {
+          el.className = 'status-label ' + status;
+          if (el.lastChild) el.lastChild.textContent = status;
+        });
+      };
       if (b) b.classList.add('is-busy');
       if (host) host.classList.add('is-busy');
       fetch(act, { method: 'POST', headers: { 'Accept': 'application/json' },
                    body: new FormData(f), credentials: 'same-origin' })
-        .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+        .then(function (r) {
+          // 409: the app's port is held by something else. Offer to move it
+          // (the port pop-up below) instead of landing on an error banner.
+          if (r.status === 409) {
+            return r.json().then(function (d) {
+              idle(); paint('error');
+              window.dispatchEvent(new CustomEvent('port-conflict', { detail: d }));
+              return null;
+            });
+          }
+          if (!r.ok) throw 0;
+          return r.json();
+        })
         .then(function (d) {
+          if (!d) return;
+          window.dispatchEvent(new CustomEvent('port-resolved'));
           // [data-app-id] sits on the card *header* (and on the dashboard's row),
           // so removing it alone would leave the card body behind. Drop the whole
           // card where there is one; the row is its own host on the dashboard.
           if (d.status === 'deleted') { if (host) (host.closest('.app-card') || host).remove(); return; }
-          if (host) {
-            host.dataset.status = d.status;
-            host.querySelectorAll('.status').forEach(function (el) { el.className = 'status ' + d.status; });
-            host.querySelectorAll('.status-label').forEach(function (el) {
-              el.className = 'status-label ' + d.status;
-              if (el.lastChild) el.lastChild.textContent = d.status;
-            });
-          }
-          if (b) b.classList.remove('is-busy');
-          if (host) host.classList.remove('is-busy');
+          paint(d.status);
+          idle();
         })
         .catch(function () { f.submit(); }); // native POST -> server error banner
     }, true);
@@ -202,6 +223,35 @@
     <main class="container">
       {{block "content" .}}{{end}}
     </main>
+  </div>
+  {{/* Port pop-up: a start refused because something outside xdev holds the
+       app's port (409 from the fetch handler above). Moves the app to a free
+       port — prefilled with one xdev checked — and starts it there. */}}
+  <div x-data="{ c: null }" x-cloak
+       @port-conflict.window="c = $event.detail" @port-resolved.window="c = null"
+       @keydown.escape.window="c = null"
+       x-effect="document.body.classList.toggle('modal-open', !!c)">
+    <div class="modal-overlay" x-show="c" @click.self="c = null">
+      <div class="modal modal-narrow card form-card" role="dialog" aria-modal="true" aria-label="Port in use">
+        <div class="modal-head">
+          <h3 style="margin:0">Port <span x-text="c && c.port"></span> is busy</h3>
+          <button type="button" class="link iconbtn" aria-label="Close" @click="c = null">✕</button>
+        </div>
+        <p class="muted small"><strong x-text="c && c.name"></strong> can't start: another process on this machine is listening on
+          port <span x-text="c && c.port"></span>. Move the app to a free port and start it there.</p>
+        <div class="alert" x-show="c && c.retry" x-text="c && c.error"></div>
+        <form method="post" :action="c && '/apps/' + c.app + '/port'" :data-app-id="c && c.app">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          <label>New port <span class="muted">(blank lets xdev pick)</span>
+            <input type="number" name="port" min="1024" max="65535" step="1" :value="c && c.suggest" x-ref="port">
+          </label>
+          <div class="form-actions">
+            <button type="button" class="btn" @click="c = null">Cancel</button>
+            <button class="primary" type="submit">Use port &amp; start</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 {{else}}
   <main class="container">

@@ -1020,7 +1020,7 @@ func (s *Service) startStatic(app store.App) error {
 		// different app's domain through Caddy. Fail loudly instead.
 		if app.Port > 0 && !portFree(app.Port) {
 			s.store.SetAppStatus(app.ID, store.AppError)
-			return fmt.Errorf("port %d already in use — another process is holding it; stop it and retry", app.Port)
+			return &PortInUseError{Port: app.Port}
 		}
 		if err := s.sup.Start(app.ID, name, work, app.StartCmd, env); err != nil {
 			s.store.SetAppStatus(app.ID, store.AppError)
@@ -1331,6 +1331,46 @@ func (s *Service) appPorts(n, want int, avoid ...int) ([]int, error) {
 		return nil, err
 	}
 	return append([]int{want}, rest...), nil
+}
+
+// PortInUseError is a start refused because something outside xdev holds the
+// app's port. The UI offers to move the app to another port (MovePort).
+type PortInUseError struct{ Port int }
+
+func (e *PortInUseError) Error() string {
+	return fmt.Sprintf("port %d already in use — another process is holding it; stop it, or move the app to another port", e.Port)
+}
+
+// FreePort suggests a host port nothing (app or process) is using.
+func (s *Service) FreePort() (int, error) { return s.allocPort() }
+
+// MovePort repoints an app that runs its own process at another host port.
+// port 0 lets xdev pick one. The chosen port gets the same checks as one
+// chosen at create, except that the app's current port counts as its own.
+func (s *Service) MovePort(id int64, port int) (int, error) {
+	app, err := s.store.AppByID(id)
+	if err != nil {
+		return 0, err
+	}
+	if app.ServeMode != store.ServeCommand || app.Port == 0 {
+		return 0, fmt.Errorf("%s has no port of its own to move", app.Name)
+	}
+	if port == 0 {
+		if port, err = s.allocPort(app.Port); err != nil {
+			return 0, err
+		}
+	} else if port != app.Port {
+		if err := validPort(port); err != nil {
+			return 0, err
+		}
+		if err := s.portTaken(port, app.Port); err != nil {
+			return 0, fmt.Errorf("port %d is already used by another app — choose another", port)
+		}
+		if !portFree(port) {
+			return 0, &PortInUseError{Port: port}
+		}
+	}
+	return port, s.store.SetAppPort(id, port)
 }
 
 // checkChosenPort reports why a port the user picked for a new app cannot be
