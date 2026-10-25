@@ -253,6 +253,15 @@ button.is-busy::after {
   border-radius: 50%; animation: btnspin 0.6s linear infinite;
 }
 button.primary.is-busy::after { border-color: var(--accent-ink); border-right-color: transparent; }
+/* An icon button's ::after is also its tooltip (.tip): undo everything the
+   tooltip sets there, or the spinner is drawn invisible (opacity 0) inside a
+   padded label box. Kept visible where icons otherwise only show on hover. */
+button.is-busy.tip::after, button.is-busy.tip:hover::after {
+  opacity: 1; padding: 0; background: none; box-shadow: none;
+  bottom: auto; transform: none; transition: none; font-size: 0;
+}
+.apps-table .act .iconbtn.is-busy, .row-acts .iconbtn.is-busy { opacity: 1; }
+button.is-busy .ico { visibility: hidden; }
 @keyframes btnspin { to { transform: rotate(360deg); } }
 
 /* Anchors styled as buttons */
