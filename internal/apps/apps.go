@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	goruntime "runtime" // stdlib; xdev/internal/runtime owns the plain name here
 	"strings"
@@ -1339,6 +1340,36 @@ type PortInUseError struct{ Port int }
 
 func (e *PortInUseError) Error() string {
 	return fmt.Sprintf("port %d already in use — another process is holding it; stop it, or move the app to another port", e.Port)
+}
+
+// PortHolder names the process listening on a host port, e.g.
+// "node node_modules/.bin/vite --port 20013 (pid 49062)", so the port pop-up
+// can say what to stop. "" when it can't tell.
+// ponytail: lsof only (macOS, most Linux installs); add a /proc/net/tcp
+// reader if a server without lsof ever needs this.
+func PortHolder(port int) string {
+	out, err := exec.Command("lsof", "-nP", fmt.Sprintf("-iTCP:%d", port), "-sTCP:LISTEN", "-t").Output()
+	if err != nil {
+		return ""
+	}
+	pid := strings.Fields(string(out))
+	if len(pid) == 0 {
+		return ""
+	}
+	cmd, err := exec.Command("ps", "-o", "command=", "-p", pid[0]).Output()
+	if err != nil {
+		return "pid " + pid[0]
+	}
+	f := strings.Fields(string(cmd))
+	if len(f) == 0 {
+		return "pid " + pid[0]
+	}
+	f[0] = filepath.Base(f[0]) // "Python", not the framework path to it
+	c := strings.Join(f, " ")
+	if len(c) > 90 {
+		c = c[:87] + "…"
+	}
+	return c + " (pid " + pid[0] + ")"
 }
 
 // FreePort suggests a host port nothing (app or process) is using.

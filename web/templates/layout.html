@@ -49,8 +49,9 @@
       if (!act || !/^\/apps\/\d+\/(start|stop|delete|port)$/.test(act)) return;
       e.preventDefault();
       // The port pop-up's form lives outside the app's card; it names the app.
-      var host = f.closest('[data-app-id]') ||
-                 document.querySelector('[data-app-id="' + f.dataset.appId + '"][data-status]');
+      var host = f.dataset.portApp
+        ? document.querySelector('[data-app-id="' + f.dataset.portApp + '"][data-status]')
+        : f.closest('[data-app-id]');
       var b = e.submitter || f.querySelector('button:not([type=button])');
       var idle = function () {
         if (b) b.classList.remove('is-busy');
@@ -84,7 +85,9 @@
         })
         .then(function (d) {
           if (!d) return;
-          window.dispatchEvent(new CustomEvent('port-resolved'));
+          // A moved port shows up in several places (address, host port, the
+          // dashboard row); reload rather than patch each one.
+          if (/\/port$/.test(act)) { location.reload(); return; }
           // [data-app-id] sits on the card *header* (and on the dashboard's row),
           // so removing it alone would leave the card body behind. Drop the whole
           // card where there is one; the row is its own host on the dashboard.
@@ -239,8 +242,9 @@
         </div>
         <p class="muted small"><strong x-text="c && c.name"></strong> can't start: another process on this machine is listening on
           port <span x-text="c && c.port"></span>. Move the app to a free port and start it there.</p>
+        <p class="muted small" x-show="c && c.holder">Held by <code style="overflow-wrap:anywhere" x-text="c && c.holder"></code> — stop that process yourself to keep the current port.</p>
         <div class="alert" x-show="c && c.retry" x-text="c && c.error"></div>
-        <form method="post" :action="c && '/apps/' + c.app + '/port'" :data-app-id="c && c.app">
+        <form method="post" :action="c && '/apps/' + c.app + '/port'" :data-port-app="c && c.app">
           <input type="hidden" name="csrf_token" value="{{.CSRF}}">
           <label>New port <span class="muted">(blank lets xdev pick)</span>
             <input type="number" name="port" min="1024" max="65535" step="1" :value="c && c.suggest" x-ref="port">

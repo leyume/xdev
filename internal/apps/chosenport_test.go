@@ -2,8 +2,12 @@ package apps
 
 import (
 	"errors"
+	"fmt"
 	"net"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"xdev/internal/store"
@@ -125,5 +129,21 @@ func TestMovePort(t *testing.T) {
 	}
 	if _, err := svc.MovePort(app.ID, other.Port); err == nil {
 		t.Errorf("MovePort onto another app's port %d should be refused", other.Port)
+	}
+}
+
+// TestPortHolder names this test process as the holder of a port it listens on.
+func TestPortHolder(t *testing.T) {
+	if _, err := exec.LookPath("lsof"); err != nil {
+		t.Skip("no lsof")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	got := PortHolder(ln.Addr().(*net.TCPAddr).Port)
+	if want := fmt.Sprintf("(pid %d)", os.Getpid()); !strings.HasSuffix(got, want) {
+		t.Errorf("PortHolder = %q, want it to end %q", got, want)
 	}
 }

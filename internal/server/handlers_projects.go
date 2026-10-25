@@ -575,7 +575,7 @@ func (s *Server) writePortConflict(w http.ResponseWriter, app store.App, port in
 	w.WriteHeader(http.StatusConflict)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": clampError(err.Error()), "port": port, "suggest": suggest,
-		"app": app.ID, "name": app.Name, "retry": retry,
+		"app": app.ID, "name": app.Name, "retry": retry, "holder": apps.PortHolder(port),
 	})
 }
 
