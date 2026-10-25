@@ -2,6 +2,7 @@ package apps
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -59,5 +60,28 @@ func TestParseDBEnv(t *testing.T) {
 		if env[i] != want[i] {
 			t.Errorf("env[%d] = %+v, want %+v", i, env[i], want[i])
 		}
+	}
+}
+
+func TestComposePasswordRewrite(t *testing.T) {
+	yaml := `services:
+  app:
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:-secret}
+  db:
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
+`
+	got := setComposeKeys(yaml, dbUserPassKeys, "n3w-Pass!")
+	if strings.Count(got, `: "n3w-Pass!"`) != 2 || !strings.Contains(got, "MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}") {
+		t.Fatalf("user rewrite:\n%s", got)
+	}
+	// A regenerated stack keeps the changed user password and the default root one.
+	if again := carryDBPasswords(got, yaml); again != got {
+		t.Fatalf("carry:\n%s", again)
+	}
+	if !dbPassRE.MatchString("n3w-Pass!") || dbPassRE.MatchString("short") || dbPassRE.MatchString("has$dollar1") || dbPassRE.MatchString("quote'd1234") {
+		t.Fatal("dbPassRE")
 	}
 }

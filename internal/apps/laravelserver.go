@@ -94,6 +94,11 @@ func (s *Service) SetLaravelServer(id int64, server string) error {
 	if err := s.writeInfra(app.Type, filepath.Dir(app.ComposePath)); err != nil {
 		return fmt.Errorf("refresh compose support files: %w", err)
 	}
+	if !data.SharedDB {
+		if prev, err := os.ReadFile(app.ComposePath); err == nil {
+			yaml = carryDBPasswords(string(prev), yaml)
+		}
+	}
 	if err := writeComposeEdit(app.ComposePath, yaml); err != nil {
 		return err
 	}

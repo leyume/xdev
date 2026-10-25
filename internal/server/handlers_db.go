@@ -80,7 +80,25 @@ func (s *Server) handleDedicatedDBDetail(w http.ResponseWriter, r *http.Request)
 		"Title":      d.App + " · Database · xdev",
 		"D":          d,
 		"AdminerURL": adminer,
+		"Msg":        r.URL.Query().Get("msg"),
+		"Err":        r.URL.Query().Get("err"),
 	})
+}
+
+// handleDedicatedDBPassword changes the app user's or root's password of an
+// app's own database, then recreates its stack with the new value.
+func (s *Server) handleDedicatedDBPassword(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	root := r.FormValue("account") == "root"
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	defer cancel()
+	q := url.Values{}
+	if err := s.apps.SetDedicatedDBPassword(ctx, id, root, r.FormValue("password")); err != nil {
+		q.Set("err", firstLine(err.Error()))
+	} else {
+		q.Set("msg", "Password changed and the app restarted with it.")
+	}
+	http.Redirect(w, r, fmt.Sprintf("/database/app/%d?%s", id, q.Encode()), http.StatusSeeOther)
 }
 
 // dbAction runs one shared-DB admin action and redirects back with a flash.

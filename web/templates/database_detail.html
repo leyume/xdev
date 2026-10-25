@@ -1,7 +1,7 @@
 {{define "content"}}
 {{$d := .D}}
-<div x-data="{ drop: false, typed: '' }" @keydown.escape.window="drop = false"
-     x-effect="document.body.classList.toggle('modal-open', drop)">
+<div x-data="{ drop: false, typed: '', pw: null }" @keydown.escape.window="drop = false; pw = null"
+     x-effect="document.body.classList.toggle('modal-open', drop || !!pw)">
 <div class="crumbs"><a href="/database">Databases</a> / <strong>{{if $d.Dedicated}}{{$d.App}}{{else}}{{$d.Name}}{{end}}</strong></div>
 <section class="page-head">
   <div>
@@ -37,7 +37,12 @@
       <dd class="mono">{{if .Secret}}<span x-show="!show">••••••••</span><span x-show="show" x-cloak>{{.Value}}</span>
         <button class="iconbtn tip" type="button" :data-tip="show ? 'Hide' : 'Reveal'" data-tip="Reveal" aria-label="Show or hide {{.Key}}" @click="show = !show">{{template "icon_eye" $}}</button>
         {{- else}}{{.Value}}{{end}}
-        <button class="iconbtn tip" type="button" data-tip="Copy" aria-label="Copy {{.Key}}" data-copy="{{.Value}}">{{template "icon_copy" $}}</button></dd></div>
+        <button class="iconbtn tip" type="button" data-tip="Copy" aria-label="Copy {{.Key}}" data-copy="{{.Value}}">{{template "icon_copy" $}}</button>
+        {{- if .Secret}}
+        <button class="iconbtn tip" type="button" data-tip="Change" aria-label="Change {{.Key}}"
+                data-key="{{.Key}}" data-account="{{if eq .Key "MYSQL_ROOT_PASSWORD" "MARIADB_ROOT_PASSWORD"}}root{{else}}user{{end}}"
+                @click="pw = { key: $el.dataset.key, account: $el.dataset.account }">{{template "icon_key" $}}</button>
+        {{- end}}</dd></div>
     {{end}}
   </dl>
   {{end}}
@@ -98,6 +103,34 @@
   </div>
   {{end}}
 </div>
+
+{{if $d.Env}}
+{{/* Changing a password recreates the app's stack: the database and the app
+     both take it from their environment. */}}
+<div class="modal-overlay" x-show="pw" x-cloak @click.self="pw = null">
+  <div class="modal modal-narrow card form-card" role="dialog" aria-modal="true" aria-label="Change password">
+    <div class="modal-head"><h3 style="margin:0">Change <span class="mono" x-text="pw && pw.key"></span></h3></div>
+    <p class="muted">The database and the app are updated together, then the app restarts to use it — a few seconds of downtime.</p>
+    <form method="post" action="/database/app/{{$d.AppID}}/password"
+          @submit="$el.querySelector('[type=submit]').classList.add('is-busy')">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input type="hidden" name="account" :value="pw && pw.account">
+      <label>New password
+        {{template "password_input" (dict "Auto" "new-password" "Min" 8)}}
+      </label>
+      <p class="muted small" style="margin:8px 0 0">8+ characters: letters, digits and <code>. _ ~ @ % ^ * + = ! -</code></p>
+      <div class="form-actions">
+        <button type="button" class="btn" style="margin-right:auto"
+                @click="const a = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789', r = crypto.getRandomValues(new Uint32Array(24)),
+                        i = $el.closest('form').querySelector('input[name=password]');
+                        i.value = Array.from(r, n => a[n % a.length]).join(''); i.type = 'text'">Generate</button>
+        <button type="button" class="btn" @click="pw = null">Cancel</button>
+        <button class="primary" type="submit">Change password</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}
 
 {{if not $d.Dedicated}}
 <div class="modal-overlay" x-show="drop" x-cloak @click.self="drop = false">

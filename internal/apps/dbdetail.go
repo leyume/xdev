@@ -3,6 +3,9 @@ package apps
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -149,16 +152,9 @@ func parseDescribe(out string, d *SharedDBDetail) {
 // container (an app that opted out of the shared server).
 func (s *Service) DedicatedDatabaseDetail(ctx context.Context, appID int64) (SharedDBDetail, error) {
 	var d SharedDBDetail
-	app, err := s.store.AppByID(appID)
+	app, proj, err := s.dedicatedApp(appID)
 	if err != nil {
-		return d, fmt.Errorf("no such app")
-	}
-	if !UsesDB(app.Type) || app.DBMode == store.DBShared || app.IsSharedWP() {
-		return d, fmt.Errorf("%s has no dedicated database", app.Name)
-	}
-	proj, err := s.store.ProjectByID(app.ProjectID)
-	if err != nil {
-		return d, fmt.Errorf("no such project")
+		return d, err
 	}
 	d = SharedDBDetail{
 		Name: dedicatedDBName(app), App: proj.Name + " / " + app.Name, Port: 3306,
@@ -166,12 +162,36 @@ func (s *Service) DedicatedDatabaseDetail(ctx context.Context, appID int64) (Sha
 		ProjectSlug: proj.Slug, AppID: app.ID,
 	}
 	d.Host = d.Container
-	engine := s.sel.Current()
+	engine := s.dedicatedEngine(app)
 	d.Env = dbContainerEnv(ctx, engine, d.Container)
 	if !containerRunning(ctx, engine, d.Container) {
 		return d, fmt.Errorf("%s's database isn't running — start the app first", d.App)
 	}
 	return d, describeDB(ctx, engine, d.Container, "", &d)
+}
+
+// dedicatedApp loads an app that runs its own database container.
+func (s *Service) dedicatedApp(appID int64) (store.App, store.Project, error) {
+	app, err := s.store.AppByID(appID)
+	if err != nil {
+		return app, store.Project{}, fmt.Errorf("no such app")
+	}
+	if !UsesDB(app.Type) || app.DBMode == store.DBShared || app.IsSharedWP() {
+		return app, store.Project{}, fmt.Errorf("%s has no dedicated database", app.Name)
+	}
+	proj, err := s.store.ProjectByID(app.ProjectID)
+	if err != nil {
+		return app, proj, fmt.Errorf("no such project")
+	}
+	return app, proj, nil
+}
+
+// dedicatedEngine is the engine the app's stack runs on, as composeCtx picks it.
+func (s *Service) dedicatedEngine(app store.App) runtime.Engine {
+	if e := runtime.Engine(app.Runtime); e != "" || s.sel == nil {
+		return e
+	}
+	return s.sel.Current()
 }
 
 // dedicatedDBName is the schema the app's compose template creates.
@@ -220,4 +240,110 @@ func parseDBEnv(out string) []DBEnvVar {
 		}
 	}
 	return env
+}
+
+// dbPassRE is what a dedicated database password may hold: enough for a strong
+// one, and nothing that needs quoting in YAML, a dotenv file or SQL, or that
+// compose would read as ${interpolation}.
+var dbPassRE = regexp.MustCompile(`^[A-Za-z0-9._~@%^*+=!-]{8,128}$`)
+
+// The compose keys each password travels under — the db service's own and the
+// ones the app reads it from. Laravel's fpm/prod stacks spell the user one as
+// ${DB_PASSWORD:-secret}; a literal replaces that.
+var (
+	dbUserPassKeys = []string{"MYSQL_PASSWORD", "MARIADB_PASSWORD", "DB_PASSWORD", "WORDPRESS_DB_PASSWORD"}
+	dbRootPassKeys = []string{"MYSQL_ROOT_PASSWORD", "MARIADB_ROOT_PASSWORD"}
+)
+
+// SetDedicatedDBPassword changes the app user's password (or root's) in an app's
+// own MariaDB, writes it into the compose file (and _/laravel.env) the app
+// connects with, and recreates the stack so both sides hold the new value. The
+// database must be running: the change is made through it.
+func (s *Service) SetDedicatedDBPassword(ctx context.Context, appID int64, root bool, pass string) error {
+	if !dbPassRE.MatchString(pass) {
+		return fmt.Errorf("use 8–128 characters: letters, digits and . _ ~ @ %% ^ * + = ! -")
+	}
+	app, proj, err := s.dedicatedApp(appID)
+	if err != nil {
+		return err
+	}
+	container := proj.Slug + "_" + app.Slug + "_db"
+	engine := s.dedicatedEngine(app)
+	if !containerRunning(ctx, engine, container) {
+		return fmt.Errorf("%s's database isn't running — start the app first", app.Name)
+	}
+	user, keys := "root", dbRootPassKeys
+	if !root {
+		keys = dbUserPassKeys
+		user = ""
+		for _, e := range dbContainerEnv(ctx, engine, container) {
+			if e.Key == "MYSQL_USER" || e.Key == "MARIADB_USER" {
+				user = e.Value
+			}
+		}
+		if !validIdent(user) {
+			return fmt.Errorf("can't tell which user %s's database gives the app", app.Name)
+		}
+	}
+	hosts, err := dbSQL(ctx, engine, container, "", fmt.Sprintf("SELECT host FROM mysql.user WHERE user='%s';", user))
+	if err != nil {
+		return fmt.Errorf("read %s's accounts: %w", user, err)
+	}
+	var stmts string
+	for _, h := range strings.Fields(hosts) {
+		stmts += fmt.Sprintf("ALTER USER '%s'@'%s' IDENTIFIED BY '%s';", user, sqlStr(h), pass)
+	}
+	if stmts == "" {
+		return fmt.Errorf("no %s account in %s's database", user, app.Name)
+	}
+	// Files first, database last: a failed write leaves everything as it was,
+	// and once the ALTER lands the files already say what the app needs.
+	b, err := os.ReadFile(app.ComposePath)
+	if err != nil {
+		return err
+	}
+	if err := writeComposeEdit(app.ComposePath, setComposeKeys(string(b), keys, pass)); err != nil {
+		return err
+	}
+	dotenv := filepath.Join(filepath.Dir(app.ComposePath), "laravel.env")
+	prevEnv, envErr := os.ReadFile(dotenv)
+	if !root && envErr == nil {
+		re := regexp.MustCompile(`(?m)^DB_PASSWORD=.*$`)
+		if err := os.WriteFile(dotenv, re.ReplaceAll(prevEnv, []byte("DB_PASSWORD="+pass)), 0o600); err != nil {
+			return err
+		}
+	}
+	if _, err := dbSQL(ctx, engine, container, "", stmts+"FLUSH PRIVILEGES;"); err != nil {
+		// The database kept the old password, so the files go back to it.
+		os.Rename(app.ComposePath+".bak", app.ComposePath)
+		if !root && envErr == nil {
+			os.WriteFile(dotenv, prevEnv, 0o600)
+		}
+		return fmt.Errorf("change the password: %w", err)
+	}
+	s.store.AddEvent(app.ProjectID, app.ID, "info", "Changed the "+user+" password of "+app.Name+"'s database")
+	// Recreate, not restart: a container keeps the environment it was created with.
+	if _, eng, workdir, pname, file, err := s.composeCtx(app.ID); err == nil {
+		runtime.Down(ctx, eng, workdir, pname, file)
+	}
+	return s.Start(app.ID)
+}
+
+// setComposeKeys sets every `KEY: value` environment entry named in keys to v.
+func setComposeKeys(yaml string, keys []string, v string) string {
+	re := regexp.MustCompile(`(?m)^([ \t]+)(` + strings.Join(keys, "|") + `):[ \t]*.*$`)
+	return re.ReplaceAllString(yaml, "${1}${2}: \""+v+"\"")
+}
+
+// carryDBPasswords copies the dedicated database passwords set in prev (an
+// app's current compose file) into next (its regenerated one), so regenerating
+// a stack never reverts a changed password and locks the app out.
+func carryDBPasswords(prev, next string) string {
+	for _, k := range append(append([]string{}, dbUserPassKeys...), dbRootPassKeys...) {
+		m := regexp.MustCompile(`(?m)^[ \t]+` + k + `:[ \t]*"?([^"\n]*)"?[ \t]*$`).FindStringSubmatch(prev)
+		if m != nil && dbPassRE.MatchString(m[1]) {
+			next = setComposeKeys(next, []string{k}, m[1])
+		}
+	}
+	return next
 }
