@@ -1295,6 +1295,44 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
 .row-list.is-grid .row-acts { position: absolute; top: 14px; right: 14px; min-width: 0; }
 .row-list.is-grid .row-name { padding-right: 4px; }
 
+/* ---- Activity page: project tabs, app chips, a day-grouped timeline ---- */
+.act-tabs { display: flex; gap: 4px; padding: 4px; margin-bottom: 12px; overflow-x: auto; scrollbar-width: none; background: var(--panel-2); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); width: fit-content; max-width: 100%; }
+.act-tabs::-webkit-scrollbar { display: none; }
+.act-tab { flex: none; display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; color: var(--muted); text-decoration: none; transition: color .15s, background .15s; }
+.act-tab:hover { color: var(--text); }
+.act-tab.active { color: var(--text); background: rgba(255, 255, 255, 0.07); }
+.act-tab.active .seg-n { color: var(--accent); background: rgba(180, 140, 255, 0.14); }
+.act-apps { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.act-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border: 1px solid var(--border-soft); border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--muted); text-decoration: none; transition: border-color .15s, color .15s; }
+.act-chip span { font-size: 11px; opacity: .75; font-variant-numeric: tabular-nums; }
+.act-chip:hover { color: var(--text); border-color: var(--border); }
+.act-chip.active { color: var(--accent); border-color: rgba(180, 140, 255, 0.45); background: rgba(180, 140, 255, 0.08); }
+.act-apps + .act-card, .act-tabs + .act-card { margin-top: 4px; }
+.act-card { padding-top: 8px; padding-bottom: 8px; }
+.act-day { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 16px 0 8px; }
+.act-day:not(:first-child) { border-top: 1px solid var(--border-soft); margin-top: 8px; }
+/* Each entry hangs off a thin rail joining the icons of one day. */
+.act-row { position: relative; display: flex; gap: 14px; padding: 8px 0; }
+.act-row:not(:last-child)::before { content: ""; position: absolute; left: 13px; top: 36px; bottom: -8px; width: 1px; background: var(--border-soft); }
+.act-row:has(+ .act-day)::before { display: none; }
+.act-icon { flex: none; position: relative; z-index: 1; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; font-weight: 800; color: var(--muted); background: var(--panel-2); border: 1px solid var(--border-soft); }
+.act-icon .ico { width: 13px; height: 13px; margin: 0; }
+.act-icon i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.act-icon.k-start { color: var(--ok); background: rgba(140, 232, 184, 0.1); border-color: rgba(140, 232, 184, 0.3); }
+.act-icon.k-deploy, .act-icon.k-create { color: var(--accent); background: rgba(180, 140, 255, 0.1); border-color: rgba(180, 140, 255, 0.3); }
+.act-icon.k-delete, .act-icon.k-error { color: var(--danger); background: rgba(245, 140, 140, 0.1); border-color: rgba(245, 140, 140, 0.3); }
+.act-icon.k-warn { color: var(--warn); background: rgba(242, 193, 78, 0.1); border-color: rgba(242, 193, 78, 0.3); }
+.act-main { flex: 1; min-width: 0; padding-top: 3px; }
+.act-msg { font-size: 13.5px; font-weight: 500; line-height: 1.45; overflow-wrap: anywhere; }
+.act-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.act-tag { font-size: 11.5px; font-weight: 600; color: var(--muted); text-decoration: none; padding: 1px 8px; border-radius: 5px; background: var(--panel-2); border: 1px solid var(--border-soft); }
+.act-tag.app { color: var(--text); }
+.act-tag:hover { color: var(--accent); border-color: rgba(180, 140, 255, 0.4); }
+.act-time { flex: none; padding-top: 5px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pager { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+.pager .small-btn { margin-left: 0; }
+.pager .disabled { opacity: .4; pointer-events: none; }
+
 /* ---- Copy-to-clipboard field ----
    A value xdev generated and you have to paste somewhere else: a webhook URL, a
    signing secret, a deploy key, a token shown once. Selecting a 3-line base64

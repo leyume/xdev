@@ -76,3 +76,83 @@ func scanEvents(rows *sql.Rows, err error) ([]Event, error) {
 	}
 	return out, rows.Err()
 }
+
+// Activity is one event with the names it belongs to, for the activity page.
+// ProjectName/AppName are "" when the event had none, or its project or app
+// has since been deleted.
+type Activity struct {
+	TS, Level, Message                string
+	ProjectID, AppID                  int64
+	ProjectName, ProjectSlug, AppName string
+}
+
+// SystemProject selects events that belong to no project (the shared
+// database, the WordPress pool, a full clear) in ActivityPage and the counts.
+const SystemProject int64 = -1
+
+// ActivityPage returns one page of events, newest first, and how many match
+// in all. projectID 0 means every project, SystemProject the project-less
+// ones; appID 0 means every app.
+func (s *Store) ActivityPage(projectID, appID int64, limit, offset int) ([]Activity, int, error) {
+	where, args := `1=1`, []any{}
+	switch {
+	case projectID == SystemProject:
+		where += ` AND e.project_id IS NULL`
+	case projectID > 0:
+		where += ` AND e.project_id = ?`
+		args = append(args, projectID)
+	}
+	if appID > 0 {
+		where += ` AND e.app_id = ?`
+		args = append(args, appID)
+	}
+	var total int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM events e WHERE `+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.db.Query(`SELECT e.ts, COALESCE(e.level,''), e.message,
+			COALESCE(e.project_id,0), COALESCE(e.app_id,0),
+			COALESCE(p.name,''), COALESCE(p.slug,''), COALESCE(a.name,'')
+		FROM events e
+		LEFT JOIN projects p ON p.id = e.project_id
+		LEFT JOIN apps a ON a.id = e.app_id
+		WHERE `+where+` ORDER BY e.id DESC LIMIT ? OFFSET ?`, append(args, limit, offset)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []Activity
+	for rows.Next() {
+		var a Activity
+		if err := rows.Scan(&a.TS, &a.Level, &a.Message, &a.ProjectID, &a.AppID,
+			&a.ProjectName, &a.ProjectSlug, &a.AppName); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, a)
+	}
+	return out, total, rows.Err()
+}
+
+// ActivityCounts counts events per project (SystemProject for project-less
+// ones) and per app, for the activity page's tabs.
+func (s *Store) ActivityCounts() (byProject, byApp map[int64]int, err error) {
+	byProject, byApp = map[int64]int{}, map[int64]int{}
+	rows, err := s.db.Query(`SELECT COALESCE(project_id, ?), COALESCE(app_id, 0), COUNT(*)
+		FROM events GROUP BY project_id, app_id`, SystemProject)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var pid, aid int64
+		var n int
+		if err := rows.Scan(&pid, &aid, &n); err != nil {
+			return nil, nil, err
+		}
+		byProject[pid] += n
+		if aid > 0 {
+			byApp[aid] += n
+		}
+	}
+	return byProject, byApp, rows.Err()
+}

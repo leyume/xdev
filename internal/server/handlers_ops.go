@@ -392,35 +392,185 @@ func (s *Server) handleEventsClear(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, target+"?cleared="+strconv.FormatInt(n, 10), http.StatusSeeOther)
 }
 
-// handleEvents shows the audit log — every project's, or one project's when
-// ?project=<slug> names it (the "See all" link on a project's activity card).
+// activityPageSize is how many entries one page of the activity log shows.
+const activityPageSize = 25
+
+// activityTab is one tab on the activity page: a project (or All / Other), or
+// one of the chosen project's apps.
+type activityTab struct {
+	Label, Href string
+	Count       int
+	Active      bool
+}
+
+// activityRow is one log entry as the page shows it: local time, a kind that
+// picks its icon, and a day heading on the first entry of each day.
+type activityRow struct {
+	store.Activity
+	Day, Time, Full, Kind string
+}
+
+// handleEvents shows the activity log, paged, with a tab per project and,
+// inside a project, per app. ?project=<slug>|other, ?app=<id>, ?page=<n>.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
 	var (
-		events []store.Event
-		err    error
-		proj   *store.Project
+		projectID int64
+		proj      *store.Project
 	)
-	if slug := r.URL.Query().Get("project"); slug != "" {
-		p, perr := s.store.ProjectBySlug(slug)
-		if perr != nil {
+	switch slug := q.Get("project"); slug {
+	case "":
+	case "other":
+		projectID = store.SystemProject
+	default:
+		p, err := s.store.ProjectBySlug(slug)
+		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
-		proj = &p
-		events, err = s.store.ListEventsByProject(p.ID, 200)
-	} else {
-		events, err = s.store.ListEvents(200)
+		proj, projectID = &p, p.ID
 	}
-	if err != nil {
+	appID, _ := strconv.ParseInt(q.Get("app"), 10, 64)
+	if proj == nil {
+		appID = 0 // app tabs only exist inside a project
+	}
+	page, _ := strconv.Atoi(q.Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	rows, total, err := s.store.ActivityPage(projectID, appID, activityPageSize, (page-1)*activityPageSize)
+	byProject, byApp, cerr := s.store.ActivityCounts()
+	if err != nil || cerr != nil {
 		http.Error(w, "could not load events", http.StatusInternalServerError)
 		return
 	}
+	pages := max(1, (total+activityPageSize-1)/activityPageSize)
+
+	href := func(project string, app int64, page int) string {
+		v := url.Values{}
+		if project != "" {
+			v.Set("project", project)
+		}
+		if app > 0 {
+			v.Set("app", strconv.FormatInt(app, 10))
+		}
+		if page > 1 {
+			v.Set("page", strconv.Itoa(page))
+		}
+		if e := v.Encode(); e != "" {
+			return "/events?" + e
+		}
+		return "/events"
+	}
+
+	// Project tabs: every project with activity, in the sidebar's order.
+	all := 0
+	for _, n := range byProject {
+		all += n
+	}
+	tabs := []activityTab{{Label: "All", Href: href("", 0, 1), Count: all, Active: projectID == 0}}
+	projects, _ := s.store.ListProjects()
+	for _, p := range projects {
+		if n := byProject[p.ID]; n > 0 || p.ID == projectID {
+			tabs = append(tabs, activityTab{Label: p.Name, Href: href(p.Slug, 0, 1), Count: n, Active: p.ID == projectID})
+		}
+	}
+	if n := byProject[store.SystemProject]; n > 0 {
+		tabs = append(tabs, activityTab{Label: "Other", Href: href("other", 0, 1), Count: n, Active: projectID == store.SystemProject})
+	}
+	// App tabs, inside a project.
+	var appTabs []activityTab
+	if proj != nil {
+		appTabs = append(appTabs, activityTab{Label: "All apps", Href: href(proj.Slug, 0, 1), Count: byProject[proj.ID], Active: appID == 0})
+		apps, _ := s.store.ListAppsByProject(proj.ID)
+		for _, a := range apps {
+			if n := byApp[a.ID]; n > 0 || a.ID == appID {
+				appTabs = append(appTabs, activityTab{Label: a.Name, Href: href(proj.Slug, a.ID, 1), Count: n, Active: a.ID == appID})
+			}
+		}
+	}
+
+	slug := ""
+	if proj != nil {
+		slug = proj.Slug
+	} else if projectID == store.SystemProject {
+		slug = "other"
+	}
+	view := make([]activityRow, 0, len(rows))
+	lastDay := ""
+	now := time.Now()
+	for _, a := range rows {
+		row := activityRow{Activity: a, Kind: activityKind(a.Level, a.Message)}
+		if t, err := time.ParseInLocation("2006-01-02 15:04:05", a.TS, time.UTC); err == nil {
+			t = t.Local()
+			row.Time, row.Full = t.Format("15:04"), t.Format("Mon 2 Jan 2006, 15:04:05")
+			if d := dayLabel(t, now); d != lastDay {
+				row.Day, lastDay = d, d
+			}
+		} else {
+			row.Time, row.Full = a.TS, a.TS
+		}
+		view = append(view, row)
+	}
+
 	title := "Activity · xdev"
 	if proj != nil {
 		title = "Activity · " + proj.Name + " · xdev"
 	}
-	cleared, _ := strconv.Atoi(r.URL.Query().Get("cleared"))
-	s.render(w, r, "events", viewData{
-		"Title": title, "Events": events, "Cleared": cleared, "Project": proj,
-	})
+	data := viewData{
+		"Title": title, "Events": view, "Project": proj, "Tabs": tabs, "AppTabs": appTabs,
+		"Total": total, "Page": page, "Pages": pages,
+		"From": (page-1)*activityPageSize + 1, "To": (page-1)*activityPageSize + len(view),
+	}
+	if page > 1 {
+		data["PrevHref"] = href(slug, appID, page-1)
+	}
+	if page < pages {
+		data["NextHref"] = href(slug, appID, page+1)
+	}
+	if n, _ := strconv.Atoi(q.Get("cleared")); n > 0 {
+		data["Msg"] = fmt.Sprintf("Activity log cleared (%d entries).", n)
+	}
+	s.render(w, r, "events", data)
+}
+
+// activityKind sorts an entry into the handful of kinds the page gives an icon
+// and colour: what happened, read off the message's leading verb.
+func activityKind(level, msg string) string {
+	switch level {
+	case "error":
+		return "error"
+	case "warn":
+		return "warn"
+	}
+	m := strings.ToLower(msg)
+	switch {
+	case strings.HasPrefix(m, "started"), strings.HasPrefix(m, "restarted"):
+		return "start"
+	case strings.HasPrefix(m, "stopped"):
+		return "stop"
+	case strings.Contains(m, "deploy"):
+		return "deploy"
+	case strings.HasPrefix(m, "deleted"), strings.HasPrefix(m, "removed"),
+		strings.HasPrefix(m, "dropped"), strings.HasPrefix(m, "cleared"):
+		return "delete"
+	case strings.HasPrefix(m, "created"), strings.HasPrefix(m, "added"):
+		return "create"
+	}
+	return "info"
+}
+
+// dayLabel heads a day's entries: Today, Yesterday, or the date.
+func dayLabel(t, now time.Time) string {
+	y1, m1, d1 := t.Date()
+	y2, m2, d2 := now.Date()
+	switch {
+	case y1 == y2 && m1 == m2 && d1 == d2:
+		return "Today"
+	case t.Format("2006-01-02") == now.AddDate(0, 0, -1).Format("2006-01-02"):
+		return "Yesterday"
+	case y1 == y2:
+		return t.Format("Monday 2 January")
+	}
+	return t.Format("2 January 2006")
 }

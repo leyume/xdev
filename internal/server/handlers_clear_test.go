@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"xdev/internal/apps"
 	"xdev/internal/store"
@@ -117,7 +118,7 @@ func TestClearButtonsExist(t *testing.T) {
 // the project page sends its project id, the all-projects page sends none.
 func TestActivityClearIsScoped(t *testing.T) {
 	events := renderNamed(t, "events", viewData{
-		"Title": "Activity", "Events": []store.Event{{TS: "2026-08-15", Level: "info", Message: "did a thing"}},
+		"Title": "Activity", "Events": []activityRow{{Activity: store.Activity{TS: "2026-08-15", Level: "info", Message: "did a thing"}}},
 	})
 	if !strings.Contains(events, `action="/events/clear"`) {
 		t.Fatal("the Activity page has no Clear button")
@@ -212,7 +213,7 @@ func TestRefreshAndClearAreLabelledIconButtons(t *testing.T) {
 		}),
 		"events": renderNamed(t, "events", viewData{
 			"Title":  "Activity",
-			"Events": []store.Event{{TS: "2026-08-15", Level: "info", Message: "did a thing"}},
+			"Events": []activityRow{{Activity: store.Activity{TS: "2026-08-15", Level: "info", Message: "did a thing"}}},
 		}),
 		"project": renderProjectWith(t, nil, viewData{
 			"Activity": []store.Event{{TS: "2026-08-15", Level: "info", Message: "started web"}},
@@ -469,6 +470,32 @@ func TestStatusDotIsCentredOnSingleLineRows(t *testing.T) {
 	for _, also := range []string{".deploy-head .status", ".app-card-head .status", ".status-label .status"} {
 		if !strings.Contains(rule[1], also) {
 			t.Errorf("%s is not covered by the shared reset", also)
+		}
+	}
+}
+
+func TestActivityKindAndDayLabel(t *testing.T) {
+	for msg, want := range map[string]string{
+		"Started app API": "start", "Restarted shared MariaDB": "start", "Stopped app UI": "stop",
+		"Deployed abc123 to web": "deploy", "Deleted app old": "delete", "Cleared 12 activity entries": "delete",
+		"Added shared WordPress plugins akismet": "create", "Renamed project": "info",
+	} {
+		if got := activityKind("info", msg); got != want {
+			t.Errorf("activityKind(%q) = %q, want %q", msg, got, want)
+		}
+	}
+	if activityKind("error", "Started app API") != "error" {
+		t.Error("an error entry should read as an error whatever its verb")
+	}
+	now := time.Date(2026, 10, 24, 15, 0, 0, 0, time.Local)
+	for in, want := range map[time.Time]string{
+		now.Add(-2 * time.Hour):                       "Today",
+		now.AddDate(0, 0, -1):                         "Yesterday",
+		now.AddDate(0, 0, -3):                         "Wednesday 21 October",
+		time.Date(2025, 3, 1, 9, 0, 0, 0, time.Local): "1 March 2025",
+	} {
+		if got := dayLabel(in, now); got != want {
+			t.Errorf("dayLabel(%v) = %q, want %q", in, got, want)
 		}
 	}
 }

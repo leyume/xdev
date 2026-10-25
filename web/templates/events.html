@@ -2,38 +2,71 @@
 <section class="page-head">
   <div>
     <h1>Activity</h1>
-    {{with .Project}}<div class="muted small">{{.Name}} only · <a href="/events">Show every project</a></div>{{end}}
+    <div class="muted small">{{.Total}} entr{{if eq .Total 1}}y{{else}}ies{{end}}{{with .Project}} in {{.Name}}{{end}}</div>
   </div>
-  <div class="form-actions">
-    {{if .Events}}
-    {{/* Without a project this page shows everything, so Clear means all of it —
-         including rows of projects that no longer exist, which nothing else can
-         reach. Filtered to one project, it clears only that project's. */}}
-    <form class="inline" method="post" action="/events/clear"
-          data-confirm="{{if .Project}}Clear the activity log for {{.Project.Name}}?{{else}}Clear the entire activity log for every project?{{end}}">
-      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      {{with .Project}}<input type="hidden" name="project_id" value="{{.ID}}">{{end}}
-      <button class="iconbtn tip danger" type="submit"
-              data-tip="Clear activity" aria-label="Clear activity">{{template "icon_trash" .}}</button>
-    </form>
-    {{end}}
-    <a class="btn" href="/">← Dashboard</a>
-  </div>
+  {{if .Events}}
+  {{/* Without a project this clears everything — including rows of projects
+       that no longer exist, which nothing else can reach. Inside a project it
+       clears only that project's. */}}
+  <form class="inline" method="post" action="/events/clear"
+        data-confirm="{{if .Project}}Clear the activity log for {{.Project.Name}}?{{else}}Clear the entire activity log for every project?{{end}}">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    {{with .Project}}<input type="hidden" name="project_id" value="{{.ID}}">{{end}}
+    <button class="iconbtn tip danger" type="submit"
+            data-tip="Clear {{if .Project}}this project's {{end}}activity" aria-label="Clear activity">{{template "icon_trash" .}}</button>
+  </form>
+  {{end}}
 </section>
-{{if .Cleared}}<div class="alert ok">Activity log cleared ({{.Cleared}} entries).</div>{{end}}
+
+{{template "flash" .}}
+
+<nav class="act-tabs" aria-label="Project">
+  {{range .Tabs}}<a href="{{.Href}}" class="act-tab{{if .Active}} active{{end}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}} <span class="seg-n">{{.Count}}</span></a>{{end}}
+</nav>
+{{if .AppTabs}}
+<nav class="act-apps" aria-label="App">
+  {{range .AppTabs}}<a href="{{.Href}}" class="act-chip{{if .Active}} active{{end}}"{{if .Active}} aria-current="page"{{end}}>{{.Label}} <span>{{.Count}}</span></a>{{end}}
+</nav>
+{{end}}
+
 {{if .Events}}
-<div class="card">
-  <table class="table">
-    {{range .Events}}
-    <tr>
-      <td class="muted small nowrap">{{.TS}}</td>
-      <td><span class="lvl {{.Level}}">{{.Level}}</span></td>
-      <td>{{.Message}}</td>
-    </tr>
-    {{end}}
-  </table>
+<div class="card act-card">
+  {{range .Events}}
+  {{if .Day}}<div class="act-day">{{.Day}}</div>{{end}}
+  <div class="act-row">
+    <span class="act-icon k-{{.Kind}}" aria-hidden="true">
+      {{- if eq .Kind "start"}}{{template "icon_play" $}}
+      {{- else if eq .Kind "stop"}}{{template "icon_stop" $}}
+      {{- else if eq .Kind "deploy"}}{{template "icon_deploy" $}}
+      {{- else if eq .Kind "delete"}}{{template "icon_trash" $}}
+      {{- else if eq .Kind "create"}}+
+      {{- else if or (eq .Kind "error") (eq .Kind "warn")}}!
+      {{- else}}<i></i>{{end -}}
+    </span>
+    <div class="act-main">
+      <div class="act-msg">{{.Message}}</div>
+      {{if or (and .ProjectName (not $.Project)) .AppName}}
+      <div class="act-meta">
+        {{if and .ProjectName (not $.Project)}}<a class="act-tag" href="/events?project={{.ProjectSlug}}">{{.ProjectName}}</a>{{end}}
+        {{if .AppName}}<a class="act-tag app" href="/projects/{{.ProjectSlug}}#app-{{.AppID}}">{{.AppName}}</a>{{end}}
+      </div>
+      {{end}}
+    </div>
+    <time class="act-time" title="{{.Full}}">{{.Time}}</time>
+  </div>
+  {{end}}
 </div>
+
+{{if or .PrevHref .NextHref}}
+<nav class="pager" aria-label="Pages">
+  <span class="muted small">{{.From}}–{{.To}} of {{.Total}}</span>
+  <span class="spacer"></span>
+  {{with .PrevHref}}<a class="btn small-btn" href="{{.}}">← Newer</a>{{else}}<span class="btn small-btn disabled">← Newer</span>{{end}}
+  <span class="muted small">Page {{.Page}} of {{.Pages}}</span>
+  {{with .NextHref}}<a class="btn small-btn" href="{{.}}">Older →</a>{{else}}<span class="btn small-btn disabled">Older →</span>{{end}}
+</nav>
+{{end}}
 {{else}}
-<div class="empty card"><p class="muted">No activity yet.</p></div>
+<div class="empty card"><p class="muted">No activity {{if .Project}}for {{.Project.Name}} {{end}}yet.</p></div>
 {{end}}
 {{end}}
