@@ -1,48 +1,67 @@
 {{define "content"}}
+<div x-data="{ dirty: false, confirm: false }" @keydown.escape.window="confirm = false"
+     x-effect="document.body.classList.toggle('modal-open', confirm)">
 <section class="page-head">
-  <h1>Configuration</h1>
-  <a class="btn" href="/">← Dashboard</a>
+  <div>
+    <h1>Configuration</h1>
+    <div class="muted small">The <code>XDEV_*</code> settings this service starts with — read once at startup, so a change applies after a restart.</div>
+  </div>
 </section>
 
-{{if .Msg}}<div class="alert" style="border-color:#2f855a;color:#2f855a">{{.Msg}}</div>{{end}}
-{{if .Err}}<div class="alert">{{.Err}}</div>{{end}}
+{{template "flash" .}}
 
-<p class="muted small">
-  These are the <code>XDEV_*</code> settings your service starts with. xdev reads
-  them once at startup, so <strong>a change takes effect only after a restart</strong>
-  — saving here never restarts the service you're currently using.
-  {{if .Path}}<br>File: <code>{{.Path}}</code> · data dir: <code>{{.DataDir}}</code>{{end}}
-</p>
-
-{{if .Path}}
-<div class="card">
-  {{if .Editable}}
-  <form method="post" action="/settings/env"
-        data-confirm="Save {{.Path}}? A bad value can stop xdev from starting — the previous file is kept as .bak.">
-    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-    <label>xdev.env
-      <textarea name="content" rows="24" spellcheck="false"
-                style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55">{{.Content}}</textarea>
-    </label>
-    <div class="form-actions">
-      <button class="primary" type="submit">Save</button>
-      <span class="muted small">Then restart: <code>sudo systemctl restart xdev</code></span>
+{{if .File}}
+<div class="row-16-10 env-row">
+  <div class="card">
+    <div class="card-head">
+      <h3>xdev.env</h3>
+      {{if .Editable}}<span class="chip" x-show="dirty" x-cloak>unsaved changes</span>{{else}}<span class="chip">read-only</span>{{end}}
     </div>
-  </form>
-  {{else}}
-  <p class="muted small">Read-only — xdev can't write this file as the user it runs as.</p>
-  <pre style="overflow-x:auto"><code>{{.Content}}</code></pre>
-  {{end}}
+    <dl class="db-conn env-meta">
+      <div><dt>File</dt><dd class="mono">{{.File}}
+        <button class="iconbtn tip" type="button" data-tip="Copy" aria-label="Copy the file path" data-copy="{{.File}}">{{template "icon_copy" $}}</button></dd></div>
+      <div><dt>Data directory</dt><dd class="mono">{{.DataDir}}
+        <button class="iconbtn tip" type="button" data-tip="Copy" aria-label="Copy the data directory" data-copy="{{.DataDir}}">{{template "icon_copy" $}}</button></dd></div>
+    </dl>
+    {{if .Editable}}
+    <form id="envform" method="post" action="/settings/env" @input="dirty = true" @reset="dirty = false">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <textarea class="env-editor" name="content" rows="24" spellcheck="false" aria-label="xdev.env contents">{{.Content}}</textarea>
+      <div class="form-actions">
+        <button class="primary" type="button" :disabled="!dirty" @click="confirm = true">Save</button>
+        <button class="btn" type="reset" :disabled="!dirty">Discard changes</button>
+      </div>
+    </form>
+    {{else}}
+    <p class="muted small" style="margin:0 0 12px">xdev can't write this file as the user it runs as, so it is shown read-only.</p>
+    <pre class="env-editor"><code>{{.Content}}</code></pre>
+    {{end}}
+  </div>
+
+  <div class="card env-notes">
+    <div class="card-head"><h3>How it works</h3></div>
+    <ul>
+      <li><strong>Format.</strong> Each line is <code>KEY=VALUE</code> or a <code>#</code> comment. Anything else is rejected before writing — a malformed file stops xdev from starting.</li>
+      <li><strong>Backup.</strong> Every save keeps the previous file next to it as <code>xdev.env.bak</code>.</li>
+      <li><strong>Restart.</strong> Saving never restarts the service you're using. Afterwards run <code>sudo systemctl restart xdev</code>.</li>
+      <li><strong>Plain HTTP.</strong> <code>XDEV_DISABLE_HTTPS_REDIRECT=true</code> serves sites without the HTTPS redirect, for previewing on alternate ports during a migration. Set it back once you're on 80/443.</li>
+      <li><strong>Reference.</strong> <code>deploy/xdev.env.example</code> in the repo, or <code>xdev help</code>.</li>
+    </ul>
+  </div>
 </div>
 
-<div class="card">
-  <h2>Notes</h2>
-  <ul class="muted small" style="margin:0;padding-left:1.1rem;line-height:1.7">
-    <li>Lines must be <code>KEY=VALUE</code> or start with <code>#</code>; anything else is rejected before writing, since a malformed file stops the service from starting.</li>
-    <li>The previous contents are saved next to it as <code>xdev.env.bak</code> on every save.</li>
-    <li><code>XDEV_DISABLE_HTTPS_REDIRECT=true</code> serves sites over plain HTTP with no redirect. It's for previewing on alternate ports during a migration — set it back to <code>false</code> once you're on 80/443.</li>
-    <li>Full reference: <code>deploy/xdev.env.example</code> in the repo, or <code>xdev help</code>.</li>
-  </ul>
+{{if .Editable}}
+<div class="modal-overlay" x-show="confirm" x-cloak @click.self="confirm = false">
+  <div class="modal modal-narrow card form-card" role="dialog" aria-modal="true" aria-label="Save configuration">
+    <div class="modal-head"><h3 style="margin:0">Save xdev.env?</h3></div>
+    <p class="muted">A bad value can stop xdev from starting on its next restart. The current file is kept as <code>xdev.env.bak</code>.</p>
+    <div class="form-actions">
+      <button type="button" class="btn" @click="confirm = false">Cancel</button>
+      <button class="primary" type="submit" form="envform">Save</button>
+    </div>
+  </div>
 </div>
 {{end}}
+{{end}}
+</div>
 {{end}}

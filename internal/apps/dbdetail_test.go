@@ -42,3 +42,22 @@ func TestParseDescribe(t *testing.T) {
 		t.Errorf("users = %+v\nwant %+v", d.Users, want)
 	}
 }
+
+func TestParseDBEnv(t *testing.T) {
+	out := "PATH=/usr/bin\nMARIADB_VERSION=1:11.4\nMYSQL_ROOT_PASSWORD=root\nMYSQL_USER=laravel\nMYSQL_PASSWORD=a=b\nMYSQL_DATABASE=laravel\n"
+	env := parseDBEnv(out)
+	want := []DBEnvVar{
+		{"MYSQL_DATABASE", "laravel", false},
+		{"MYSQL_USER", "laravel", false},
+		{"MYSQL_PASSWORD", "a=b", true},
+		{"MYSQL_ROOT_PASSWORD", "root", true},
+	}
+	if len(env) != len(want) {
+		t.Fatalf("got %+v", env)
+	}
+	for i := range want {
+		if env[i] != want[i] {
+			t.Errorf("env[%d] = %+v, want %+v", i, env[i], want[i])
+		}
+	}
+}

@@ -20,7 +20,7 @@ func (s *Server) handleEnvSettings(w http.ResponseWriter, r *http.Request) {
 	path := config.EnvFilePath()
 	data := viewData{
 		"Title":   "Configuration · xdev",
-		"Path":    path,
+		"File":    path,
 		"Msg":     r.URL.Query().Get("msg"),
 		"Err":     r.URL.Query().Get("err"),
 		"DataDir": s.cfg.DataDir,

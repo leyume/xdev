@@ -167,6 +167,7 @@ func (s *Service) DedicatedDatabaseDetail(ctx context.Context, appID int64) (Sha
 	}
 	d.Host = d.Container
 	engine := s.sel.Current()
+	d.Env = dbContainerEnv(ctx, engine, d.Container)
 	if !containerRunning(ctx, engine, d.Container) {
 		return d, fmt.Errorf("%s's database isn't running — start the app first", d.App)
 	}
@@ -179,4 +180,44 @@ func dedicatedDBName(a store.App) string {
 		return "wordpress"
 	}
 	return "laravel"
+}
+
+// DBEnvVar is one connection setting from a dedicated database container's
+// environment, as the app's compose file passed it in.
+type DBEnvVar struct {
+	Key, Value string
+	Secret     bool
+}
+
+// dbEnvOrder lists the settings worth showing, in reading order; the image's own
+// (MARIADB_VERSION and the like) are left out.
+var dbEnvOrder = []string{"DATABASE", "USER", "PASSWORD", "ROOT_PASSWORD"}
+
+// dbContainerEnv reads the MARIADB_*/MYSQL_* credentials a database container
+// was created with. It works on a stopped container too; nil when it can't.
+func dbContainerEnv(ctx context.Context, engine runtime.Engine, container string) []DBEnvVar {
+	out, err := runtime.Exec(ctx, engine, "container", "inspect", "--format",
+		`{{range .Config.Env}}{{println .}}{{end}}`, container)
+	if err != nil {
+		return nil
+	}
+	return parseDBEnv(out)
+}
+
+func parseDBEnv(out string) []DBEnvVar {
+	got := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
+			got[k] = v
+		}
+	}
+	var env []DBEnvVar
+	for _, suffix := range dbEnvOrder {
+		for _, prefix := range []string{"MARIADB_", "MYSQL_"} {
+			if v, ok := got[prefix+suffix]; ok {
+				env = append(env, DBEnvVar{Key: prefix + suffix, Value: v, Secret: strings.HasSuffix(suffix, "PASSWORD")})
+			}
+		}
+	}
+	return env
 }

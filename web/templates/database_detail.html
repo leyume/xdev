@@ -29,6 +29,18 @@
     <div class="db-tile"><div class="db-stat-label">Rows</div><div class="db-stat-num">{{$d.TotalRows}}</div><div class="muted small">approximate</div></div>
     <div class="db-tile"><div class="db-stat-label">Host (from apps)</div><div class="db-stat-num db-stat-text mono">{{$d.Host}}:{{$d.Port}}</div></div>
   </div>
+  {{with $d.Env}}
+  {{/* The dedicated container's own credentials, from its environment. */}}
+  <dl class="db-conn">
+    {{range .}}
+    <div{{if .Secret}} x-data="{ show: false }"{{end}}><dt>{{.Key}}</dt>
+      <dd class="mono">{{if .Secret}}<span x-show="!show">••••••••</span><span x-show="show" x-cloak>{{.Value}}</span>
+        <button class="iconbtn tip" type="button" :data-tip="show ? 'Hide' : 'Reveal'" data-tip="Reveal" aria-label="Show or hide {{.Key}}" @click="show = !show">{{template "icon_eye" $}}</button>
+        {{- else}}{{.Value}}{{end}}
+        <button class="iconbtn tip" type="button" data-tip="Copy" aria-label="Copy {{.Key}}" data-copy="{{.Value}}">{{template "icon_copy" $}}</button></dd></div>
+    {{end}}
+  </dl>
+  {{end}}
   {{if not .AdminerURL}}
   <p class="muted small" style="margin:16px 0 0">{{if $d.Dedicated}}No Adminer link for this app — turn Adminer on in the app's settings (it is served through the proxy) to browse the data.{{else}}Start Adminer on the <a href="/database">Databases</a> page to browse this database in a web console.{{end}}</p>
   {{end}}

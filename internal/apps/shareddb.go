@@ -361,6 +361,7 @@ type SharedDBDetail struct {
 	Container   string
 	ProjectSlug string
 	AppID       int64
+	Env         []DBEnvVar // the container's MARIADB_*/MYSQL_* settings
 }
 
 // SharedDatabaseDetail returns one database's owner, total size, and table list.

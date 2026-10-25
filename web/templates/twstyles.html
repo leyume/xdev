@@ -1452,4 +1452,11 @@ button.copybtn.copied { color: var(--ok); border-color: rgba(140, 232, 184, 0.45
 .toast.bad { border-color: rgba(245, 140, 140, 0.35); border-left-color: var(--danger); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 @media (max-width: 600px) { .toast { left: 16px; right: 16px; bottom: 16px; } }
+/* Configuration: the xdev.env editor beside its notes. */
+.env-row { align-items: start; }
+.db-conn.env-meta { margin: 0 0 16px; }
+.env-editor { display: block; width: 100%; margin: 0; padding: 14px 16px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.6; tab-size: 4; background: var(--panel-2); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); resize: vertical; overflow-x: auto; white-space: pre; }
+.env-notes ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 14px; font-size: 13px; line-height: 1.6; color: var(--muted); }
+.env-notes li strong { color: var(--text); font-weight: 600; }
+.env-notes .card-head { margin-bottom: 14px; }
 </style>{{end}}
