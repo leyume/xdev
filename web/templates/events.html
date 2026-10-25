@@ -1,5 +1,10 @@
 {{define "content"}}
-<div x-data="{ clear: false, view: (() => { try { return localStorage.getItem('xdev.activity.view') === 'table' ? 'table' : 'timeline' } catch (e) { return 'timeline' } })() }">
+{{/* The saved timeline/table choice goes on <html> before the list is parsed,
+     and CSS shows the matching view: deciding it later, in Alpine, painted the
+     other view for a frame first. */}}
+<script>try { document.documentElement.dataset.actView = localStorage.getItem('xdev.activity.view') === 'table' ? 'table' : 'timeline' } catch (e) {}</script>
+<div x-data="{ clear: false, view: document.documentElement.dataset.actView || 'timeline',
+               setView(v) { this.view = v; document.documentElement.dataset.actView = v; try { localStorage.setItem('xdev.activity.view', v) } catch (e) {} } }">
 <section class="page-head">
   <div>
     <h1>Activity</h1>
@@ -10,10 +15,10 @@
     <div class="viewswitch" role="group" aria-label="View">
       <button type="button" class="viewbtn tip" data-tip="Timeline" aria-label="Timeline view"
               :class="{active: view === 'timeline'}" :aria-pressed="(view === 'timeline').toString()"
-              @click="view = 'timeline'; try { localStorage.setItem('xdev.activity.view', 'timeline') } catch (e) {}">{{template "icon_activity" .}}</button>
+              @click="setView('timeline')">{{template "icon_activity" .}}</button>
       <button type="button" class="viewbtn tip" data-tip="Table" aria-label="Table view"
               :class="{active: view === 'table'}" :aria-pressed="(view === 'table').toString()"
-              @click="view = 'table'; try { localStorage.setItem('xdev.activity.view', 'table') } catch (e) {}">{{template "icon_list" .}}</button>
+              @click="setView('table')">{{template "icon_list" .}}</button>
     </div>
     {{/* Everything matching the tabs, not only the page on screen. Closes on a
          click anywhere else, or Escape. */}}
@@ -43,7 +48,7 @@
 {{end}}
 
 {{if .Events}}
-<div class="card act-card" x-show="view === 'timeline'">
+<div class="card act-card">
   {{range .Events}}
   {{if .Day}}<div class="act-day">{{.Day}}</div>{{end}}
   <div class="act-row">
@@ -70,7 +75,7 @@
   {{end}}
 </div>
 
-<div class="card act-table-card" x-show="view === 'table'" x-cloak>
+<div class="card act-table-card">
   <table class="table act-table">
     <thead><tr><th>Time</th><th>Level</th>{{if not .Project}}<th>Project</th>{{end}}<th>App</th><th>Event</th></tr></thead>
     <tbody>

@@ -162,6 +162,16 @@
     });
   </script>
   <style>
+    /* Moving between pages (tabs, paging, the sidebar) crossfades the content
+       instead of blanking it; the sidebar and header, unchanged, stay put.
+       Same-origin cross-document view transitions; browsers without them just
+       navigate as before. Plain CSS here, outside the Tailwind block. */
+    @media (prefers-reduced-motion: no-preference) {
+      @view-transition { navigation: auto; }
+      main.container { view-transition-name: page; }
+      ::view-transition-old(page), ::view-transition-new(page) { animation-duration: .18s; }
+      ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+    }
     /* Which lifecycle button shows follows the app's current status, so the
        fetch handler above only flips [data-status] — no button HTML rebuilt. */
     [data-status="running"] .act-start { display: none; }
