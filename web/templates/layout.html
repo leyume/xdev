@@ -86,25 +86,46 @@
       var btn = e.target.closest && e.target.closest('[data-copy]');
       if (!btn) return;
       e.preventDefault();
-      var row = btn.closest('.copy-row');
-      var field = row && row.querySelector('input, textarea');
-      if (!field) return;
+      // The value is the field beside the button, or (an icon button with no
+      // visible field, like a hidden password) data-copy="<value>" itself.
+      var field = null, value = btn.dataset.copy;
+      if (!value) {
+        var row = btn.closest('.copy-row');
+        field = row && row.querySelector('input, textarea');
+        if (!field) return;
+        value = field.value;
+      }
+      // Icon buttons report through their tooltip; text buttons through their text.
+      var icon = btn.classList.contains('iconbtn');
       var done = function (ok) {
-        var was = btn.dataset.label || btn.textContent;
+        var msg = ok ? 'Copied' : 'Press ⌘/Ctrl-C';
+        var was = btn.dataset.label || (icon ? btn.dataset.tip : btn.textContent);
         btn.dataset.label = was;
-        btn.textContent = ok ? 'Copied' : 'Press ⌘/Ctrl-C';
+        if (icon) btn.dataset.tip = msg; else btn.textContent = msg;
         btn.classList.toggle('copied', ok);
-        setTimeout(function () { btn.textContent = was; btn.classList.remove('copied'); }, 1600);
+        setTimeout(function () {
+          if (icon) btn.dataset.tip = was; else btn.textContent = was;
+          btn.classList.remove('copied');
+        }, 1600);
       };
-      field.focus();
-      field.select();
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(field.value).then(function () { done(true); },
-                                                        function () { done(false); });
+        if (field) { field.focus(); field.select(); }
+        navigator.clipboard.writeText(value).then(function () { done(true); },
+                                                  function () { done(false); });
         return;
       }
+      var tmp = field;
+      if (!tmp) {
+        tmp = document.createElement('textarea');
+        tmp.value = value;
+        tmp.style.cssText = 'position:fixed;opacity:0';
+        document.body.appendChild(tmp);
+      }
+      tmp.focus();
+      tmp.select();
       var ok = false;
       try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      if (!field) tmp.remove();
       done(ok);
     });
 

@@ -62,7 +62,8 @@
     <div><dt>Image</dt><dd class="mono">{{$db.Image}}</dd></div>
     <div x-data="{ show: false }"><dt>Root password</dt>
       <dd class="mono"><span x-show="!show">••••••••</span><span x-show="show" x-cloak>{{$db.RootPass}}</span>
-        <button class="iconbtn tip" type="button" :data-tip="show ? 'Hide' : 'Reveal'" data-tip="Reveal" aria-label="Show or hide the root password" @click="show = !show">{{template "icon_eye" $}}</button></dd></div>
+        <button class="iconbtn tip" type="button" :data-tip="show ? 'Hide' : 'Reveal'" data-tip="Reveal" aria-label="Show or hide the root password" @click="show = !show">{{template "icon_eye" $}}</button>
+        <button class="iconbtn tip" type="button" data-tip="Copy" aria-label="Copy the root password" data-copy="{{$db.RootPass}}">{{template "icon_copy" $}}</button></dd></div>
   </dl>
 
   {{if $db.Running}}
