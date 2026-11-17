@@ -132,7 +132,7 @@ func serverFlags() (*flag.FlagSet, *options) {
 	fs.StringVar(&o.addr, "addr", envOr("XDEV_ADDR", ""), "web UI listen address (host:port)")
 	fs.BoolVar(&o.secure, "secure", envBoolOr("XDEV_SECURE", false), "set Secure flag on cookies (enable when served over HTTPS)")
 
-	fs.StringVar(&o.engine, "engine", envOr("XDEV_ENGINE", ""), "container engine: podman | docker (default: auto-detect)")
+	fs.StringVar(&o.engine, "engine", envOr("XDEV_ENGINE", ""), "container engine: kiri | podman | docker (default: auto-detect)")
 
 	fs.BoolVar(&o.caddyManage, "caddy", envBoolOr("XDEV_CADDY", true), "supervise Caddy as a child process for reverse proxy + TLS")
 	fs.StringVar(&o.caddyAdmin, "caddy-admin", envOr("XDEV_CADDY_ADMIN", "127.0.0.1:2019"), "Caddy admin API address")
@@ -185,7 +185,7 @@ func runServer(o *options) error {
 
 	// Engine selection precedence: persisted UI setting > flag/env > auto-detect.
 	override := engineOverride(o.engine)
-	if v, _ := st.GetSetting("engine"); v == "podman" || v == "docker" {
+	if v, _ := st.GetSetting("engine"); runtime.Known(runtime.Engine(v)) {
 		override = runtime.Engine(v)
 	}
 	engine := runtime.NewSelector(rt, override)
@@ -286,8 +286,8 @@ func runServer(o *options) error {
 	log.Printf("xdev %s starting", version)
 	log.Printf("  data dir:    %s", cfg.DataDir)
 	log.Printf("  projects:    %s", cfg.ProjectsDir)
-	log.Printf("  engine:      %s (podman usable=%v, docker usable=%v) — switch in the UI or with -engine",
-		engine.Current(), engine.Usable(runtime.Podman), engine.Usable(runtime.Docker))
+	log.Printf("  engine:      %s (usable: %v) — switch in the UI or with -engine",
+		engine.Current(), engine.UsableEngines())
 	if recon.Enabled() {
 		log.Printf("  proxy:       Caddy serving sites on :%d (https) / :%d (http)", o.httpsPort, o.httpPort)
 		log.Printf("  TLS:         local certs use Caddy's internal CA — `xdev doctor` prints the trust command for this OS")
@@ -344,13 +344,10 @@ func loopbackAddr(addr string) string {
 // engineOverride maps the -engine flag/env value to a runtime.Engine, or "" for
 // auto-detect.
 func engineOverride(v string) runtime.Engine {
-	switch v {
-	case "podman":
-		return runtime.Podman
-	case "docker":
-		return runtime.Docker
+	if runtime.Known(runtime.Engine(v)) {
+		return runtime.Engine(v)
 	}
-	return runtime.Engine("")
+	return ""
 }
 
 // --- env helpers -------------------------------------------------------------

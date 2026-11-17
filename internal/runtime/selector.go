@@ -23,7 +23,7 @@ type Selector struct {
 // engine) falls back to the detected default.
 func NewSelector(info Info, override Engine) *Selector {
 	cur := info.Default
-	if override == Podman || override == Docker {
+	if Known(override) {
 		cur = override
 	}
 	return &Selector{current: cur, info: info}
@@ -40,12 +40,7 @@ func (s *Selector) Current() Engine {
 func (s *Selector) Info() Info { return s.info }
 
 // Status returns the detected status for one engine.
-func (s *Selector) Status(e Engine) EngineStatus {
-	if e == Docker {
-		return s.info.Docker
-	}
-	return s.info.Podman
-}
+func (s *Selector) Status(e Engine) EngineStatus { return s.info.Status(e) }
 
 // Usable reports whether an engine is installed and has compose available.
 func (s *Selector) Usable(e Engine) bool {
@@ -56,11 +51,10 @@ func (s *Selector) Usable(e Engine) bool {
 // UsableEngines lists the engines that can currently be used.
 func (s *Selector) UsableEngines() []Engine {
 	var out []Engine
-	if s.Usable(Podman) {
-		out = append(out, Podman)
-	}
-	if s.Usable(Docker) {
-		out = append(out, Docker)
+	for _, e := range Engines {
+		if s.Usable(e) {
+			out = append(out, e)
+		}
 	}
 	return out
 }
@@ -103,7 +97,7 @@ func countLines(out []byte) int {
 
 // Set switches the active engine, rejecting an engine that isn't usable.
 func (s *Selector) Set(e Engine) error {
-	if e != Podman && e != Docker {
+	if !Known(e) {
 		return fmt.Errorf("unknown engine %q", e)
 	}
 	if !s.Usable(e) {

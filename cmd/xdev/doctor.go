@@ -43,8 +43,9 @@ func runDoctor(args []string) error {
 
 	// --- engines -------------------------------------------------------------
 	info := runtime.Detect()
-	d.engine("podman", info.Podman)
-	d.engine("docker", info.Docker)
+	for _, st := range info.Engines {
+		d.engine(string(st.Engine), st)
+	}
 
 	// Selected engine: persisted UI setting > flag/env > auto-detect. Opening
 	// the store also lets us report the DB path and whether an admin exists.
@@ -52,7 +53,7 @@ func runDoctor(args []string) error {
 	st, storeErr := store.Open(cfg.DBPath)
 	if storeErr == nil {
 		defer st.Close()
-		if v, _ := st.GetSetting("engine"); v == "podman" || v == "docker" {
+		if v, _ := st.GetSetting("engine"); runtime.Known(runtime.Engine(v)) {
 			override = runtime.Engine(v)
 		}
 	}

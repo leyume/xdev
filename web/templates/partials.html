@@ -122,42 +122,22 @@
   <div class="card-head"><h3>Container engine</h3></div>
   {{if .EngineMsg}}<div class="alert ok">{{.EngineMsg}}</div>{{end}}
   <div class="runtime-grid">
-    {{with .Runtime.Podman}}
+    {{range .Runtime.Engines}}
     <div class="runtime {{if and .Installed .ComposeOK}}ok{{else}}off{{end}}">
       <span class="dot"></span>
       <div class="grow">
-        <strong>podman {{if eq $.Engine "podman"}}<span class="tag">active</span>{{end}}</strong>
+        <strong>{{.Engine}} {{if eq $.Engine (print .Engine)}}<span class="tag">active</span>{{end}}</strong>
         <div class="muted small">
           {{if .Installed}}{{.Version}}{{else}}not installed{{end}}
           {{if .ComposeOK}} · compose ✓{{else if .Installed}} · compose missing{{end}}
           {{if .Ready}} · <span class="up">daemon up</span>{{else if .Installed}} · <span class="down">daemon down</span>{{end}}
         </div>
       </div>
-      {{if and .Installed .ComposeOK (ne $.Engine "podman")}}
+      {{if and .Installed .ComposeOK (ne $.Engine (print .Engine))}}
       <form class="inline" method="post" action="/settings/engine">
         <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-        <input type="hidden" name="engine" value="podman">
-        <button type="submit" class="small-btn">Use podman</button>
-      </form>
-      {{end}}
-    </div>
-    {{end}}
-    {{with .Runtime.Docker}}
-    <div class="runtime {{if and .Installed .ComposeOK}}ok{{else}}off{{end}}">
-      <span class="dot"></span>
-      <div class="grow">
-        <strong>docker {{if eq $.Engine "docker"}}<span class="tag">active</span>{{end}}</strong>
-        <div class="muted small">
-          {{if .Installed}}{{.Version}}{{else}}not installed{{end}}
-          {{if .ComposeOK}} · compose ✓{{else if .Installed}} · compose missing{{end}}
-          {{if .Ready}} · <span class="up">daemon up</span>{{else if .Installed}} · <span class="down">daemon down</span>{{end}}
-        </div>
-      </div>
-      {{if and .Installed .ComposeOK (ne $.Engine "docker")}}
-      <form class="inline" method="post" action="/settings/engine">
-        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-        <input type="hidden" name="engine" value="docker">
-        <button type="submit" class="small-btn">Use docker</button>
+        <input type="hidden" name="engine" value="{{.Engine}}">
+        <button type="submit" class="small-btn">Use {{.Engine}}</button>
       </form>
       {{end}}
     </div>
@@ -168,14 +148,9 @@
 {{end}}
 
 {{define "engine_mini"}}
-{{with .Runtime.Podman}}{{if eq $.Engine "podman"}}
+{{range .Runtime.Engines}}{{if eq $.Engine (print .Engine)}}
 <div class="engine-mini"><span class="dot {{if .Ready}}ok{{end}}"></span>
-  <div><div class="small" style="font-weight:600">{{if .Version}}{{.Version}}{{else}}podman{{end}}</div><div class="muted small">engine · {{if .Ready}}daemon up{{else}}daemon down{{end}}</div></div>
-</div>
-{{end}}{{end}}
-{{with .Runtime.Docker}}{{if eq $.Engine "docker"}}
-<div class="engine-mini"><span class="dot {{if .Ready}}ok{{end}}"></span>
-  <div><div class="small" style="font-weight:600">{{if .Version}}{{.Version}}{{else}}docker{{end}}</div><div class="muted small">engine · {{if .Ready}}daemon up{{else}}daemon down{{end}}</div></div>
+  <div><div class="small" style="font-weight:600">{{if .Version}}{{.Version}}{{else}}{{.Engine}}{{end}}</div><div class="muted small">engine · {{if .Ready}}daemon up{{else}}daemon down{{end}}</div></div>
 </div>
 {{end}}{{end}}
 {{end}}

@@ -16,7 +16,7 @@ type Project struct {
 	BaseDomain  string
 	Environment string
 	NetworkName string
-	Engine      string // container engine this project was created with (podman|docker)
+	Engine      string // container engine this project was created with (kiri|podman|docker)
 	Dir         string
 	CreatedAt   string
 	// AppCount is populated by ListProjects for dashboard display.

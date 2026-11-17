@@ -60,7 +60,7 @@ type App struct {
 	Name        string
 	Slug        string
 	Type        string // wordpress | laravel | static
-	Runtime     string // podman | docker ("" = use default)
+	Runtime     string // kiri | podman | docker ("" = use default)
 	Status      string
 	Domain      string  // full hostname this app is served at (e.g. aa.test, api.aa.test)
 	CPULimit    float64 // cores; 0 = unlimited
