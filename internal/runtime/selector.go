@@ -1,10 +1,10 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -65,12 +65,14 @@ func (s *Selector) UsableEngines() []Engine {
 //
 // ponytail: counts ALL running containers on the host, not only xdev-managed
 // ones — add `--filter name=<prefix>` per app if that distinction matters.
+// IDs are counted once: two engines can be one daemon (a docker CLI whose
+// context is kiri).
 func (s *Selector) RunningContainers() (int, bool) {
 	engs := s.UsableEngines()
 	if len(engs) == 0 {
 		return 0, false
 	}
-	total, ok := 0, false
+	ids, ok := map[string]bool{}, false
 	for _, e := range engs {
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 		out, err := exec.CommandContext(ctx, string(e), "ps", "-q").Output()
@@ -79,20 +81,11 @@ func (s *Selector) RunningContainers() (int, bool) {
 			continue // daemon may be down; skip this engine
 		}
 		ok = true
-		total += countLines(out)
-	}
-	return total, ok
-}
-
-// countLines counts non-empty lines in `ps -q` output (one container id each).
-func countLines(out []byte) int {
-	n := 0
-	for _, line := range bytes.Split(bytes.TrimSpace(out), []byte{'\n'}) {
-		if len(bytes.TrimSpace(line)) > 0 {
-			n++
+		for _, id := range strings.Fields(string(out)) {
+			ids[id] = true
 		}
 	}
-	return n
+	return len(ids), ok
 }
 
 // Set switches the active engine, rejecting an engine that isn't usable.
