@@ -235,6 +235,12 @@ func (s *Service) PushDeploy(id int64, archive io.Reader, trigger string) (targe
 		return "", err
 	}
 	defer os.RemoveAll(staging)
+	// MkdirTemp makes the directory 0700, and the rename below publishes it as
+	// the site's root. A proxy that serves files as an unprivileged user (ngx's
+	// nginx workers) then answers 403 for the whole site; Caddy as root hid it.
+	if err := os.Chmod(staging, 0o755); err != nil {
+		return "", err
+	}
 	// extractUpload rather than untarGz: the same endpoint now backs the upload
 	// button on the settings page, and somebody replacing a static site by hand
 	// has a .zip far more often than a .tar.gz. CI is unaffected — the format is

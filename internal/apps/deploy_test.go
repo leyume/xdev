@@ -86,6 +86,10 @@ func TestPushDeployReplacesTheServedFolder(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dist, "old-chunk.js")); err == nil {
 		t.Error("a file from the previous build survived — the folder was merged, not replaced")
 	}
+	// Readable by a proxy that isn't root (ngx's nginx workers), not MkdirTemp's 0700.
+	if fi, err := os.Stat(dist); err != nil || fi.Mode().Perm() != 0o755 {
+		t.Errorf("published folder mode = %v (%v), want 0755", fi.Mode().Perm(), err)
+	}
 	// No staging or retiring directories left behind.
 	entries, _ := os.ReadDir(filepath.Join(proj.Dir, app.Slug))
 	for _, e := range entries {
