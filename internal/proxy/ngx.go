@@ -81,7 +81,7 @@ func (n *Ngx) Sync(routes []Route) error {
 		if time.Now().After(deadline) {
 			return fmt.Errorf("ngx did not pick up %s within %s — is its container running and watching that directory?", n.envPath, n.wait)
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond) // ngx answers in ~150ms; poll finely so Sync returns right after
 	}
 }
 
