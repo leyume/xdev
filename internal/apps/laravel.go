@@ -449,7 +449,7 @@ func (s *Service) deployContainer(app store.App, progress ProgressFunc) (string,
 			return out.String(), nil
 		}
 	}
-	o, err = runtime.Up(ctx, engine, workdir, pname, file)
+	o, err = runtime.Up(ctx, engine, workdir, pname, file, proj.NetworkName)
 	step("compose up -d", o)
 	if err != nil {
 		return out.String(), fmt.Errorf("the code, dependencies and database are deployed, but the stack did not come up: %w", err)
