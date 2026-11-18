@@ -29,6 +29,7 @@ type RouteInfo struct {
 	Root     string // filesystem dir to serve directly (serve-mode static apps, shared-WP sites)
 	FCGIPort int    // fastcgi host port for *.php under Root (shared-WP sites)
 	Upstream string // remote URL to forward to (proxy apps)
+	Insecure bool   // don't verify Upstream's certificate (a proxy app that opted out)
 	Local    bool   // local (.test, internal CA) vs public (ACME)
 }
 
@@ -182,7 +183,7 @@ func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 	wpPort, _ := strconv.Atoi(wpPortStr)
 
 	rows, err := s.db.Query(`
-		SELECT d.hostname, d.port, a.port, d.is_local, a.type, a.serve_mode, a.root_dir, a.upstream, a.wp_mode, a.slug, a.source_dir, p.slug, p.dir
+		SELECT d.hostname, d.port, a.port, d.is_local, a.type, a.serve_mode, a.root_dir, a.upstream, a.upstream_insecure, a.wp_mode, a.slug, a.source_dir, p.slug, p.dir
 		FROM domains d
 		JOIN apps a ON a.id = d.app_id
 		JOIN projects p ON p.id = a.project_id
@@ -199,8 +200,9 @@ func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 	for rows.Next() {
 		var r RouteInfo
 		var isLocal, domainPort, appPort int
+		var insecure bool
 		var appType, serveMode, rootDir, upstream, wpMode, slug, sourceDir, projSlug, projDir string
-		if err := rows.Scan(&r.Host, &domainPort, &appPort, &isLocal, &appType, &serveMode, &rootDir, &upstream, &wpMode, &slug, &sourceDir, &projSlug, &projDir); err != nil {
+		if err := rows.Scan(&r.Host, &domainPort, &appPort, &isLocal, &appType, &serveMode, &rootDir, &upstream, &insecure, &wpMode, &slug, &sourceDir, &projSlug, &projDir); err != nil {
 			return nil, err
 		}
 		r.Local = isLocal == 1
@@ -215,6 +217,7 @@ func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 		case appType == TypeProxy:
 			// Proxy apps forward to a remote URL instead of a local port.
 			r.Upstream = upstream
+			r.Insecure = insecure
 		case wpMode == WPShared:
 			// Shared-WP sites: Caddy file-serves the docroot and hands *.php to
 			// the wp-host fpm port. Without the settings there is no PHP handler,

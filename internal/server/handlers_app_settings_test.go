@@ -73,6 +73,15 @@ func TestSettingsPageIsPerType(t *testing.T) {
 			t.Errorf("proxy settings page offers %q", unwanted)
 		}
 	}
+	// The certificate opt-out: offered, off unless the form says so.
+	insecureBox := `name="upstream_insecure" value="1"`
+	if !strings.Contains(out, insecureBox+`>`) {
+		t.Error("proxy settings page lacks an unchecked upstream_insecure switch")
+	}
+	out = renderSettings(t, proxy, appSettingsForm{Name: "api", Domain: "api.demo.test", Upstream: "https://10.0.0.5", Insecure: true}, nil)
+	if !strings.Contains(out, insecureBox+` checked>`) {
+		t.Error("upstream_insecure switch isn't checked for an app that skips verification")
+	}
 
 	// A static app: serve mode and the commands, no compose editor.
 	static := store.App{ID: 3, Name: "site", Slug: "site", Type: store.TypeStatic,
@@ -218,6 +227,7 @@ func TestSettingsFormFrom(t *testing.T) {
 	form.Set("source_dir", "/home/li/ui/xyz")
 	form.Add("extra_domain", "api.demo.test")
 	form.Add("extra_domain", "admin.demo.test")
+	form.Set("upstream_insecure", "1")
 
 	r := httptest.NewRequest("POST", "/apps/1/settings", strings.NewReader(form.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -240,6 +250,9 @@ func TestSettingsFormFrom(t *testing.T) {
 	}
 	if got.SourceDir != "/home/li/ui/xyz" {
 		t.Errorf("source dir = %q, want the submitted path", got.SourceDir)
+	}
+	if !got.Insecure {
+		t.Error("upstream_insecure=1 not read")
 	}
 }
 

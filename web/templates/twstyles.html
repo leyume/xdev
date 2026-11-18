@@ -782,6 +782,10 @@ option { background: var(--bg); color: var(--text); }
 .switch input:checked + .slider { background: rgba(180, 140, 255, 0.25); border-color: var(--accent); }
 .switch input:checked + .slider::before { transform: translateX(14px); background: var(--accent); }
 .switch input:focus-visible + .slider { box-shadow: var(--ring); }
+/* A switch with a label and an explanation beside it, inside a form */
+.toggle-row { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.toggle-row .switch { margin-top: 1px; }
+.toggle-row .muted { display: block; margin-top: 4px; line-height: 1.45; }
 
 /* Modal (Add-app on project detail). The dialog scrolls inside itself — the
    overlay never scrolls, so the page behind stays put while it is open. */

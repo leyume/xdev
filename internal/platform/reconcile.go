@@ -94,6 +94,7 @@ func (r *Reconciler) Sync() error {
 		switch {
 		case in.Upstream != "":
 			route.Upstream = in.Upstream // proxy app: forwards to another server (URL)
+			route.Insecure = in.Insecure // …whose certificate it chose not to verify
 		case in.Root != "":
 			route.Root = in.Root         // serve-mode static app or shared-WP docroot: file-served
 			route.FCGIPort = in.FCGIPort // shared-WP sites: *.php goes to the wp-host fpm port

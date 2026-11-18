@@ -163,6 +163,8 @@ type CreateOpts struct {
 
 	// Proxy-only: URL the domain forwards to (http(s)://host[:port]).
 	Upstream string
+	// Proxy-only: don't verify an https Upstream's certificate.
+	UpstreamInsecure bool
 
 	// Compose-only: the docker-compose.yml / compose.yml the user supplied
 	// (pasted or uploaded). Blank means "scaffold the starter compose file".
@@ -357,6 +359,7 @@ func (s *Service) Create(projectID int64, opts CreateOpts) (store.App, error) {
 		if err != nil {
 			return store.App{}, err
 		}
+		app.UpstreamInsecure = opts.UpstreamInsecure
 	case opts.Type == store.TypeStatic, opts.Type == store.TypeGo:
 		if err := s.layoutStatic(&app, &opts, appDir); err != nil {
 			return store.App{}, err

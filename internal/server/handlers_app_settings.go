@@ -30,6 +30,7 @@ type appSettingsForm struct {
 	BuildCmd      string
 	StartCmd      string
 	Upstream      string
+	Insecure      bool // upstream_insecure: don't verify the upstream's certificate
 	ServiceDomain string
 	ExtraDomains  []string
 	Compose       string
@@ -62,13 +63,14 @@ func (s *Server) handleAppSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// Read through the same helper as the add-app form. Spelling the fields
 		// out here once meant KeyID was silently dropped, so an app re-pointed
 		// at a private repository could never be given a key.
-		Git:           gitOptsFrom(r),
-		BuildCmd:      form.BuildCmd,
-		StartCmd:      form.StartCmd,
-		Upstream:      form.Upstream,
-		ServiceDomain: form.ServiceDomain,
-		ExtraDomains:  form.ExtraDomains,
-		ComposeFile:   form.Compose,
+		Git:              gitOptsFrom(r),
+		BuildCmd:         form.BuildCmd,
+		StartCmd:         form.StartCmd,
+		Upstream:         form.Upstream,
+		UpstreamInsecure: form.Insecure,
+		ServiceDomain:    form.ServiceDomain,
+		ExtraDomains:     form.ExtraDomains,
+		ComposeFile:      form.Compose,
 	})
 	if err != nil {
 		s.renderAppSettings(w, r, app, proj, form, err.Error())
@@ -193,6 +195,7 @@ func (s *Server) settingsFormFor(app store.App) appSettingsForm {
 		BuildCmd:  app.BuildCmd,
 		StartCmd:  app.StartCmd,
 		Upstream:  app.Upstream,
+		Insecure:  app.UpstreamInsecure,
 	}
 	if svc, err := s.store.AppServiceDomains(app.ID); err == nil && len(svc) > 0 {
 		if app.IsCompose() {
@@ -226,6 +229,7 @@ func settingsFormFrom(r *http.Request) appSettingsForm {
 		BuildCmd:      r.FormValue("build_cmd"),
 		StartCmd:      r.FormValue("start_cmd"),
 		Upstream:      r.FormValue("upstream"),
+		Insecure:      r.FormValue("upstream_insecure") == "1",
 		ServiceDomain: strings.TrimSpace(r.FormValue("service_domain")),
 		ExtraDomains:  extraDomains(r),
 		Compose:       r.FormValue("compose_yaml"),

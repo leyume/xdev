@@ -589,6 +589,12 @@ jobs:
       <input type="text" name="upstream" value="{{$form.Upstream}}" spellcheck="false" required
              placeholder="https://other-server.example">
     </label>
+    <label class="toggle-row">
+      <span class="switch"><input type="checkbox" name="upstream_insecure" value="1"{{if $form.Insecure}} checked{{end}}><span class="slider"></span></span>
+      <span>Don't verify the upstream's certificate
+        <span class="muted">For an <code>https://</code> origin with only a self-signed certificate, like another of your
+          servers reached by IP. Traffic stays encrypted, but a machine pretending to be the upstream would go unnoticed.</span></span>
+    </label>
   </section>
   {{end}}
 
