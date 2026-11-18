@@ -138,6 +138,12 @@ func (n *Ngx) render(routes []Route) string {
 		if add(r.Host+"="+target) && r.Internal {
 			internal = append(internal, r.Host)
 		}
+		// A proxy app at https://origin/webmail serves pages that link to /webmail/... themselves.
+		// Prefixing those again would ask the origin for /webmail/webmail/..., so a request already
+		// under the prefix goes through as it is; everything else still gets the prefix.
+		if base, prefix := splitUpstreamPrefix(r.Upstream); prefix != "" {
+			add(r.Host + prefix + "/*=" + ngxUpstream(base, n.upstreamHost))
+		}
 	}
 
 	var b strings.Builder
@@ -178,6 +184,22 @@ func ngxUpstream(upstream, upstreamHost string) string {
 		scheme = "https+insecure"
 	}
 	return scheme + "://" + swapLoopbackHost(net.JoinHostPort(u.Hostname(), port), upstreamHost) + strings.TrimSuffix(u.EscapedPath(), "/")
+}
+
+// splitUpstreamPrefix splits a proxy app's URL into its origin and its path
+// prefix ("https://o.example/webmail/" -> "https://o.example", "/webmail"), or
+// returns "" for the prefix when there is none.
+func splitUpstreamPrefix(upstream string) (base, prefix string) {
+	if !strings.Contains(upstream, "://") {
+		return upstream, ""
+	}
+	u, err := url.Parse(upstream)
+	if err != nil || u.Host == "" {
+		return upstream, ""
+	}
+	prefix = strings.TrimSuffix(u.EscapedPath(), "/")
+	u.Path, u.RawPath, u.RawQuery, u.Fragment = "", "", "", ""
+	return u.String(), prefix
 }
 
 func hostPathWith(prefix, dir string) string {

@@ -31,6 +31,9 @@ func TestNgxRender(t *testing.T) {
 		"mail.example.com=https+insecure://host.docker.internal:8443/webmail",
 		"remote.example.com=https://origin.example.net:443",
 		"plain.example.com=http://10.0.0.5:8080/x",
+		// already under the prefix: through as it is, not prefixed twice
+		"mail.example.com/webmail/*=https+insecure://host.docker.internal:8443 ", // the space: nothing after the port
+		"plain.example.com/x/*=http://10.0.0.5:8080'", // last entry
 		"TLS_INTERNAL='app.test static.test wp.test'",
 		"ACME_EMAIL='a@b.c'",
 	} {
@@ -38,7 +41,7 @@ func TestNgxRender(t *testing.T) {
 			t.Errorf("missing %q in\n%s", want, got)
 		}
 	}
-	for _, bad := range []string{"orphan.test", "bad.test", "HTTPS_PORT", "HTTPS_REDIRECT"} {
+	for _, bad := range []string{"orphan.test", "bad.test", "HTTPS_PORT", "HTTPS_REDIRECT", "remote.example.com/"} {
 		if strings.Contains(got, bad) {
 			t.Errorf("unexpected %q in\n%s", bad, got)
 		}
