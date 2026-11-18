@@ -103,7 +103,12 @@ type App struct {
 	// only meaningful relative to siblings; see SetAppOrder.
 	Position int
 	// Proxy-app config (see migration 0007).
-	Upstream  string // URL the domain forwards to (http(s)://host[:port])
+	Upstream string // URL the domain forwards to (http(s)://host[:port])
+
+	// UpstreamInsecure skips verifying an https upstream's certificate: for an
+	// origin with only a self-signed one. Proxy apps only; off by default.
+	UpstreamInsecure bool
+
 	DBMode    string // "shared" = uses xdev-db; "" = dedicated / n/a (migration 0008)
 	WPMode    string // "shared" = served by wp-host; "" = own container / n/a (migration 0009)
 	CreatedAt string
@@ -150,13 +155,13 @@ func (s *Store) CreateApp(a App) (App, error) {
 		`INSERT INTO apps (project_id, name, slug, type, runtime, status, subdomain,
 		                   cpu_limit, mem_limit, port, compose_path,
 		                   serve_mode, root_dir, build_cmd, start_cmd, upstream, db_mode, wp_mode,
-		                   source_dir, git_url, git_ref, git_subdir, laravel_server, position)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		                   source_dir, git_url, git_ref, git_subdir, laravel_server, upstream_insecure, position)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 		         (SELECT COALESCE(MAX(position), 0) + 1 FROM apps WHERE project_id = ?))`,
 		a.ProjectID, a.Name, a.Slug, a.Type, a.Runtime, statusOr(a.Status),
 		a.Domain, a.CPULimit, a.MemLimit, a.Port, a.ComposePath,
 		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd, a.Upstream, a.DBMode, a.WPMode,
-		a.SourceDir, a.GitURL, a.GitRef, a.GitSubdir, a.LaravelServer, a.ProjectID,
+		a.SourceDir, a.GitURL, a.GitRef, a.GitSubdir, a.LaravelServer, a.UpstreamInsecure, a.ProjectID,
 	)
 	if err != nil {
 		return App{}, err
@@ -211,11 +216,11 @@ func (s *Store) UpdateApp(a App) error {
 	_, err := s.db.Exec(
 		`UPDATE apps SET name = ?, subdomain = ?, cpu_limit = ?, mem_limit = ?, port = ?,
 		                 serve_mode = ?, root_dir = ?, build_cmd = ?, start_cmd = ?, upstream = ?,
-		                 source_dir = ?, git_url = ?, git_ref = ?, git_subdir = ?,
+		                 upstream_insecure = ?, source_dir = ?, git_url = ?, git_ref = ?, git_subdir = ?,
 		                 updated_at = datetime('now')
 		 WHERE id = ?`,
 		a.Name, a.Domain, a.CPULimit, a.MemLimit, a.Port,
-		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd, a.Upstream, a.SourceDir,
+		a.ServeMode, a.RootDir, a.BuildCmd, a.StartCmd, a.Upstream, a.UpstreamInsecure, a.SourceDir,
 		a.GitURL, a.GitRef, a.GitSubdir, a.ID,
 	)
 	return err
@@ -374,7 +379,7 @@ const appSelect = `SELECT id, project_id, name, slug, type, runtime, status, sub
 	serve_mode, root_dir, build_cmd, start_cmd, upstream, db_mode, wp_mode, source_dir,
 	git_url, git_ref, git_subdir, deployed_sha, deployed_at,
 	hook_id, hook_secret, push_token_hash, push_token_hint, skip_db_dump,
-	laravel_server, position, created_at, updated_at FROM apps`
+	laravel_server, upstream_insecure, position, created_at, updated_at FROM apps`
 
 func (s *Store) scanApp(row *sql.Row) (App, error) {
 	var a App
@@ -383,7 +388,7 @@ func (s *Store) scanApp(row *sql.Row) (App, error) {
 		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.DBMode, &a.WPMode,
 		&a.SourceDir, &a.GitURL, &a.GitRef, &a.GitSubdir, &a.DeployedSHA, &a.DeployedAt,
 		&a.HookID, &a.HookSecret, &a.PushTokenHash, &a.PushTokenHint, &a.SkipDBDump,
-		&a.LaravelServer, &a.Position, &a.CreatedAt, &a.UpdatedAt)
+		&a.LaravelServer, &a.UpstreamInsecure, &a.Position, &a.CreatedAt, &a.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return App{}, ErrNotFound
 	}
@@ -397,7 +402,7 @@ func scanAppRows(rows *sql.Rows) (App, error) {
 		&a.ServeMode, &a.RootDir, &a.BuildCmd, &a.StartCmd, &a.Upstream, &a.DBMode, &a.WPMode,
 		&a.SourceDir, &a.GitURL, &a.GitRef, &a.GitSubdir, &a.DeployedSHA, &a.DeployedAt,
 		&a.HookID, &a.HookSecret, &a.PushTokenHash, &a.PushTokenHint, &a.SkipDBDump,
-		&a.LaravelServer, &a.Position, &a.CreatedAt, &a.UpdatedAt)
+		&a.LaravelServer, &a.UpstreamInsecure, &a.Position, &a.CreatedAt, &a.UpdatedAt)
 	return a, err
 }
 

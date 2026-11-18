@@ -307,3 +307,16 @@ func TestPathScopedRouteComesFirst(t *testing.T) {
 		t.Errorf("the hostname is not in the TLS automation policy exactly once\n%s", cfg)
 	}
 }
+
+// TestProxyInsecureUpstream: a remote https upstream is verified unless the app
+// opted out; only then does the TLS transport skip verification.
+func TestProxyInsecureUpstream(t *testing.T) {
+	verified := configJSON(t, []Route{{Host: "rz.example.com", Upstream: "https://203.0.113.9:7443"}})
+	if strings.Contains(verified, "insecure_skip_verify") {
+		t.Errorf("a remote upstream skipped verification without asking:\n%s", verified)
+	}
+	skipped := configJSON(t, []Route{{Host: "rz.example.com", Upstream: "https://203.0.113.9:7443", Insecure: true}})
+	if !strings.Contains(skipped, `"insecure_skip_verify":true`) || !strings.Contains(skipped, `"dial":"203.0.113.9:7443"`) {
+		t.Errorf("Insecure upstream not unverified (or dial wrong):\n%s", skipped)
+	}
+}

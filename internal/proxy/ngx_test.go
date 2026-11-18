@@ -21,8 +21,16 @@ func TestNgxRender(t *testing.T) {
 		{Host: "mail.example.com", Upstream: "https://127.0.0.1:8443/webmail/"},
 		{Host: "remote.example.com", Upstream: "https://origin.example.net"},
 		{Host: "plain.example.com", Upstream: "http://10.0.0.5:8080/x"},
-		{Host: "bad.test", Root: "/srv/my site", Internal: true}, // space: ngx can't express it
+		{Host: "rz.example.com", Upstream: "https://203.0.113.9:7443/app", Insecure: true}, // self-signed origin
+		{Host: "bad.test", Root: "/srv/my site", Internal: true},                           // space: ngx can't express it
 	})
+	// SITES as whole entries, so "a=x" can't pass by matching the start of "a=x/y"
+	_, sites, _ := strings.Cut(got, "SITES='")
+	sites, _, _ = strings.Cut(sites, "'")
+	entries := map[string]bool{}
+	for _, e := range strings.Fields(sites) {
+		entries[e] = true
+	}
 	for _, want := range []string{
 		"app.test/_xdev/deploy=host.docker.internal:7331",
 		"app.test=host.docker.internal:20000",
@@ -31,12 +39,17 @@ func TestNgxRender(t *testing.T) {
 		"mail.example.com=https+insecure://host.docker.internal:8443/webmail",
 		"remote.example.com=https://origin.example.net:443",
 		"plain.example.com=http://10.0.0.5:8080/x",
+		"rz.example.com=https+insecure://203.0.113.9:7443/app",
 		// already under the prefix: through as it is, not prefixed twice
-		"mail.example.com/webmail/*=https+insecure://host.docker.internal:8443 ", // the space: nothing after the port
-		"plain.example.com/x/*=http://10.0.0.5:8080'", // last entry
-		"TLS_INTERNAL='app.test static.test wp.test'",
-		"ACME_EMAIL='a@b.c'",
+		"mail.example.com/webmail/*=https+insecure://host.docker.internal:8443",
+		"plain.example.com/x/*=http://10.0.0.5:8080",
+		"rz.example.com/app/*=https+insecure://203.0.113.9:7443", // unverified like its app
 	} {
+		if !entries[want] {
+			t.Errorf("SITES has no entry %q:\n%s", want, sites)
+		}
+	}
+	for _, want := range []string{"TLS_INTERNAL='app.test static.test wp.test'", "ACME_EMAIL='a@b.c'"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in\n%s", want, got)
 		}

@@ -322,6 +322,45 @@ func TestUpdateProxyUpstream(t *testing.T) {
 	}
 }
 
+// TestProxyUpstreamInsecure: the opt-out is saved by an edit, reaches the
+// proxy's route list, and can be turned off again.
+func TestProxyUpstreamInsecure(t *testing.T) {
+	svc, st, proj := editFixture(t)
+	saved, err := st.CreateApp(store.App{ProjectID: proj.ID, Name: "rz", Slug: "rz", Type: store.TypeProxy,
+		Status: store.AppRunning, Domain: "rz.demo.test", Upstream: "https://203.0.113.9:7443"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.ReplaceAppDomains(saved.ID, []string{"rz.demo.test"}, nil, true, "internal")
+	route := func() store.RouteInfo {
+		t.Helper()
+		routes, err := st.ProxyRoutes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range routes {
+			if r.Host == "rz.demo.test" {
+				return r
+			}
+		}
+		t.Fatalf("no route for rz.demo.test in %+v", routes)
+		return store.RouteInfo{}
+	}
+	if route().Insecure {
+		t.Fatal("a new proxy app skips verification by default")
+	}
+	for _, want := range []bool{true, false} {
+		got, err := svc.Update(saved.ID, EditOpts{Name: "rz", Domain: "rz.demo.test",
+			Upstream: "https://203.0.113.9:7443", UpstreamInsecure: want})
+		if err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+		if got.UpstreamInsecure != want || route().Insecure != want {
+			t.Errorf("UpstreamInsecure = %v, route Insecure = %v, want %v", got.UpstreamInsecure, route().Insecure, want)
+		}
+	}
+}
+
 // TestUpdateTemplatedComposeFile: a generated stack's file is the user's to edit
 // too, but xdev doesn't hold it to the ${PORT_n} slot contract — its ports were
 // written in at create.

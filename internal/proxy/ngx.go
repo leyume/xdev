@@ -122,7 +122,7 @@ func (n *Ngx) render(routes []Route) string {
 		case r.Root != "":
 			target = hostPathWith(n.rootPrefix, r.Root)
 		default:
-			target = ngxUpstream(r.Upstream, n.upstreamHost)
+			target = ngxUpstream(r.Upstream, n.upstreamHost, r.Insecure)
 		}
 		if len(r.Paths) > 0 {
 			// ngx puts a path into the server block of the host's own entry; a host
@@ -142,7 +142,7 @@ func (n *Ngx) render(routes []Route) string {
 		// Prefixing those again would ask the origin for /webmail/webmail/..., so a request already
 		// under the prefix goes through as it is; everything else still gets the prefix.
 		if base, prefix := splitUpstreamPrefix(r.Upstream); prefix != "" {
-			add(r.Host + prefix + "/*=" + ngxUpstream(base, n.upstreamHost))
+			add(r.Host + prefix + "/*=" + ngxUpstream(base, n.upstreamHost, r.Insecure))
 		}
 	}
 
@@ -164,8 +164,9 @@ func (n *Ngx) render(routes []Route) string {
 // ngxUpstream turns a route upstream (host:port, or a proxy app's URL) into an
 // ngx target, with the same loopback handling as reverseProxyHandlers: a
 // loopback https upstream is one of our own containers behind a self-signed
-// cert, so it is not verified; anything else https is.
-func ngxUpstream(upstream, upstreamHost string) string {
+// cert, so it is not verified; anything else https is, unless insecure (a
+// proxy app whose origin has only a self-signed certificate).
+func ngxUpstream(upstream, upstreamHost string, insecure bool) string {
 	if !strings.Contains(upstream, "://") {
 		return swapLoopbackHost(upstream, upstreamHost)
 	}
@@ -180,7 +181,7 @@ func ngxUpstream(upstream, upstreamHost string) string {
 			port = "80"
 		}
 	}
-	if scheme == "https" && isLoopback(u.Hostname()) {
+	if scheme == "https" && (isLoopback(u.Hostname()) || insecure) {
 		scheme = "https+insecure"
 	}
 	return scheme + "://" + swapLoopbackHost(net.JoinHostPort(u.Hostname(), port), upstreamHost) + strings.TrimSuffix(u.EscapedPath(), "/")

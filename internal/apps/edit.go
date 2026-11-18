@@ -42,7 +42,8 @@ type EditOpts struct {
 	Git GitOpts
 
 	// Proxy apps.
-	Upstream string
+	Upstream         string
+	UpstreamInsecure bool // don't verify an https Upstream's certificate
 
 	// Any app with a compose file: its new contents. Blank leaves the file
 	// alone — the form only sends it when the app has one to edit.
@@ -124,6 +125,7 @@ func (s *Service) Update(id int64, opts EditOpts) (store.App, error) {
 		if updated.Upstream, err = validUpstream(opts.Upstream); err != nil {
 			return app, err
 		}
+		updated.UpstreamInsecure = opts.UpstreamInsecure
 	case app.IsHostProc():
 		if err := s.editHostApp(&updated, opts); err != nil {
 			return app, err

@@ -32,6 +32,9 @@ type Route struct {
 	Root     string // e.g. /…/projects/demo/frontend/dist (file_server)
 	FCGIPort int    // fastcgi host port for *.php under Root (shared-WP sites)
 	Internal bool   // true = local CA (.test); false = public ACME/Let's Encrypt
+	// Insecure: don't verify an https Upstream's certificate. Set by a proxy app
+	// whose origin has only a self-signed one; loopback upstreams never verify.
+	Insecure bool
 	// Paths narrows a route to specific request paths on its host; empty means
 	// the whole host. Used to publish an app's deploy endpoints on the app's own
 	// hostname: the route matches /_xdev/… and proxies it to the control plane,
@@ -187,7 +190,7 @@ func (m *Manager) url(path string) string {
 // rather than an IP so cert verification against the origin works. The incoming
 // Host header passes through untouched (Caddy's default), keeping name-based
 // vhosts — and websockets — on the other server working.
-func reverseProxyHandlers(upstream, upstreamHost string) []any {
+func reverseProxyHandlers(upstream, upstreamHost string, insecure bool) []any {
 	h := map[string]any{"handler": "reverse_proxy"}
 	dial, prefix := upstream, ""
 	if strings.Contains(upstream, "://") {
@@ -209,8 +212,9 @@ func reverseProxyHandlers(upstream, upstreamHost string) []any {
 				}
 				// A loopback https upstream is one of our own containers behind a
 				// self-signed cert (e.g. the Stalwart mail admin) — there is no
-				// public identity to verify, so skip verification.
-				if isLoopback(host) {
+				// public identity to verify, so skip verification. Elsewhere only
+				// when the app asked to (an origin with a self-signed cert).
+				if isLoopback(host) || insecure {
 					tls["insecure_skip_verify"] = true
 				}
 				h["transport"] = map[string]any{"protocol": "http", "tls": tls}
@@ -394,7 +398,7 @@ func (m *Manager) buildConfig(routes []Route) map[string]any {
 		case r.Root != "":
 			handle = staticSiteHandlers(m.hostPath(r.Root))
 		default:
-			handle = reverseProxyHandlers(r.Upstream, m.upstreamHost)
+			handle = reverseProxyHandlers(r.Upstream, m.upstreamHost, r.Insecure)
 		}
 		match := map[string]any{"host": []string{r.Host}}
 		if len(r.Paths) > 0 {
