@@ -43,7 +43,7 @@
      form rows and stacked sections line up without each template picking its
      own number — the drift between them was what made dense pages read as
      cluttered rather than as one layout. */
-  --gap: 18px;      /* between cards, and between the columns of a page grid */
+  --gap: 24px;      /* between cards, and between the columns of a page grid */
   --gap-sm: 10px;   /* between controls that belong to one another */
   --field: 16px;    /* above a form field's label */
   --pad-card: 22px 24px;
@@ -150,6 +150,10 @@ body {
    must not add to it. Without this every card's top gap depends on whether it
    happens to start with a heading, a label or a paragraph. */
 .card > :first-child { margin-top: 0; }
+/* Inside a container that spaces its children with `gap`, the card's own bottom
+   margin would add to it — vertical spacing came out at twice the horizontal.
+   The container's gap is the only spacing there. */
+:is(.project-grid, .app-cards, .side-col, .grid-main, .row-16-10) > .card { margin-bottom: 0; }
 .card > :last-child { margin-bottom: 0; }
 
 /* Headings */
@@ -169,7 +173,7 @@ h3 {
   align-items: flex-end;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 26px;
+  margin-bottom: var(--gap);
 }
 
 /* Forms */
@@ -995,8 +999,8 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
 .runtime-note { margin: 10px 0 0; }
 
 /* ---- Projects list cards ---- */
-.row-16-10 { display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; margin-bottom: 18px; }
-.project-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 18px; }
+.row-16-10 { display: grid; grid-template-columns: 1.6fr 1fr; gap: var(--gap); margin-bottom: var(--gap); }
+.project-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gap); margin-bottom: var(--gap); }
 .project-card-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
 .project-card-apps { display: flex; flex-direction: column; gap: 9px; border-top: 1px solid var(--border-soft); padding-top: 12px; margin-top: 4px; }
 .project-card-app { display: flex; align-items: center; gap: 9px; font-size: 13px; }
@@ -1057,7 +1061,7 @@ a.kpi-cell:hover .kpi-label { color: var(--text); }
 .status-pill { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; }
 .status-pill.ok { color: var(--ok); }
 .status-pill.warn { color: var(--warn); }
-.app-cards { display: flex; flex-direction: column; gap: 18px; }
+.app-cards { display: flex; flex-direction: column; gap: var(--gap); }
 .app-card-head { display: flex; align-items: center; gap: 12px; }
 /* Project-detail app cards: the whole header toggles collapse (buttons opt out
    with @click.stop), so the row gets a pointer and doesn't select text on click.
