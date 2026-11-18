@@ -110,6 +110,7 @@ type options struct {
 	secure       bool
 	caddyManage  bool
 	caddyAdmin   string
+	ngxEnv       string
 	httpsPort    int
 	httpPort     int
 	hostsFile    string
@@ -136,6 +137,7 @@ func serverFlags() (*flag.FlagSet, *options) {
 
 	fs.BoolVar(&o.caddyManage, "caddy", envBoolOr("XDEV_CADDY", true), "supervise Caddy as a child process for reverse proxy + TLS")
 	fs.StringVar(&o.caddyAdmin, "caddy-admin", envOr("XDEV_CADDY_ADMIN", "127.0.0.1:2019"), "Caddy admin API address")
+	fs.StringVar(&o.ngxEnv, "ngx-env", envOr("XDEV_NGX_ENV", ""), "use ngx (nginx) instead of Caddy: path of the ngx.env file xdev writes routes to")
 	fs.IntVar(&o.httpsPort, "https-port", envIntOr("XDEV_HTTPS_PORT", 443), "public HTTPS port for proxied sites")
 	fs.IntVar(&o.httpPort, "http-port", envIntOr("XDEV_HTTP_PORT", 80), "public HTTP port for proxied sites")
 	fs.StringVar(&o.acmeEmail, "acme-email", envOr("XDEV_ACME_EMAIL", ""), "contact email for Let's Encrypt (production domains)")
@@ -225,13 +227,17 @@ func runServer(o *options) error {
 	}
 
 	// --- reverse proxy (Caddy) ----------------------------------------------
-	pm := proxy.NewManager(o.caddyAdmin, o.httpsPort, o.httpPort, o.acmeEmail, o.localCertTTL)
+	var pm platform.Proxy = proxy.NewManager(o.caddyAdmin, o.httpsPort, o.httpPort, o.acmeEmail, o.localCertTTL)
+	proxyName := "Caddy"
+	if o.ngxEnv != "" {
+		pm, proxyName = proxy.NewNgx(o.ngxEnv, o.httpsPort, o.acmeEmail), "ngx"
+	}
 	recon := platform.NewReconciler(st, pm, o.hostsFile, o.manageHosts)
 	// Where Caddy sends the per-app deploy endpoints (/_xdev/…). A wildcard or
 	// blank host in the listen address means "every interface"; Caddy has to dial
 	// something specific, and loopback is the one that is always right.
 	recon.SetSelfAddr(loopbackAddr(cfg.Addr))
-	if o.caddyManage {
+	if o.caddyManage && o.ngxEnv == "" {
 		// Refresh the local CA intermediate when it has less than one full leaf
 		// lifetime left, so newly-issued local certs always get their full
 		// duration. Only the intermediate is replaced — the trusted root is
@@ -245,7 +251,7 @@ func runServer(o *options) error {
 				old.Hours()/24, o.localCertTTL)
 		}
 
-		sup, err := proxy.Start(pm)
+		sup, err := proxy.Start(pm.(*proxy.Manager))
 		if err != nil {
 			log.Printf("reverse proxy disabled: %v", err)
 		} else {
@@ -289,8 +295,8 @@ func runServer(o *options) error {
 	log.Printf("  engine:      %s (usable: %v) — switch in the UI or with -engine",
 		engine.Current(), engine.UsableEngines())
 	if recon.Enabled() {
-		log.Printf("  proxy:       Caddy serving sites on :%d (https) / :%d (http)", o.httpsPort, o.httpPort)
-		log.Printf("  TLS:         local certs use Caddy's internal CA — `xdev doctor` prints the trust command for this OS")
+		log.Printf("  proxy:       %s serving sites on :%d (https) / :%d (http)", proxyName, o.httpsPort, o.httpPort)
+		log.Printf("  TLS:         local certs use the local CA — `xdev doctor` prints the trust command for this OS")
 	} else {
 		log.Printf("  proxy:       not live yet — retrying in the background; sites reachable directly on their host ports")
 	}

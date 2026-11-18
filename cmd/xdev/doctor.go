@@ -64,8 +64,20 @@ func runDoctor(args []string) error {
 		d.fail("selected engine", fmt.Sprintf("%s not usable (needs the binary + compose plugin)", sel.Current()), true)
 	}
 
-	// --- caddy ---------------------------------------------------------------
-	if o.caddyManage {
+	// --- proxy ---------------------------------------------------------------
+	if o.ngxEnv != "" {
+		// ngx answers every change to ngx.env in ngx.status: no answer at all
+		// means it isn't running against that directory.
+		switch st := proxy.NgxStatus(o.ngxEnv); {
+		case st == "":
+			d.fail("ngx", "no ngx.status next to "+o.ngxEnv+" — is the ngx container running with that directory mounted at /etc/ngx?", true)
+		case strings.HasSuffix(st, " ok"):
+			d.ok("ngx", "last config applied")
+		default:
+			_, why, _ := strings.Cut(st, " ")
+			d.fail("ngx", "last config rejected — "+why, true)
+		}
+	} else if o.caddyManage {
 		// Native mode: xdev supervises the binary, so nothing is listening on the
 		// admin port while doctor runs standalone — check the binary instead.
 		if path, err := exec.LookPath("caddy"); err == nil {
@@ -114,14 +126,14 @@ func runDoctor(args []string) error {
 	// but a containerized or self-managed Caddy *owns* them, and asking whether
 	// xdev could bind reports a healthy install as broken.
 	label := fmt.Sprintf("ports %d / %d", o.httpsPort, o.httpPort)
-	if o.caddyManage {
+	if o.caddyManage && o.ngxEnv == "" {
 		if blocked := unbindablePorts(o.httpsPort, o.httpPort); len(blocked) == 0 {
 			d.ok(label, "bindable")
 		} else {
 			d.fail(label, fmt.Sprintf("cannot bind %s (in use or needs privileges)", strings.Join(blocked, ", ")), true)
 		}
 	} else if quiet := unservedPorts(o.httpsPort, o.httpPort); len(quiet) == 0 {
-		d.ok(label, "served by Caddy")
+		d.ok(label, "served")
 	} else {
 		// Not a failure: Caddy publishes the site ports only once xdev has pushed
 		// a config, so silence is expected until the first app exists.

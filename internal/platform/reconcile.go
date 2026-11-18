@@ -18,10 +18,17 @@ import (
 	"xdev/internal/store"
 )
 
-// Reconciler pushes the current DB state into Caddy and the hosts file.
+// Proxy is the reverse proxy routes are pushed to: Caddy (proxy.Manager) or
+// ngx (proxy.Ngx).
+type Proxy interface {
+	Reachable() bool
+	Sync([]proxy.Route) error
+}
+
+// Reconciler pushes the current DB state into the proxy and the hosts file.
 type Reconciler struct {
 	store     *store.Store
-	proxy     *proxy.Manager
+	proxy     Proxy
 	hostsPath string
 	// selfAddr is xdev's own listen address, the upstream for the per-app deploy
 	// endpoints published under /_xdev/ on each app's hostname. Empty disables
@@ -44,7 +51,7 @@ type Reconciler struct {
 
 // NewReconciler builds a Reconciler. Routing starts disabled; the first
 // successful Sync enables it.
-func NewReconciler(st *store.Store, pm *proxy.Manager, hostsPath string, manageHosts bool) *Reconciler {
+func NewReconciler(st *store.Store, pm Proxy, hostsPath string, manageHosts bool) *Reconciler {
 	return &Reconciler{store: st, proxy: pm, hostsPath: hostsPath, ManageHosts: manageHosts}
 }
 
@@ -106,7 +113,7 @@ func (r *Reconciler) Sync() error {
 		return err
 	}
 	if r.enabled.CompareAndSwap(false, true) {
-		log.Printf("proxy: Caddy reachable — routing enabled (%d routes)", len(routes))
+		log.Printf("proxy: reachable — routing enabled (%d routes)", len(routes))
 	}
 	if r.ManageHosts {
 		if err := domains.SyncHosts(r.hostsPath, hostnames); err != nil {
