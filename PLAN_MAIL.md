@@ -63,11 +63,14 @@ The `mail` app type:
 
 ## Migration runbook — Mailcow → Stalwart (5 domains)
 
-Prerequisites: web-side proxy flip done (PLANx runbook), Linode resized to
-4GB. Mailcow keeps serving mail on 25/465/587/993 until the final step.
+Prerequisites: web-side proxy flip done (PLANx runbook — ngx on 80/443),
+Linode at 4GB with Mailcow's ClamAV off (`SKIP_CLAMD=y`) for headroom. Mailcow keeps serving mail on 25/465/587/993 until the final step.
 
-1. Create the mail app in xdev **on high ports** (the local port scheme) so it
-   coexists with Mailcow.
+1. Create the mail app in xdev (prod). Mailcow holds the standard ports, so
+   xdev writes high-port overrides into the app's `_/.env` (Env tab) at create
+   time — SMTP 2525, SMTPS 4650, submission 5870, IMAP 1430, IMAPS 9930,
+   POP3 1100, POP3S 9950, Sieve 14190, setup 18080 — and Stalwart starts beside
+   Mailcow. (With the ports free it uses the standard ones directly.)
 2. In Stalwart's admin, recreate all 5 domains, mailboxes, and aliases
    (export the lists from Mailcow's admin first; script via Stalwart's REST
    API if there are many).
@@ -78,8 +81,9 @@ Prerequisites: web-side proxy flip done (PLANx runbook), Linode resized to
 4. `imapsync` every mailbox: Mailcow Dovecot (`:993`) → Stalwart (temp IMAPS
    port). Preserves folders, flags, dates; resumable; re-runs copy only
    deltas.
-5. **Cutover:** final `imapsync` delta pass → stop Mailcow → switch the mail
-   app's compose to the real ports → restart. Downtime is minutes, and
+5. **Cutover:** stop Mailcow's postfix (senders queue and retry) → final
+   `imapsync` delta pass → stop Mailcow → delete the `MAIL_*_PORT` lines from
+   the mail app's Env tab → restart the app. Downtime is minutes, and
    sending servers retry for days — nothing is lost.
 6. **DNS: nothing changes.** Same IP → MX, SPF, PTR untouched; DKIM imported.
 7. Not migrated automatically: sieve filters (both sides speak Sieve — copy
@@ -88,3 +92,30 @@ Prerequisites: web-side proxy flip done (PLANx runbook), Linode resized to
    reconnect over IMAP), spam training (starts fresh).
 8. Keep Mailcow stopped-not-deleted (especially the vmail volume) for a few
    weeks; rollback is stop-Stalwart / start-Mailcow.
+
+## Migration log — done 2026-11-20
+
+Mailcow → Stalwart v1.1.1 on the same host, app `zail` in project bizev
+(webmail sail.leyume.com, admin zail.leyume.com). 7 domains, 33 mailboxes,
+all mail copied, DKIM keys carried over; downtime = the minutes Mailcow's
+SMTP was stopped for the final delta. What differed from the runbook above:
+
+- **Stalwart is v1.x**, not 0.16 (no in-place upgrade between them — the
+  image is now pinned). Config is objects over JMAP (`x:Domain`, `x:Account`,
+  `x:DkimSignature`, `x:Certificate`, …); account credentials are an id-keyed
+  map; Mailcow's `{BLF-CRYPT}$2y$…` imports as `$2y$…` (users kept passwords).
+- **TLS:** the proxy is ngx; xdev copies ngx's ACME certs for
+  `MAIL_TLS_HOSTS` into `_/tls/` (owned by Stalwart's uid 2000) and restarts
+  the mail service on renewal. `STALWART_PUBLIC_URL` (from `MAIL_PUBLIC_URL`)
+  keeps the web login on the admin domain while EHLO stays mail.leyume.com.
+- **Listeners:** v1 setup creates 25/465/993/995/4190 only; 587/143/110 were
+  added by hand in the admin.
+- **Auto-ban:** every host→container connection arrives from a Docker bridge
+  gateway, so repeated banner probes got that gateway banned for "port
+  scanning" (and with it ngx → admin 502). Fix: allow-list 172.16.0.0/12,
+  192.168.0.0/16, 10.0.0.0/8 in Stalwart (Settings > Security > Allowed IPs).
+- **Found on the way:** Mailcow had served an expired cert (Sep 2024) on all
+  mail ports; leyume.com/barjaconstruction.com DKIM DNS didn't match Mailcow's
+  keys (fixed); loafbasket.com DNS is broken at the registrar.
+- Scripts used (outside the repo): ~/mail-migrate/{mailcow2stalwart.py,
+  sync.sh, cutover.sh, rollback.sh, snappymail-domains.php}.

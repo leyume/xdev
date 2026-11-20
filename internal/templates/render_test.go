@@ -158,7 +158,7 @@ func TestMailPorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render mail local: %v", err)
 	}
-	for _, want := range []string{"20001:443", "18080:8080", `"2525:25"`, "20000:8888", "demo_mail_webmail"} {
+	for _, want := range []string{"20001:443", "127.0.0.1:18080:8080", `"2525:25"`, "20000:8888", "demo_mail_webmail"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("local mail compose missing %q\n%s", want, out)
 		}
@@ -172,7 +172,10 @@ func TestMailPorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render mail prod: %v", err)
 	}
-	for _, want := range []string{`"25:25"`, `"465:465"`, `"993:993"`} {
+	for _, want := range []string{`"${MAIL_SMTP_PORT:-25}:25"`, `"${MAIL_SUBMISSIONS_PORT:-465}:465"`,
+		`"${MAIL_SUBMISSION_PORT:-587}:587"`, `"${MAIL_IMAP_PORT:-143}:143"`, `"${MAIL_IMAPS_PORT:-993}:993"`,
+		`"${MAIL_POP3_PORT:-110}:110"`, `"${MAIL_POP3S_PORT:-995}:995"`, `"${MAIL_SIEVE_PORT:-4190}:4190"`,
+		`"127.0.0.1:${MAIL_SETUP_PORT:-8080}:8080"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("prod mail compose missing %q\n%s", want, out)
 		}
