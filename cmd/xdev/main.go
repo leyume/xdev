@@ -282,6 +282,14 @@ func runServer(o *options) error {
 	defer stopMetrics()
 	go metrics.New(st, engine, sup, appSvc).Run(metricsCtx)
 
+	// --- mail TLS ---------------------------------------------------------------
+	// Mail apps serve IMAP/SMTP with the certificates ngx obtains for their
+	// hostnames; keep their copies current (see apps/mailcerts.go).
+	if o.ngxEnv != "" {
+		appSvc.SetACMEDir(ngxACMEDir(engine.Current()))
+		go appSvc.RunMailCertSync(metricsCtx, 6*time.Hour)
+	}
+
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           srv.Handler(),
@@ -387,4 +395,23 @@ func envIntOr(key string, def int) int {
 		}
 	}
 	return def
+}
+
+// ngxACMEDir is the host path of ngx's certificate store: XDEV_ACME_DIR, else
+// the mountpoint of the xdev-ngx-acme volume the installer creates.
+func ngxACMEDir(engine runtime.Engine) string {
+	if d := os.Getenv("XDEV_ACME_DIR"); d != "" {
+		return d
+	}
+	if engine == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := runtime.Exec(ctx, engine, "volume", "inspect", "--format", "{{.Mountpoint}}", "xdev-ngx-acme")
+	if err != nil {
+		log.Printf("mail TLS: ngx certificate volume not found (set XDEV_ACME_DIR): %v", err)
+		return ""
+	}
+	return strings.TrimSpace(out)
 }

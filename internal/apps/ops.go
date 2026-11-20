@@ -116,7 +116,8 @@ func (s *Service) envPath(id int64) (string, error) {
 	if app.IsHostProc() {
 		return filepath.Join(s.appDir(app), ".env"), nil
 	}
-	if app.IsCompose() {
+	// mail: _/.env holds the published ports (MAIL_*_PORT) compose substitutes.
+	if app.IsCompose() || app.Type == "mail" {
 		return filepath.Join(s.appDir(app), "_", ".env"), nil
 	}
 	if mounted := filepath.Join(s.appDir(app), "_", "laravel.env"); exists(mounted) {

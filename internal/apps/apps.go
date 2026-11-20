@@ -70,6 +70,9 @@ type Service struct {
 	// backups is <data>/backups, where a deploy writes its pre-migration
 	// database dump. Set by SetBackupsRoot; "" disables the dump.
 	backups string
+	// acmeDir is ngx's ACME state directory, where mail apps' TLS certificates
+	// are copied from (mailcerts.go). "" disables that.
+	acmeDir string
 	// clone overrides how a git-backed app is first populated; nil means
 	// gitsrc.Clone. See Service.cloneFn.
 	clone func(context.Context, string, gitsrc.Source) error
@@ -658,6 +661,22 @@ func (s *Service) layoutContainer(app *store.App, opts *CreateOpts, proj store.P
 		os.RemoveAll(appDir)
 		return 0, err
 	}
+	// A prod mail server's ports come from _/.env; high ones while another
+	// mail server still holds the standard ports (a migration).
+	// _/tls/ is bind-mounted into the mail server (mailcerts.go); podman
+	// refuses a mount whose source does not exist.
+	if opts.Type == "mail" {
+		if err := os.MkdirAll(filepath.Join(underscore, "tls"), 0o700); err != nil {
+			os.RemoveAll(appDir)
+			return 0, err
+		}
+	}
+	if opts.Type == "mail" && proj.Environment == "prod" {
+		if err := writeMailEnv(underscore); err != nil {
+			os.RemoveAll(appDir)
+			return 0, err
+		}
+	}
 	// The .env the container sees, written outside app/ so a deploy cannot
 	// delete the app key with the checkout.
 	if opts.Type == "laravel" {
@@ -951,6 +970,16 @@ func (s *Service) Start(id int64) error {
 		if _, err := s.prepareCompose(app); err != nil {
 			s.store.SetAppStatus(app.ID, store.AppError)
 			return err
+		}
+	}
+	// A mail server loads its TLS certificates at start: bring _/tls/ current.
+	if app.Type == "mail" {
+		if err := s.ensureMailPublicURL(app); err != nil {
+			s.store.SetAppStatus(app.ID, store.AppError)
+			return err
+		}
+		if _, err := s.syncMailCerts(app); err != nil {
+			log.Printf("app %s: %v", app.Slug, err)
 		}
 	}
 	_, engine, workdir, pname, file, err := s.composeCtx(id)
