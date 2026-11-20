@@ -52,8 +52,8 @@ curl -fsSL https://raw.githubusercontent.com/leyume/xdev/main/deploy/upgrade.sh 
   a dedicated container network.
 - **App templates** — Static (runs on your system Node, no container — serve a
   folder or run a build/dev command), WordPress, Laravel (auto-installs a fresh
-  Laravel + Octane/Swoole with MariaDB + Redis, and an optional Adminer you can
-  switch off once the app is live); add your own by dropping in a Compose
+  Laravel + Octane/Swoole with MariaDB + Redis, and an optional database UI,
+  [rql](https://hub.docker.com/r/leyume/rql), you can switch off once the app is live); add your own by dropping in a Compose
   template.
 - **Bring your own Compose** — pick the **Compose** type and upload or paste a
   `docker-compose.yml` / `compose.yml`: xdev runs your stack as-is. Say how many

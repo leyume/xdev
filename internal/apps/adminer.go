@@ -1,14 +1,18 @@
 package apps
 
-// Turning the bundled Adminer DB UI on and off for a Laravel app.
+// Turning the bundled database UI on and off for a Laravel app.
 //
-// Adminer is a database client on a public hostname. It is genuinely useful
+// The UI is rql (leyume/rql), which replaced Adminer; the code keeps the
+// "adminer" names (SetAdminer, AdminerPort, the route) for the slot it fills.
+// UpgradeAdminer moves apps created with Adminer over to rql.
+//
+// It is a database client on a public hostname. It is genuinely useful
 // while an app is being built and genuinely unwanted once it is live, so which
 // of the two an app wants is a decision that changes over its life — not one to
 // fix at create time and never revisit.
 //
 // There is no column for it. Whether an app has Adminer is already written in
-// two places that have to agree for it to work at all: the `adminer` service in
+// two places that have to agree for it to work at all: the `rql` service in
 // the compose file, and the service-domain row that routes a hostname to its
 // port. A third copy in the apps table could only ever disagree with them, so
 // the domain row is the answer to "is it on?" and this file is what keeps the
@@ -34,8 +38,12 @@ import (
 )
 
 // adminerService is the compose service name, in both the template partial and
-// the file it renders into.
-const adminerService = "adminer"
+// the file it renders into. legacyAdminerService is the one apps created
+// before rql carry.
+const (
+	adminerService       = "rql"
+	legacyAdminerService = "adminer"
+)
 
 // CanToggleAdminer reports whether an app is one whose Adminer can be switched.
 // Only Laravel: it is the only type that bundles Adminer, and the other type
@@ -112,6 +120,7 @@ func (s *Service) SetAdminer(id int64, on bool) (string, error) {
 		// `adminer` block (hand-added, or left behind by an interrupted toggle)
 		// must not end up with two.
 		yaml, _ = composeRemoveService(yaml, adminerService)
+		yaml, _ = composeRemoveService(yaml, legacyAdminerService)
 		if yaml, err = composeAddService(yaml, block); err != nil {
 			return "", err
 		}
@@ -122,9 +131,15 @@ func (s *Service) SetAdminer(id int64, on bool) (string, error) {
 		// container belongs to this stack, and neither `down` nor `up` would
 		// remove it. Best-effort — a stopped stack has nothing to remove, and a
 		// leftover container is not a reason to refuse the setting.
-		s.removeAdminerContainer(app)
-		var found bool
-		if yaml, found = composeRemoveService(yaml, adminerService); !found {
+		found := false
+		for _, name := range []string{adminerService, legacyAdminerService} {
+			if _, _, ok := findComposeService(strings.Split(yaml, "\n"), name); ok {
+				s.removeAdminerContainer(app, name)
+				yaml, _ = composeRemoveService(yaml, name)
+				found = true
+			}
+		}
+		if !found {
 			log.Printf("app %d: no %q service in %s to remove", app.ID, adminerService, app.ComposePath)
 		}
 	}
@@ -145,9 +160,9 @@ func (s *Service) SetAdminer(id int64, on bool) (string, error) {
 	return svc[0].Host, nil
 }
 
-// removeAdminerContainer stops and deletes just the adminer container, while the
-// compose file still lists it.
-func (s *Service) removeAdminerContainer(app store.App) {
+// removeAdminerContainer stops and deletes just that service's container, while
+// the compose file still lists it.
+func (s *Service) removeAdminerContainer(app store.App, service string) {
 	_, engine, workdir, pname, file, err := s.composeCtx(app.ID)
 	if err != nil {
 		return
@@ -155,9 +170,80 @@ func (s *Service) removeAdminerContainer(app store.App) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	if out, err := runtime.Compose(ctx, engine, workdir, pname, file,
-		"rm", "--stop", "--force", adminerService); err != nil {
-		log.Printf("app %d: remove %s container: %v\n%s", app.ID, adminerService, err, out)
+		"rm", "--stop", "--force", service); err != nil {
+		log.Printf("app %d: remove %s container: %v\n%s", app.ID, service, err, out)
 	}
+}
+
+// UpgradeAdminer replaces the Adminer service of apps created before rql with
+// rql, on the same port behind the same hostname. Run at startup; an app with no
+// `adminer` service left is untouched, so it runs once per app. A running app
+// gets its rql container straight away; a stopped one on its next start.
+func (s *Service) UpgradeAdminer() {
+	projs, err := s.store.ListProjects()
+	if err != nil {
+		log.Printf("upgrade adminer: %v", err)
+		return
+	}
+	for _, proj := range projs {
+		list, _ := s.store.ListAppsByProject(proj.ID)
+		for _, app := range list {
+			if !CanToggleAdminer(app) {
+				continue
+			}
+			if err := s.upgradeAdminer(app, proj); err != nil {
+				log.Printf("app %s: replace Adminer with rql: %v", app.Slug, err)
+			}
+		}
+	}
+}
+
+func (s *Service) upgradeAdminer(app store.App, proj store.Project) error {
+	yaml, err := s.ReadCompose(app.ID)
+	if err != nil {
+		return err
+	}
+	if _, _, ok := findComposeService(strings.Split(yaml, "\n"), legacyAdminerService); !ok {
+		return nil
+	}
+	svc, err := s.store.AppServiceDomains(app.ID)
+	if err != nil || len(svc) == 0 {
+		return err // no route for it: nothing reaches it, leave the file alone
+	}
+	block, err := templates.RenderPartial(app.Type, "adminer_service", templates.Data{
+		ProjectSlug: proj.Slug,
+		AppSlug:     app.Slug,
+		AppType:     app.Type,
+		Env:         proj.Environment,
+		AdminerPort: svc[0].Port,
+		SharedDB:    app.DBMode == store.DBShared,
+	})
+	if err != nil {
+		return err
+	}
+	s.removeAdminerContainer(app, legacyAdminerService) // while the file still names it
+	yaml, _ = composeRemoveService(yaml, legacyAdminerService)
+	yaml, _ = composeRemoveService(yaml, adminerService)
+	if yaml, err = composeAddService(yaml, block); err != nil {
+		return err
+	}
+	if err := writeComposeEdit(app.ComposePath, yaml); err != nil {
+		return err
+	}
+	log.Printf("app %s: Adminer replaced by rql at %s (port %d)", app.Slug, svc[0].Host, svc[0].Port)
+	if app.Status != store.AppRunning {
+		return nil
+	}
+	_, engine, workdir, pname, file, err := s.composeCtx(app.ID)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	if out, err := runtime.Compose(ctx, engine, workdir, pname, file, "up", "-d", adminerService); err != nil {
+		return fmt.Errorf("start rql: %v\n%s", err, out)
+	}
+	return nil
 }
 
 // --- compose service surgery ------------------------------------------------

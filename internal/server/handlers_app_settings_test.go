@@ -114,7 +114,7 @@ func TestSettingsPageIsPerType(t *testing.T) {
 	out = renderSettings(t, laravel, appSettingsForm{
 		Name: "app", Domain: "app.demo.test", ServiceDomain: "adminer.app.demo.test",
 	}, viewData{"ServicePort": 20009})
-	for _, want := range []string{`name="service_domain"`, "adminer.app.demo.test", "Adminer", "port 20009"} {
+	for _, want := range []string{`name="service_domain"`, "adminer.app.demo.test", "rql", "port 20009"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("laravel settings page missing %q", want)
 		}
@@ -161,7 +161,7 @@ func TestSettingsPageShowsTheDatabase(t *testing.T) {
 		DBMode: store.DBShared, WPMode: store.WPShared}
 	out = renderSettings(t, wp, appSettingsForm{Name: "blog", Domain: "blog.demo.test"},
 		viewData{"DB": appDB(wp, proj, nil)})
-	for _, want := range []string{"Shared", "demo_blog", "no Adminer bundled"} {
+	for _, want := range []string{"Shared", "demo_blog", "no database UI bundled"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("wordpress settings page missing %q", want)
 		}
@@ -259,7 +259,7 @@ func TestSettingsFormFrom(t *testing.T) {
 // TestServiceLabel: only the types that bundle a second web UI name one.
 func TestServiceLabel(t *testing.T) {
 	for appType, want := range map[string]string{
-		"laravel":         "Adminer",
+		"laravel":         "rql",
 		"mail":            "Mail admin",
 		store.TypeCompose: "",
 		store.TypeStatic:  "",

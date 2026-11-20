@@ -203,13 +203,6 @@ func parseWithPartials(appType, body string) (*template.Template, error) {
 	return tmpl, nil
 }
 
-// AdminerCSS returns the bundled Adminer stylesheet (the Pepa Linha dark theme
-// the laravel apps ship in their db/), so the platform's shared Adminer can
-// mount the same design instead of the image's older built-in one.
-func AdminerCSS() ([]byte, error) {
-	return filesFS.ReadFile("files/laravel/infra/db/adminer.css")
-}
-
 // ScaffoldFiles returns the relative path -> contents of every file under
 // files/<type>/scaffold/, to be written into the app's content directory.
 // Returns an empty map if the type has no scaffold.

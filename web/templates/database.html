@@ -32,10 +32,10 @@
     <div class="db-hero-acts">
       {{if $db.Running}}
       {{if $db.AdminerPort}}
-      <a class="btn small-btn" href="http://127.0.0.1:{{$db.AdminerPort}}/?server={{$db.Host}}&username=root" target="_blank">Open Adminer ↗</a>
+      <a class="btn small-btn" href="http://127.0.0.1:{{$db.AdminerPort}}/#server={{$db.Host}}&user=root" target="_blank">Open rql ↗</a>
       {{else}}
       <form class="inline" method="post" action="/database/adminer">
-        <input type="hidden" name="csrf_token" value="{{.CSRF}}"><button class="btn small-btn" type="submit">Start Adminer</button>
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}"><button class="btn small-btn" type="submit">Start rql</button>
       </form>
       {{end}}
       {{end}}
@@ -43,7 +43,7 @@
         {{if $db.AdminerPort}}
         <form class="inline" method="post" action="/database/adminer">
           <input type="hidden" name="csrf_token" value="{{.CSRF}}"><input type="hidden" name="action" value="stop">
-          <button class="iconbtn tip" type="submit" data-tip="Stop Adminer" aria-label="Stop Adminer">{{template "icon_stop" $}}</button>
+          <button class="iconbtn tip" type="submit" data-tip="Stop rql" aria-label="Stop rql">{{template "icon_stop" $}}</button>
         </form>
         {{end}}
         <form class="inline" method="post" action="/database/restart">

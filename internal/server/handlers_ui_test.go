@@ -131,7 +131,7 @@ func TestAdminerToggle(t *testing.T) {
 	if !strings.Contains(off, `name="enable"`) || !strings.Contains(off, "Turn on") {
 		t.Error("an app without Adminer is not offered it")
 	}
-	if !strings.Contains(off, "adminer.web.demo.test") {
+	if !strings.Contains(off, "rql.web.demo.test") {
 		t.Error("the page does not say which hostname turning it on would publish")
 	}
 

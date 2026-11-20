@@ -53,7 +53,7 @@ func composeOf(t *testing.T, app store.App) string {
 // together are what "having Adminer" means.
 func TestCreateLaravelWithoutAdminer(t *testing.T) {
 	_, st, app := laravelFixture(t, true)
-	if strings.Contains(composeOf(t, app), "adminer:") {
+	if strings.Contains(composeOf(t, app), "rql:") {
 		t.Error("the compose file has an adminer service")
 	}
 	svc, err := st.AppServiceDomains(app.ID)
@@ -69,14 +69,14 @@ func TestCreateLaravelWithoutAdminer(t *testing.T) {
 // on a port of its own and a hostname that routes.
 func TestSetAdminerRoundTrip(t *testing.T) {
 	svc, st, app := laravelFixture(t, false)
-	if !strings.Contains(composeOf(t, app), "adminer:") {
+	if !strings.Contains(composeOf(t, app), "rql:") {
 		t.Fatal("the fixture was created without an adminer service")
 	}
 
 	if host, err := svc.SetAdminer(app.ID, false); err != nil || host != "" {
 		t.Fatalf("SetAdminer(off) = %q, %v", host, err)
 	}
-	if strings.Contains(composeOf(t, app), "adminer:") {
+	if strings.Contains(composeOf(t, app), "rql:") {
 		t.Error("the adminer service survived being switched off")
 	}
 	if d, _ := st.AppServiceDomains(app.ID); len(d) != 0 {
@@ -95,11 +95,11 @@ func TestSetAdminerRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetAdminer(on): %v", err)
 	}
-	if host != "adminer.shop.demo.test" {
-		t.Errorf("published %q, want adminer.shop.demo.test", host)
+	if host != "rql.shop.demo.test" {
+		t.Errorf("published %q, want rql.shop.demo.test", host)
 	}
 	yaml := composeOf(t, app)
-	if !strings.Contains(yaml, "adminer:") || !strings.Contains(yaml, ":8080") {
+	if !strings.Contains(yaml, "rql:") || !strings.Contains(yaml, ":8080") {
 		t.Errorf("the adminer service did not come back:\n%s", yaml)
 	}
 	d, _ := st.AppServiceDomains(app.ID)
@@ -164,7 +164,7 @@ func laravelCompose(t *testing.T, adminerPort int, env string) string {
 func TestLaravelComposeWithoutAdminer(t *testing.T) {
 	for _, env := range []string{"local", "prod"} {
 		yaml := laravelCompose(t, 0, env)
-		if strings.Contains(yaml, "adminer:") || strings.Contains(yaml, "8080") {
+		if strings.Contains(yaml, "rql:") || strings.Contains(yaml, "8080") {
 			t.Errorf("%s: adminer service still rendered with AdminerPort 0:\n%s", env, yaml)
 		}
 		// The rest of the stack has to be intact, not just adminer-free.
@@ -184,7 +184,7 @@ func TestComposeRemoveService(t *testing.T) {
 		with := laravelCompose(t, 20001, env)
 		without := laravelCompose(t, 0, env)
 
-		got, found := composeRemoveService(with, "adminer")
+		got, found := composeRemoveService(with, "rql")
 		if !found {
 			t.Fatalf("%s: adminer service not found in a stack that has one", env)
 		}
@@ -229,14 +229,14 @@ func TestComposeRemoveServiceKeepsEdits(t *testing.T) {
 	if edited == yaml {
 		t.Fatal("fixture did not apply")
 	}
-	got, found := composeRemoveService(edited, "adminer")
+	got, found := composeRemoveService(edited, "rql")
 	if !found {
 		t.Fatal("adminer not found")
 	}
 	if !strings.Contains(got, "# a note somebody added") {
 		t.Error("a hand-written comment did not survive removing the adminer service")
 	}
-	if strings.Contains(got, "adminer:\n") {
+	if strings.Contains(got, "rql:\n") {
 		t.Error("the adminer service survived")
 	}
 }
@@ -245,7 +245,7 @@ func TestComposeRemoveServiceKeepsEdits(t *testing.T) {
 // something else — the toggle logs that case instead of writing a mangled file.
 func TestComposeRemoveServiceMissing(t *testing.T) {
 	yaml := laravelCompose(t, 0, "local")
-	got, found := composeRemoveService(yaml, "adminer")
+	got, found := composeRemoveService(yaml, "rql")
 	if found {
 		t.Error("found an adminer service in a stack rendered without one")
 	}
@@ -260,4 +260,44 @@ func TestComposeAddServiceRefusesWithoutServices(t *testing.T) {
 	if _, err := composeAddService("networks:\n  internal:\n", "  x:\n    image: y\n"); err == nil {
 		t.Error("expected an error adding a service to a file with no services: section")
 	}
+}
+
+// An app created with Adminer gets rql in its place at startup: same port, same
+// hostname, the rest of the file (hand edits included) untouched, and only once.
+func TestUpgradeAdminerToRql(t *testing.T) {
+	svc, st, app := laravelFixture(t, false)
+	yaml := composeOf(t, app)
+	start := strings.Index(yaml, "  rql:\n")
+	end := strings.Index(yaml[start:], "    networks:") + start
+	legacy := yaml[:start] + "  adminer:\n    image: docker.io/library/adminer\n    ports:\n      - \"" +
+		portOf(t, st, app) + ":8080\"\n" + yaml[end:]
+	legacy = strings.Replace(legacy, "  redis:\n", "  # a note somebody added\n  redis:\n", 1)
+	if err := os.WriteFile(app.ComposePath, []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	proj, _ := st.ProjectByID(app.ProjectID)
+	for i := 0; i < 2; i++ { // the second run finds nothing to do
+		if err := svc.upgradeAdminer(app, proj); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := composeOf(t, app)
+	if strings.Contains(got, "adminer:") || strings.Count(got, "  rql:\n") != 1 {
+		t.Fatalf("want exactly one rql service and no adminer:\n%s", got)
+	}
+	if !strings.Contains(got, portOf(t, st, app)+":8080") || !strings.Contains(got, "leyume/rql") {
+		t.Errorf("rql is not on Adminer's port:\n%s", got)
+	}
+	if !strings.Contains(got, "# a note somebody added") {
+		t.Error("a hand edit did not survive the upgrade")
+	}
+}
+
+func portOf(t *testing.T, st *store.Store, app store.App) string {
+	t.Helper()
+	svc, err := st.AppServiceDomains(app.ID)
+	if err != nil || len(svc) == 0 {
+		t.Fatalf("no service domain: %v", err)
+	}
+	return strconv.Itoa(svc[0].Port)
 }

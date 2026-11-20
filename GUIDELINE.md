@@ -359,7 +359,7 @@ POST /apps/{id}/action            run one allowlisted container command (see 9.1
                                   answers JSON {label,output,failed} to Accept: application/json,
                                   else re-renders the page — a *failed command* is still 200
 POST /apps/{id}/db-dump           switch pre-migration database dumps on/off
-POST /apps/{id}/adminer           add / remove the bundled Adminer (laravel)
+POST /apps/{id}/adminer           add / remove the bundled database UI, rql (laravel)
 GET  /apps/{id}/deploys/partial   deploy history fragment (polled while one runs)
 POST /apps/{id}/deploys/clear     empty the deploy history (a running deploy is kept)
 GET  /jobs/{id}                   progress of a background create (polled by the dialog)
@@ -876,14 +876,19 @@ request can name a command that is not in it; adding one is a code change.
 WordPress and bring-your-own compose have no deploy path a repository could
 drive, so attaching one is refused at create rather than cloned and ignored.
 
-**The bundled Adminer is optional and switchable** (`internal/apps/adminer.go`).
-Adminer is a database client on a public hostname: wanted while an app is being
+**The bundled database UI is optional and switchable** (`internal/apps/adminer.go`).
+It is rql (`leyume/rql`), which replaced Adminer; the code keeps the "adminer"
+names (`SetAdminer`, `AdminerPort`, the route) for the slot. Apps created with
+Adminer are moved to rql at startup (`UpgradeAdminer`): same port, same hostname,
+the rest of the file untouched. rql runs with `RQL_NO_AUTH=1`, so the database
+login is the gate, as it was with Adminer; never give it `RQL_SERVERS` with
+credentials, which skip that login. It is a database client on a public hostname: wanted while an app is being
 built, unwanted once it is live. The add-app form asks (`CreateOpts.NoAdminer`,
 default off = include it) and the settings page switches it either way
 afterwards (`SetAdminer`).
 
 There is **no column** for it. "Has Adminer" is already written in the two
-places that must agree for it to work — the `adminer` service in the compose
+places that must agree for it to work — the `rql` service in the compose
 file, and the service-domain row routing a hostname to its port — so the domain
 row *is* the answer, and `SetAdminer` keeps the file in step with it. A third
 copy in `apps` could only ever disagree with them.

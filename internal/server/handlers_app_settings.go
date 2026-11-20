@@ -278,7 +278,7 @@ func appDB(app store.App, proj store.Project, svc []store.ServiceDomain) *appDBI
 	}
 	// The bundled Adminer, when the type ships one (Laravel does, in both DB
 	// modes — pointed at whichever server the app uses).
-	if serviceLabel(app.Type) == "Adminer" && len(svc) > 0 {
+	if app.Type == "laravel" && len(svc) > 0 {
 		info.Adminer, info.AdminerPort = svc[0].Host, svc[0].Port
 		info.AdminerOn = "the shared xdev-db server"
 		if !info.Shared {
@@ -293,7 +293,7 @@ func appDB(app store.App, proj store.Project, svc []store.ServiceDomain) *appDBI
 func serviceLabel(appType string) string {
 	switch appType {
 	case "laravel":
-		return "Adminer"
+		return "rql"
 	case "mail":
 		return "Mail admin"
 	}

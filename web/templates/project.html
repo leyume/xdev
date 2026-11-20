@@ -223,7 +223,7 @@
         </div>
         {{end}}
         {{$adm := index $.AdminerDomains .ID}}
-        {{$admLabel := "Adminer"}}{{if eq .Type "mail"}}{{$admLabel = "Mail admin"}}{{end}}
+        {{$admLabel := "rql"}}{{if eq .Type "mail"}}{{$admLabel = "Mail admin"}}{{end}}
         {{if $adm}}
         <div class="meta">
           <span class="meta-k">{{$admLabel}}</span>
@@ -250,7 +250,7 @@
         {{if or (eq .DBMode "shared") (eq .WPMode "shared")}}
         <div class="meta">
           <span class="meta-k">Database</span>
-          <span class="meta-v"><a href="/database" title="Manage the shared database &amp; Adminer">Shared xdev MariaDB ↗</a></span>
+          <span class="meta-v"><a href="/database" title="Manage the shared database &amp; rql">Shared xdev MariaDB ↗</a></span>
         </div>
         {{end}}
         {{if or .CPULimit .MemLimit}}
@@ -623,21 +623,21 @@
         </div>
       </template>
 
-      <!-- Laravel: the bundled Adminer, and where it is served. Adminer is a
+      <!-- Laravel: the bundled database UI (rql), and where it is served. It is a
            database client on a public hostname, so whether to have one at all
            is asked here rather than assumed — and it can be switched either way
            later from the app's settings page. -->
       <template x-if="type==='laravel'">
         <div class="field-group">
           <h4>Database UI</h4>
-          <label>Adminer
+          <label>rql
             <select name="adminer" x-model="adminer">
-              <option value="1">Include Adminer — a database client served at its own hostname</option>
+              <option value="1">Include rql — a database client served at its own hostname</option>
               <option value="0">Leave it out — nothing extra is published</option>
             </select>
           </label>
-          <label x-show="adminer==='1'">Adminer domain <span class="muted">(blank = <code>adminer.&lt;app-domain&gt;</code>)</span>
-            <input type="text" name="adminer_domain" placeholder="adminer.{{.Project.BaseDomain}}" spellcheck="false">
+          <label x-show="adminer==='1'">rql domain <span class="muted">(blank = <code>rql.&lt;app-domain&gt;</code>)</span>
+            <input type="text" name="adminer_domain" placeholder="rql.{{.Project.BaseDomain}}" spellcheck="false">
           </label>
           <p class="muted small" x-show="adminer==='0'" x-cloak>No container, no host port, no hostname.
             You can add it later from the app's settings page.</p>
@@ -829,7 +829,7 @@ function addAppForm(baseDomain, maxDomains, csrf) {
   return {
     step: 1,
     type: '', serve: 'serve', wp: 'shared', godb: '', lserver: 'swoole', domain: '', name: '',
-    // Adminer ships with a Laravel app unless it is turned off here. A string,
+    // rql (the database UI) ships with a Laravel app unless it is turned off here. A string,
     // not a boolean: it is a <select> whose value is posted as-is.
     adminer: '1',
     // Where a host app's code comes from: 'new' (scaffold), 'folder' (one you

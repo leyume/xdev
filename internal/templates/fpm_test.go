@@ -154,8 +154,8 @@ func TestFPMKeepsAdminer(t *testing.T) {
 	d.AdminerPort = 20006
 	out := renderFPM(t, d)
 
-	if serviceBlock(out, "adminer") == "" {
-		t.Error("fpm stack dropped the adminer service")
+	if serviceBlock(out, "rql") == "" {
+		t.Error("fpm stack dropped the rql service")
 	}
 	if !strings.Contains(out, "20006:") {
 		t.Error("fpm stack did not publish adminer on its allocated port")

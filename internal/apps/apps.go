@@ -206,12 +206,12 @@ type CreateOpts struct {
 func UsesDB(appType string) bool { return appType == "wordpress" || appType == "laravel" }
 
 // secondaryPrefix returns the default hostname prefix for a type's extra
-// proxied HTTP UI (Adminer for laravel, the Stalwart admin for mail);
+// proxied HTTP UI (rql for laravel, the Stalwart admin for mail);
 // "" means the type has none.
 func secondaryPrefix(appType string) string {
 	switch appType {
 	case "laravel":
-		return "adminer"
+		return "rql"
 	case "mail":
 		return "admin"
 	}

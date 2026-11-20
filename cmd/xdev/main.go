@@ -316,6 +316,9 @@ func runServer(o *options) error {
 	// Respawn static command-mode apps that were running before this restart
 	// (their host processes, unlike containers, don't survive an xdev restart).
 	appSvc.ResumeStatic()
+	// Apps created with Adminer get rql in its place (once; in the background,
+	// since a running app pulls the image).
+	go appSvc.UpgradeAdminer()
 
 	// --- serve with graceful shutdown ---------------------------------------
 	errCh := make(chan error, 1)

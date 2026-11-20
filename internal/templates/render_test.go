@@ -124,9 +124,9 @@ func TestLaravelInfra(t *testing.T) {
 		t.Fatalf("render laravel: %v", err)
 	}
 	for _, want := range []string{
-		"demo_api_adminer",                 // adminer service
-		"20001:8080",                       // adminer published port
-		"ADMINER_DEFAULT_SERVER: db",       // adminer prefilled server
+		"demo_api_rql",                     // database UI service
+		"20001:8080",                       // its published port
+		`RQL_NO_AUTH: "1"`,                 // the database login is the gate, as with Adminer
 		"../_volumes/mysql:/var/lib/mysql", // bizepp-format db volume
 		"../_volumes/redis:/data",          // redis volume
 		"./init.sh:/init.sh:ro",            // bootstrap entrypoint mount
@@ -141,7 +141,7 @@ func TestLaravelInfra(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InfraFiles(laravel): %v", err)
 	}
-	for _, want := range []string{"init.sh", "db/my.cnf", "db/adminer.css"} {
+	for _, want := range []string{"init.sh", "db/my.cnf"} {
 		if _, ok := infra[want]; !ok {
 			t.Errorf("laravel infra missing %q", want)
 		}

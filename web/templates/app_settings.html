@@ -400,7 +400,7 @@ jobs:
 
 <div class="tab-pane" x-show="tab==='services'"{{if ne $tab "services"}} style="display:none"{{end}}>
 {{/* Which PHP server this Laravel app runs. Its own card and its own form for
-     the same reason Adminer has one: switching regenerates the whole compose
+     the same reason the database UI has one: switching regenerates the whole compose
      file and replaces every container, which has no business happening inside
      a save that was only meant to rename the app. */}}
 {{if .CanSwitchServer}}
@@ -439,12 +439,12 @@ jobs:
 </section>
 {{end}}
 
-{{/* The bundled Adminer. Its own card and its own form, because switching it
+{{/* The bundled database UI (rql). Its own card and its own form, because switching it
      rewrites the compose file and republishes a hostname — neither of which
      belongs in a save that was only meant to rename the app. */}}
 {{if .CanToggleAdminer}}
 <section class="card form-card">
-  <h3>Database UI (Adminer)</h3>
+  <h3>Database UI (rql)</h3>
   <div class="toggle-row">
     <div class="grow">
       {{if .AdminerOn}}
@@ -452,18 +452,18 @@ jobs:
         <span class="status running"></span>
         On{{with .DB}}{{if .Adminer}} — <code>{{.Adminer}}</code>{{end}}{{end}}
       </div>
-      <p class="muted small">Adminer is a database client served on a public hostname. It is behind
+      <p class="muted small">rql is a database client served on a public hostname. It is behind
         nothing but its own login, so turn it off once this app is live — the container goes away,
         its host port is released, and the hostname stops routing.</p>
       {{else}}
       <div class="small" style="font-weight:600"><span class="status stopped"></span> Off</div>
-      <p class="muted small">Turning it on adds an <code>adminer</code> service to this app's compose file,
+      <p class="muted small">Turning it on adds an <code>rql</code> service to this app's compose file,
         allocates a host port for it, and publishes it at
-        <code>adminer.{{$app.Domain}}</code>. Nothing else in the file is touched.</p>
+        <code>rql.{{$app.Domain}}</code>. Nothing else in the file is touched.</p>
       {{end}}
     </div>
     <form method="post" action="/apps/{{$app.ID}}/adminer"
-          {{if .AdminerOn}}data-confirm="Remove Adminer from {{$app.Name}}? Its hostname stops routing and the container is deleted."{{end}}>
+          {{if .AdminerOn}}data-confirm="Remove rql from {{$app.Name}}? Its hostname stops routing and the container is deleted."{{end}}>
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       {{if .AdminerOn}}<button class="danger" type="submit">Turn off</button>
       {{else}}<input type="hidden" name="enable" value="1"><button type="submit">Turn on</button>{{end}}
@@ -572,9 +572,9 @@ jobs:
       {{else}}This app runs its own MariaDB container inside its stack ({{if eq $app.Type "laravel"}}persisted under
         <code>_volumes/mysql</code>{{else}}on a named volume{{end}}). Its credentials are in the compose file
         below — change them there.{{end}}
-      {{if .Adminer}}<br>Adminer is bundled with this app at <code>{{.Adminer}}</code> (port {{.AdminerPort}}),
+      {{if .Adminer}}<br>rql is bundled with this app at <code>{{.Adminer}}</code> (port {{.AdminerPort}}),
         opening on {{.AdminerOn}} — rename it under Domains above.
-      {{else if .Shared}}<br>There's no Adminer bundled with this app; the Database page runs one for the
+      {{else if .Shared}}<br>There's no database UI bundled with this app; the Database page runs one for the
         shared server.{{end}}
     </p>
     <p class="muted small">Switching between shared and dedicated isn't a setting — it moves the data, so

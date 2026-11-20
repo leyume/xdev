@@ -1,28 +1,31 @@
-{{/* The bundled Adminer DB UI, as one compose service.
+{{/* The bundled database UI (rql, https://hub.docker.com/r/leyume/rql), as one
+     compose service. It replaced Adminer; the Go side still calls it "adminer"
+     (SetAdminer, AdminerPort, POST /apps/{id}/adminer).
 
      It lives in a partial rather than inline in the two compose files because
      it is the one service an app can gain or lose after it is created: turning
-     Adminer off has to remove exactly this block from a file the user may have
+     it off has to remove exactly this block from a file the user may have
      edited, and turning it back on has to put exactly this block back. A single
-     definition is what keeps "the block xdev removes" and "the block xdev
-     writes" the same text — and keeps the local and prod stacks from drifting
-     apart, which they already had started to do.
+     definition keeps "the block xdev removes" and "the block xdev writes" the
+     same text, and the local and prod stacks from drifting apart.
+
+     RQL_NO_AUTH: like Adminer, the database login is the gate. rql then answers
+     on any hostname, which the proxy in front needs. Never add RQL_SERVERS with
+     credentials here: listed servers skip the login.
 
      Rendered on its own by templates.RenderPartial; included by both compose
-     templates behind {{if .AdminerPort}}, since port 0 means "no Adminer". */}}
+     templates behind {{if .AdminerPort}}, since port 0 means "no database UI". */}}
 {{define "adminer_service"}}
-  adminer:
-    image: docker.io/library/adminer
-    container_name: {{.ProjectSlug}}_{{.AppSlug}}_adminer
+  rql:
+    image: docker.io/leyume/rql:latest
+    container_name: {{.ProjectSlug}}_{{.AppSlug}}_rql
     restart: unless-stopped
 {{- if not .SharedDB}}
     depends_on:
       - db
 {{- end}}
     environment:
-      ADMINER_DEFAULT_SERVER: {{if .SharedDB}}xdev-db{{else}}db{{end}}
-    volumes:
-      - ./db/adminer.css:/var/www/html/adminer.css:ro
+      RQL_NO_AUTH: "1"
     ports:
       - "{{.AdminerPort}}:8080"
     networks:

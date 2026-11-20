@@ -25,7 +25,6 @@ import (
 
 	"xdev/internal/runtime"
 	"xdev/internal/store"
-	"xdev/internal/templates"
 )
 
 // identRE guards database/user identifiers we interpolate into DDL (no MySQL
@@ -54,8 +53,9 @@ const (
 	sharedDBRootKey   = "shared_db_root_password"
 	sharedDBPortKey   = "shared_db_host_port" // 127.0.0.1 port the server is published on
 
-	adminerContainer = "xdev-adminer"
-	adminerImage     = "docker.io/library/adminer:latest"
+	adminerContainer = "xdev-rql" // the shared DB's web UI: rql, which replaced Adminer
+	legacyAdminer    = "xdev-adminer"
+	adminerImage     = "docker.io/leyume/rql:latest"
 	adminerPortKey   = "shared_adminer_port"
 )
 
@@ -272,7 +272,7 @@ type SharedDBInfo struct {
 	Port        int
 	RootPass    string
 	Databases   []SharedDB
-	AdminerPort int // host port of the running Adminer helper; 0 = not running
+	AdminerPort int // host port of the running database UI (rql); 0 = not running
 }
 
 // SharedDBInfo reports the shared server's status plus its per-app databases.
@@ -350,7 +350,7 @@ type SharedDBDetail struct {
 	App         string // "project / app" owner, "" if it maps to no known app
 	Host        string
 	Port        int
-	AdminerPort int // host port of the running Adminer helper; 0 = not running
+	AdminerPort int // host port of the running database UI (rql); 0 = not running
 	Tables      []SharedTable
 	Users       []DBGrantee
 	TotalRows   int64 // sum of the (approximate) per-table row counts
@@ -486,10 +486,10 @@ func (s *Service) SharedDBUpdate(ctx context.Context) error {
 	return err
 }
 
-// AdminerStart lazily runs an Adminer container on xdev_shared, pointed at the
-// shared server and published on 127.0.0.1 only (root DB access — never exposed
+// AdminerStart lazily runs the database UI (rql; it replaced Adminer) on
+// xdev_shared, next to the shared server, published on 127.0.0.1 only (root DB access — never exposed
 // off-host; reach prod over an SSH tunnel). Returns the host port.
-// ponytail: localhost-bound + no auth of its own; a routed, authed Adminer is
+// ponytail: localhost-bound + no auth of its own; a routed, authed UI is
 // the upgrade if remote browser access without a tunnel ever matters.
 func (s *Service) AdminerStart(ctx context.Context) (int, error) {
 	engine := s.sel.Current()
@@ -507,53 +507,24 @@ func (s *Service) AdminerStart(ctx context.Context) (int, error) {
 			return 0, err
 		}
 	}
-	// Recreate on every start (Adminer is stateless) so the current config —
-	// notably the mounted stylesheet — always takes effect, even if an older
-	// container is still around.
-	runtime.Exec(ctx, engine, "rm", "-f", adminerContainer) // ignore "no such container"
+	// Recreate on every start (it is stateless) so the current config always
+	// takes effect, and an old Adminer from before rql goes with it.
+	runtime.Exec(ctx, engine, "rm", "-f", adminerContainer, legacyAdminer) // ignore "no such container"
+	// RQL_NO_AUTH: published on loopback only, and the database login is the gate.
 	args := []string{"run", "-d",
 		"--name", adminerContainer, "--restart", "unless-stopped",
-		"--network", sharedDBNetwork,
-		"-e", "ADMINER_DEFAULT_SERVER=" + sharedDBContainer}
-	// Mount the same Pepa Linha dark theme the per-app (laravel) Adminers use so
-	// the platform Adminer matches them, rather than the image's older built-in
-	// design. A user-provided <data>/adminer.css is left in place as an override.
-	if css := s.ensureAdminerCSS(); css != "" {
-		args = append(args, "-v", css+":/var/www/html/adminer.css:ro")
-	}
-	args = append(args, "-p", fmt.Sprintf("127.0.0.1:%d:8080", port), adminerImage)
+		"--network", sharedDBNetwork, "-e", "RQL_NO_AUTH=1",
+		"-p", fmt.Sprintf("127.0.0.1:%d:8080", port), adminerImage}
 	if _, err := runtime.Exec(ctx, engine, args...); err != nil {
 		return 0, err
 	}
 	return port, nil
 }
 
-// ensureAdminerCSS makes sure the shared Adminer stylesheet exists on disk (so
-// it can be bind-mounted), seeding it from the bundled template on first use.
-// A file already there (a user override) is kept. Returns "" if it can't be
-// provided, so the caller just skips the mount.
-func (s *Service) ensureAdminerCSS() string {
-	css := s.adminerCSSPath()
-	if fileExists(css) {
-		return css
-	}
-	data, err := templates.AdminerCSS()
-	if err != nil {
-		return ""
-	}
-	if err := os.MkdirAll(filepath.Dir(css), 0o755); err != nil {
-		return ""
-	}
-	if err := os.WriteFile(css, data, 0o644); err != nil {
-		return ""
-	}
-	return css
-}
-
-// AdminerStop removes the Adminer helper container (the port stays reserved in
+// AdminerStop removes the database UI container (the port stays reserved in
 // settings so a later start reuses the same one).
 func (s *Service) AdminerStop(ctx context.Context) error {
-	_, err := runtime.Exec(ctx, s.sel.Current(), "rm", "-f", adminerContainer)
+	_, err := runtime.Exec(ctx, s.sel.Current(), "rm", "-f", adminerContainer, legacyAdminer)
 	return err
 }
 
@@ -698,13 +669,6 @@ func (s *Service) DropSharedUser(ctx context.Context, name, host string) error {
 		return fmt.Errorf("refusing to drop the system account %q", name)
 	}
 	return s.adminSQL(ctx, fmt.Sprintf("DROP USER IF EXISTS '%s'@'%s';", name, host))
-}
-
-// adminerCSSPath is the optional user-supplied Adminer stylesheet. When present
-// it's mounted over the built-in pepa-linha-dark design (drop bizepp's exact
-// file here to match it precisely). xdev never writes this file.
-func (s *Service) adminerCSSPath() string {
-	return filepath.Join(filepath.Dir(s.wpDir), "adminer.css")
 }
 
 func fileExists(p string) bool {

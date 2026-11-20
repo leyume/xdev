@@ -49,7 +49,7 @@ func (s *Server) handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	adminer := ""
 	if d.AdminerPort > 0 {
-		adminer = fmt.Sprintf("http://127.0.0.1:%d/?server=%s&username=root&db=%s", d.AdminerPort, d.Host, d.Name)
+		adminer = fmt.Sprintf("http://127.0.0.1:%d/#server=%s&user=root&db=%s", d.AdminerPort, d.Host, d.Name)
 	}
 	s.render(w, r, "database_detail", viewData{
 		"Title":      name + " · Database · xdev",
@@ -59,7 +59,7 @@ func (s *Server) handleDatabaseDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDedicatedDBDetail is the same detail view for the database inside an
-// app's own container. Adminer is the app's bundled one, when it has one.
+// app's own container. The database UI (rql) is the app's bundled one, when it has one.
 func (s *Server) handleDedicatedDBDetail(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
@@ -74,7 +74,7 @@ func (s *Server) handleDedicatedDBDetail(w http.ResponseWriter, r *http.Request)
 		if s.httpsPort != 443 {
 			h += ":" + strconv.Itoa(s.httpsPort)
 		}
-		adminer = "https://" + h + "/?server=db&username=root&db=" + d.Name
+		adminer = "https://" + h + "/#server=db&user=root&db=" + d.Name
 	}
 	s.render(w, r, "database_detail", viewData{
 		"Title":      d.App + " · Database · xdev",
@@ -190,7 +190,7 @@ func (s *Server) handleDBUpdate(w http.ResponseWriter, r *http.Request) {
 	s.redirectDB(w, r, "Shared MariaDB updated to the latest image.", "")
 }
 
-// handleAdminer starts or stops the Adminer helper (form field action=stop).
+// handleAdminer starts or stops the shared database UI (rql) (form field action=stop).
 func (s *Server) handleAdminer(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
@@ -199,14 +199,14 @@ func (s *Server) handleAdminer(w http.ResponseWriter, r *http.Request) {
 			s.redirectDB(w, r, "", firstLine(err.Error()))
 			return
 		}
-		s.redirectDB(w, r, "Adminer stopped.", "")
+		s.redirectDB(w, r, "rql stopped.", "")
 		return
 	}
 	if _, err := s.apps.AdminerStart(ctx); err != nil {
 		s.redirectDB(w, r, "", firstLine(err.Error()))
 		return
 	}
-	s.redirectDB(w, r, "Adminer is running.", "")
+	s.redirectDB(w, r, "rql is running.", "")
 }
 
 // redirectDB returns to /database with a flash message.

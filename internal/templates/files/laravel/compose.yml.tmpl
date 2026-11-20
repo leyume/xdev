@@ -106,7 +106,7 @@ services:
       - internal
 {{if .AdminerPort}}{{template "adminer_service" .}}{{end}}
 # Per-project shared network (created by xdev) plus a private internal network
-# for app<->db/redis/adminer traffic.
+# for app<->db/redis/rql traffic.
 networks:
   internal:
   projectnet:
