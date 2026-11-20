@@ -519,8 +519,16 @@ jobs:
 
     {{if and .ServiceLabel .ServicePort}}
     <label>{{.ServiceLabel}} domain <span class="muted">(bundled UI on port {{.ServicePort}})</span>
-      <input type="text" name="service_domain" value="{{$form.ServiceDomain}}" spellcheck="false" required>
+      <input type="text" name="service_domain" value="{{$form.ServiceDomain}}" spellcheck="false" required x-ref="svcDomain">
     </label>
+    {{/* Apps made before rql name it adminer.<domain> (or anything else): offer the
+         current default in one click. It only fills the field; Save applies it. */}}
+    {{if and (eq $app.Type "laravel") (ne $form.ServiceDomain (printf "rql.%s" $app.Domain))}}
+    <p class="muted small" style="margin-top:-4px">
+      <button type="button" class="small-btn" @click="$refs.svcDomain.value = 'rql.{{$app.Domain}}'">Use rql.{{$app.Domain}}</button>
+      then Save. The old hostname stops routing.
+    </p>
+    {{end}}
     {{end}}
 
     {{if $app.IsCompose}}

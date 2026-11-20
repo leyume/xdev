@@ -114,7 +114,8 @@ func TestSettingsPageIsPerType(t *testing.T) {
 	out = renderSettings(t, laravel, appSettingsForm{
 		Name: "app", Domain: "app.demo.test", ServiceDomain: "adminer.app.demo.test",
 	}, viewData{"ServicePort": 20009})
-	for _, want := range []string{`name="service_domain"`, "adminer.app.demo.test", "rql", "port 20009"} {
+	for _, want := range []string{`name="service_domain"`, "adminer.app.demo.test", "rql", "port 20009",
+		"Use rql.app.demo.test"} { // an Adminer-era hostname is offered the rql one
 		if !strings.Contains(out, want) {
 			t.Errorf("laravel settings page missing %q", want)
 		}
@@ -332,5 +333,17 @@ func TestSettingsOpensOnUploadWithoutARepo(t *testing.T) {
 
 	if !strings.Contains(out, `tab: 'push'`) {
 		t.Error("an app with no repository opens on the webhook tab, which it cannot use")
+	}
+}
+
+// An app already on rql.<domain> is not offered a rename to itself.
+func TestSettingsNoRqlRenameWhenCurrent(t *testing.T) {
+	app := store.App{ID: 4, Name: "app", Slug: "app", Type: "laravel",
+		Domain: "app.demo.test", ComposePath: "/p/demo/app/_/compose.yml"}
+	out := renderSettings(t, app, appSettingsForm{
+		Name: "app", Domain: "app.demo.test", ServiceDomain: "rql.app.demo.test",
+	}, viewData{"ServicePort": 20009})
+	if strings.Contains(out, "Use rql.app.demo.test") {
+		t.Error("offered to rename rql.app.demo.test to itself")
 	}
 }
