@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"xdev/internal/apps"
 	"xdev/internal/store"
 )
 
@@ -345,5 +346,80 @@ func TestSettingsNoRqlRenameWhenCurrent(t *testing.T) {
 	}, viewData{"ServicePort": 20009})
 	if strings.Contains(out, "Use rql.app.demo.test") {
 		t.Error("offered to rename rql.app.demo.test to itself")
+	}
+}
+
+// A mail app's Services tab shows both webmails with the switches that make
+// sense: neither can be turned off while it is the only one.
+func TestSettingsWebmailCard(t *testing.T) {
+	mail := store.App{ID: 7, Name: "zail", Slug: "zail", Type: "mail", Status: store.AppRunning,
+		Domain: "sail.demo.test", Port: 20010, ComposePath: "/p/demo/zail/_/compose.yml"}
+	form := appSettingsForm{Name: "zail", Domain: "sail.demo.test"}
+	page := func(w apps.Webmail) string {
+		return renderSettings(t, mail, form, viewData{"CanToggleRail": true, "Tab": "services", "Webmail": w})
+	}
+
+	off := page(apps.Webmail{Snappy: true})
+	for _, want := range []string{`data-tab="services"`, `action="/apps/7/rail"`,
+		`value="rail.sail.demo.test"`, "Turn on Rail", "SnappyMail", `action="/apps/7/snappymail"`,
+		"Turn Rail on first"} {
+		if !strings.Contains(off, want) {
+			t.Errorf("Rail-off page missing %q", want)
+		}
+	}
+	if strings.Contains(off, "/rail/update") {
+		t.Error("offers to update a Rail that is not on")
+	}
+
+	both := page(apps.Webmail{Snappy: true, RailHost: "rail.demo.test", RailPort: 20031})
+	for _, want := range []string{`href="https://rail.demo.test"`, "Change hostname", "port 20031",
+		`action="/apps/7/rail/update"`} {
+		if !strings.Contains(both, want) {
+			t.Errorf("both-on page missing %q", want)
+		}
+	}
+	if strings.Contains(both, "on first") {
+		t.Error("a switch is disabled while both webmails are on")
+	}
+
+	railOnly := page(apps.Webmail{RailHost: "rail.demo.test", RailPort: 20031})
+	for _, want := range []string{"also sail.demo.test", "served by Rail", "Turn SnappyMail on first"} {
+		if !strings.Contains(railOnly, want) {
+			t.Errorf("Rail-only page missing %q", want)
+		}
+	}
+}
+
+// The settings form is split into one tab per section, each type getting only
+// its own, all inside the one form that Save submits.
+func TestSettingsSectionsAreTabs(t *testing.T) {
+	proxy := store.App{ID: 3, Name: "old", Slug: "old", Type: store.TypeProxy, Domain: "old.demo.test",
+		Upstream: "https://x.example"}
+	out := renderSettings(t, proxy, appSettingsForm{Name: "old", Domain: "old.demo.test", Upstream: "https://x.example"}, nil)
+	for _, want := range []string{`data-tab="app"`, `data-tab="domains"`, `data-tab="upstream"`,
+		`data-pane="app"`, `data-pane="domains"`, `data-pane="upstream"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("proxy settings missing %q", want)
+		}
+	}
+	for _, no := range []string{`data-tab="compose"`, `data-tab="runs"`, `data-tab="database"`} {
+		if strings.Contains(out, no) {
+			t.Errorf("proxy settings offer %s", no)
+		}
+	}
+	// one form, one Save
+	if n := strings.Count(out, `action="/apps/3/settings"`); n != 1 {
+		t.Errorf("%d settings forms, want 1", n)
+	}
+}
+
+func TestSettingsSnappyMailHostname(t *testing.T) {
+	mail := store.App{ID: 7, Name: "zail", Slug: "zail", Type: "mail", Domain: "sail.demo.test",
+		ComposePath: "/p/demo/zail/_/compose.yml"}
+	out := renderSettings(t, mail, appSettingsForm{Name: "zail", Domain: "sail.demo.test, webmail.demo.test"},
+		viewData{"CanToggleRail": true, "Webmail": apps.Webmail{Snappy: true}})
+	if !strings.Contains(out, `action="/apps/7/webmail/hosts"`) ||
+		!strings.Contains(out, `value="sail.demo.test, webmail.demo.test"`) {
+		t.Error("SnappyMail has no hostname form with its current hostnames")
 	}
 }

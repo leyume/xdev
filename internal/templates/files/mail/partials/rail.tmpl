@@ -1,0 +1,49 @@
+{{/* Rail webmail (https://hub.docker.com/r/leyume/rail), as one compose
+     service beside SnappyMail. Switched on and off from the mail app's Services
+     tab (apps.SetRail), which inserts or removes exactly this block and routes
+     a hostname to RailPort; nothing else in the file is touched.
+
+     Rail talks to Stalwart over this app's private network ("mail"), like
+     SnappyMail: IMAP 993 and SMTP 465 with TLS, ManageSieve 4190 (STARTTLS).
+     MAIL_INSECURE_TLS because the certificate names the public hostname, not
+     "mail"; the hop never leaves the host.
+
+     Never set RAIL_DOMAIN here, not even empty: rail treats a present
+     RAIL_DOMAIN as "do your own HTTPS on 443". The proxy does HTTPS.
+     State (sessions, settings, contacts, cache, secret.key) lives in
+     ./rail-data, which stays when Rail is switched off. */}}
+{{define "rail_service"}}
+  rail:
+    image: docker.io/leyume/rail:latest
+    container_name: {{.ProjectSlug}}_{{.AppSlug}}_rail
+    restart: unless-stopped
+    depends_on:
+      - mail
+    environment:
+      RAIL_LISTEN: 0.0.0.0:8080
+      RAIL_DATA: /data
+      RAIL_TRUST_PROXY: "true"
+      RAIL_SECURE_COOKIE: "{{if eq .Env "prod"}}true{{else}}false{{end}}"
+      IMAP_HOST: mail
+      IMAP_PORT: "993"
+      IMAP_TLS: tls
+      SMTP_HOST: mail
+      SMTP_PORT: "465"
+      SMTP_TLS: tls
+      SIEVE_HOST: mail
+      SIEVE_PORT: "4190"
+      MAIL_INSECURE_TLS: "true"
+      # Rail's /admin page: on only while RAIL_ADMIN_PASSWORD is set in _/.env
+      # (Env tab); blank keeps it off.
+      ADMIN_PASSWORD: ${RAIL_ADMIN_PASSWORD:-}
+    volumes:
+      - ./rail-data:/data
+    ports:
+      - "{{.RailPort}}:8080"
+{{- if .RailOnAppPort}}
+      # SnappyMail is off: Rail also serves the app's own domain.
+      - "{{.HostPort}}:8080"
+{{- end}}
+    networks:
+      - internal
+{{end}}

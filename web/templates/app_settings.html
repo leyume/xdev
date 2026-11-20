@@ -40,18 +40,24 @@
      restored, so a form elsewhere on the page posting back does not bounce you
      to Settings. Panels are only hidden, so the settings form still submits
      every field with one Save. */}}
-{{$tab := "settings"}}{{$restore := true}}
+{{$tab := "app"}}{{$restore := true}}
 {{if or .HookState .Rotated .Uploaded}}{{$tab = "source"}}{{end}}
 {{with .Deploy}}{{if .NewToken}}{{$tab = "source"}}{{end}}{{end}}
 {{if .ActionResult}}{{$tab = "console"}}{{end}}
-{{if or .Error .Saved .JustStarted (ne $tab "settings")}}{{$restore = false}}{{end}}
+{{if eq .Tab "services"}}{{$tab = "services"}}{{end}}
+{{if or .Error .Saved .JustStarted (ne $tab "app")}}{{$restore = false}}{{end}}
 <div class="grid-main">
 <div class="main-col" x-data="settingsTabs('{{$tab}}', {{$restore}}, {{$app.ID}})">
 
 <nav class="page-tabs" role="tablist" aria-label="App settings sections">
-  <button type="button" role="tab" data-tab="settings" :class="{active: tab==='settings'}" @click="tab='settings'">Settings</button>
+  <button type="button" role="tab" data-tab="app" :class="{active: tab==='app'}" @click="tab='app'">App</button>
+  <button type="button" role="tab" data-tab="domains" :class="{active: tab==='domains'}" @click="tab='domains'">Domains</button>
+  {{if .DB}}<button type="button" role="tab" data-tab="database" :class="{active: tab==='database'}" @click="tab='database'">Database</button>{{end}}
+  {{if $app.IsProxy}}<button type="button" role="tab" data-tab="upstream" :class="{active: tab==='upstream'}" @click="tab='upstream'">Upstream</button>{{end}}
+  {{if $app.IsHostProc}}<button type="button" role="tab" data-tab="runs" :class="{active: tab==='runs'}" @click="tab='runs'">How it runs</button>{{end}}
+  {{if .HasCompose}}<button type="button" role="tab" data-tab="compose" :class="{active: tab==='compose'}" @click="tab='compose'">Compose</button>{{end}}
   {{if or .Git .Deploy}}<button type="button" role="tab" data-tab="source" :class="{active: tab==='source'}" @click="tab='source'">Source &amp; deploy</button>{{end}}
-  {{if or .CanSwitchServer .CanToggleAdminer}}<button type="button" role="tab" data-tab="services" :class="{active: tab==='services'}" @click="tab='services'">Services</button>{{end}}
+  {{if or .CanSwitchServer .CanToggleAdminer .CanToggleRail}}<button type="button" role="tab" data-tab="services" :class="{active: tab==='services'}" @click="tab='services'">Services</button>{{end}}
   {{with .Actions}}<button type="button" role="tab" data-tab="console" :class="{active: tab==='console'}" @click="tab='console'">Console</button>{{end}}
 </nav>
 
@@ -476,14 +482,107 @@ jobs:
 </section>
 {{end}}
 
+{{/* Webmail for a mail app: SnappyMail on the app's own domain, Rail on a
+     hostname of its own. Either can be off, never both (with SnappyMail off,
+     Rail also serves the app's own domain). Every switch touches only the
+     webmail containers, never Stalwart, so mail keeps flowing. */}}
+{{if .CanToggleRail}}{{with .Webmail}}
+<section class="card form-card wm">
+  <div class="wm-head">
+    <h3>Webmail</h3>
+    <p class="muted small">Both sign in to this server with a mailbox address and its password.
+      Switching one never restarts the mail server.</p>
+  </div>
+  <ul class="wm-list">
+    <li class="wm-row{{if not .Snappy}} is-off{{end}}">
+      <span class="wm-mark" aria-hidden="true">S</span>
+      <div class="wm-body">
+        <div class="wm-title">SnappyMail
+          {{if .Snappy}}<span class="wm-state on">On</span>{{else}}<span class="wm-state">Off</span>{{end}}</div>
+        {{if .Snappy}}
+        <a class="wm-host" href="https://{{$app.Domain}}" target="_blank" rel="noopener">{{$app.Domain}}<span aria-hidden="true"> ↗</span></a>
+        <details class="wm-more">
+          <summary>Change hostname</summary>
+          <form class="wm-inline" method="post" action="/apps/{{$app.ID}}/webmail/hosts">
+            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+            <input type="text" name="hosts" value="{{$form.Domain}}" aria-label="SnappyMail hostnames" spellcheck="false" required>
+            <button type="submit">Move</button>
+          </form>
+          <p class="wm-note">This is the app's own domain; separate several with commas.</p>
+        </details>
+        {{else}}
+        <div class="wm-note">Its settings are kept. <code>{{$app.Domain}}</code> is served by Rail meanwhile.</div>
+        {{end}}
+      </div>
+      <form class="wm-actions" method="post" action="/apps/{{$app.ID}}/snappymail"
+            {{if .Snappy}}data-confirm="Turn off SnappyMail? {{$app.Domain}} switches to Rail; SnappyMail's settings are kept."{{end}}>
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        {{if .Snappy}}
+        <button type="submit" {{if not .RailPort}}disabled title="Turn Rail on first, so {{$app.Domain}} keeps a webmail"{{end}}>Turn off</button>
+        {{else}}
+        <input type="hidden" name="enable" value="1"><button type="submit">Turn on</button>
+        {{end}}
+      </form>
+    </li>
+
+    <li class="wm-row{{if not .RailPort}} is-off{{end}}">
+      <span class="wm-mark rail" aria-hidden="true">R</span>
+      <div class="wm-body">
+        <div class="wm-title">Rail
+          {{if .RailPort}}<span class="wm-state on">On</span>{{else}}<span class="wm-state">Off</span>{{end}}
+          {{if and .RailPort (not .Snappy)}}<span class="tag">also {{$app.Domain}}</span>{{end}}</div>
+        {{if .RailPort}}
+          {{if .RailHost}}<a class="wm-host" href="https://{{.RailHost}}" target="_blank" rel="noopener">{{.RailHost}}<span aria-hidden="true"> ↗</span></a>{{end}}
+          <span class="wm-port">port {{.RailPort}}</span>
+          <details class="wm-more">
+            <summary>Change hostname</summary>
+            <form class="wm-inline" method="post" action="/apps/{{$app.ID}}/rail">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <input type="hidden" name="enable" value="1">
+              <input type="text" name="host" value="{{.RailHost}}" aria-label="Rail hostname" required>
+              <button type="submit">Move</button>
+            </form>
+          </details>
+        {{else}}
+          <div class="wm-note">A lighter, faster webmail (<code>leyume/rail</code>) beside SnappyMail, on its own hostname.</div>
+          <form class="wm-inline" method="post" action="/apps/{{$app.ID}}/rail">
+            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+            <input type="hidden" name="enable" value="1">
+            <input type="text" name="host" value="rail.{{$app.Domain}}" aria-label="Rail hostname" required>
+            <button class="primary" type="submit">Turn on Rail</button>
+          </form>
+        {{end}}
+      </div>
+      {{if .RailPort}}
+      <div class="wm-actions">
+        <form method="post" action="/apps/{{$app.ID}}/rail/update">
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+          <button type="submit" title="Pull the latest leyume/rail image and restart only Rail">Update</button>
+        </form>
+        <form method="post" action="/apps/{{$app.ID}}/rail"
+              data-confirm="Turn off Rail? {{.RailHost}} stops routing and its container is removed; its data folder stays.">
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+          <button class="danger" type="submit" {{if not .Snappy}}disabled title="Turn SnappyMail on first, so {{$app.Domain}} keeps a webmail"{{end}}>Turn off</button>
+        </form>
+      </div>
+      {{end}}
+    </li>
+  </ul>
+</section>
+{{end}}{{end}}
+
 </div><!-- /services -->
 
-<div class="tab-pane" x-show="tab==='settings'"{{if ne $tab "settings"}} style="display:none"{{end}}>
+{{/* The settings form spans the App … Compose tabs: each section is a tab of
+     its own, all inside one form, so one Save still submits every field. A
+     field the browser rejects on a hidden tab brings that tab forward. */}}
+<div class="tab-pane" x-show="formTabs.includes(tab)"{{if ne $tab "app"}} style="display:none"{{end}}>
 <form method="post" action="/apps/{{$app.ID}}/settings"
-      x-data="appSettings({{json $form.ExtraDomains}}, {{json .SlotPorts}}, {{.MaxDomains}})">
+      x-data="appSettings({{json $form.ExtraDomains}}, {{json .SlotPorts}}, {{.MaxDomains}})"
+      @invalid.capture="const p = $event.target.closest('[data-pane]'); if (p) tab = p.dataset.pane">
   <input type="hidden" name="csrf_token" value="{{.CSRF}}">
 
-  <section class="card form-card">
+  <section class="card form-card" data-pane="app" x-show="tab==='app'"{{if ne $tab "app"}} style="display:none"{{end}}>
     <h3>App</h3>
     <label>Name
       <input type="text" name="name" value="{{$form.Name}}" required>
@@ -500,7 +599,7 @@ jobs:
       than a container of its own; that too is fixed at create time.{{end}}</p>
   </section>
 
-  <section class="card form-card">
+  <section class="card form-card" data-pane="domains" x-show="tab==='domains'"{{if ne $tab "domains"}} style="display:none"{{end}}>
     <h3>Domains</h3>
     <label>Domain <span class="muted">(the hostnames this app is served at — comma-separated for more than one, e.g. <code>test.com, www.test.com</code>. The first is its address; removing one stops it routing)</span>
       {{/* Required only where a hostname is how an app is reached. On an install
@@ -565,7 +664,7 @@ jobs:
   {{with .DB}}
   <!-- Read-only: which database this app uses and how to get at it. Both modes
        are shown — "shared" is not the absence of a setting. -->
-  <section class="card form-card">
+  <section class="card form-card" data-pane="database" x-show="tab==='database'"{{if ne $tab "database"}} style="display:none"{{end}}>
     <h3>Database</h3>
     <div class="fact-grid">
       <div><span class="muted small">Mode</span><div>{{if .Shared}}Shared{{else}}Dedicated{{end}}</div></div>
@@ -591,7 +690,7 @@ jobs:
   {{end}}
 
   {{if $app.IsProxy}}
-  <section class="card form-card">
+  <section class="card form-card" data-pane="upstream" x-show="tab==='upstream'"{{if ne $tab "upstream"}} style="display:none"{{end}}>
     <h3>Upstream</h3>
     <label>Upstream URL <span class="muted">(the server this domain forwards to — add a path if the app sits under one there, like <code>https://mail.example.com/webmail</code>)</span>
       <input type="text" name="upstream" value="{{$form.Upstream}}" spellcheck="false" required
@@ -607,7 +706,7 @@ jobs:
   {{end}}
 
   {{if $app.IsHostProc}}
-  <section class="card form-card" x-data="{ serve: '{{$form.ServeMode}}' }">
+  <section class="card form-card" x-data="{ serve: '{{$form.ServeMode}}' }" data-pane="runs" x-show="tab==='runs'"{{if ne $tab "runs"}} style="display:none"{{end}}>
     <h3>How it runs</h3>
     {{if ne $app.Type "go"}}
     <label>How to serve
@@ -664,7 +763,7 @@ jobs:
   {{end}}
 
   {{if .HasCompose}}
-  <section class="card form-card">
+  <section class="card form-card" data-pane="compose" x-show="tab==='compose'"{{if ne $tab "compose"}} style="display:none"{{end}}>
     <h3>Compose file</h3>
     <label>Replace it from a file <span class="muted">(drops into the box below — nothing is saved until you do)</span>
       <input type="file" accept=".yml,.yaml,text/yaml,application/x-yaml" @change="loadFile($event)">
@@ -682,7 +781,7 @@ jobs:
     <button class="primary" type="submit">Save{{if eq $app.Status "running"}} &amp; restart{{end}}</button>
   </div>
 </form>
-</div><!-- /settings -->
+</div><!-- /form tabs -->
 
 <p class="muted small other-places">Other places this app is configured:
   <a href="/apps/{{$app.ID}}/env">environment</a> ·
@@ -882,6 +981,7 @@ function settingsTabs(initial, restore, appID) {
   const key = 'xdev-settings-tab-' + appID;
   return {
     tab: initial,
+    formTabs: ['app', 'domains', 'database', 'upstream', 'runs', 'compose'],
     init() {
       if (restore) {
         try {

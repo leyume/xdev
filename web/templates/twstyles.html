@@ -1433,6 +1433,50 @@ button.copybtn.copied { color: var(--ok); border-color: rgba(140, 232, 184, 0.45
 .toggle-row form { flex: none; }
 .toggle-row button { margin-top: 0; }
 
+/* Webmail (mail app Services tab): one row per client — monogram, name and
+   state, where it answers, and its actions on the right. */
+.wm-head p { margin: 4px 0 0; }
+.wm-list { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 10px; }
+.wm-row {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 14px;
+  padding: 14px 16px; border: 1px solid var(--border-soft); border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.015); transition: border-color 0.15s, opacity 0.15s;
+}
+.wm-row:hover { border-color: var(--border); }
+.wm-row.is-off .wm-mark, .wm-row.is-off .wm-title { opacity: 0.6; }
+.wm-mark {
+  width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+  font-weight: 700; font-size: 15px; color: var(--accent);
+  background: rgba(180, 140, 255, 0.12); border: 1px solid rgba(180, 140, 255, 0.28);
+}
+.wm-mark.rail { color: var(--ok); background: rgba(140, 232, 184, 0.1); border-color: rgba(140, 232, 184, 0.28); }
+.wm-body { min-width: 0; }
+.wm-title { font-weight: 600; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.wm-title .tag { margin-left: 0; text-transform: none; letter-spacing: 0; }
+.wm-state {
+  font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 20px;
+  color: var(--muted); border: 1px solid var(--border);
+}
+.wm-state.on { color: var(--ok); border-color: rgba(140, 232, 184, 0.35); background: rgba(140, 232, 184, 0.08); }
+.wm-host { display: inline-block; margin-top: 4px; font-size: 13px; color: var(--text); text-decoration: none; overflow-wrap: anywhere; }
+.wm-host:hover { color: var(--accent); }
+.wm-port { margin-left: 6px; font-size: 12px; color: var(--muted); }
+.wm-note { margin-top: 4px; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.wm-actions { display: flex; gap: 8px; align-items: center; }
+.wm-actions form { margin: 0; }
+.wm-actions button, .wm .wm-inline button { margin-top: 0; padding: 7px 13px; font-size: 12.5px; }
+.wm-actions button[disabled] { opacity: 0.4; cursor: not-allowed; }
+.wm-more { margin-top: 8px; }
+.wm-more summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.wm-more summary:hover { color: var(--text); }
+.wm-inline { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.wm-inline input[type=text] { flex: 1; min-width: 0; margin: 0; }
+@media (max-width: 560px) {
+  .wm-row { grid-template-columns: auto 1fr; }
+  .wm-actions { grid-column: 1 / -1; justify-content: flex-end; }
+  .wm-inline { flex-wrap: wrap; }
+}
+
 /* Admins / WordPress: quiet rows with hover-revealed icon actions, pop-ups for edits. */
 .row-list { list-style: none; margin: 0; padding: 0; }
 .row-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border-soft); }

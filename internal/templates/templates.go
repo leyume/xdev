@@ -32,12 +32,14 @@ type Data struct {
 	// Octane/Swoole, "fpm" for php-fpm. It picks a template the same way Env
 	// does, so an unset value renders exactly what it rendered before the
 	// option existed. Ignored by every other app type.
-	Server      string
-	AppImage    string // image the app service runs; "" lets RenderCompose resolve it
-	HostPort    int
-	AdminerPort int     // published host port for the secondary HTTP UI (laravel Adminer, mail admin); 0 = none
-	CPULimit    float64 // cores; 0 = unlimited
-	MemLimit    int64   // bytes; 0 = unlimited
+	Server        string
+	AppImage      string // image the app service runs; "" lets RenderCompose resolve it
+	HostPort      int
+	AdminerPort   int     // published host port for the secondary HTTP UI (laravel Adminer, mail admin); 0 = none
+	RailPort      int     // mail: published host port of the Rail webmail; 0 = no Rail
+	RailOnAppPort bool    // mail: SnappyMail is off, so Rail also publishes HostPort (the app's own domain)
+	CPULimit      float64 // cores; 0 = unlimited
+	MemLimit      int64   // bytes; 0 = unlimited
 
 	// Shared-database mode (PLANx §B): the app uses the platform xdev-db MariaDB
 	// on the external xdev_shared network instead of its own db service.

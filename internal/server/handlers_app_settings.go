@@ -150,6 +150,9 @@ func (s *Server) renderAppSettingsWith(w http.ResponseWriter, r *http.Request, a
 		"CanSwitchServer":  apps.CanSwitchLaravelServer(app),
 		"LaravelServer":    store.LaravelServerOr(app.LaravelServer),
 		"AdminerOn":        len(svc) > 0,
+		"CanToggleRail":    apps.CanToggleRail(app),
+		"Webmail":          s.apps.WebmailState(app),
+		"Tab":              r.URL.Query().Get("tab"),
 		"Error":            errMsg,
 		"Cleared":          clearedCount(r),
 		// Where this app answers besides its hostname, and whether a hostname is
