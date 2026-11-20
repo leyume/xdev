@@ -1,0 +1,19 @@
+{{/* SnappyMail webmail on the app's own domain (HostPort). A partial so the
+     Services tab can switch it off and back on (apps.SetSnappyMail) with the
+     exact block the compose file was rendered with. Its data stays in the
+     webmail_data volume while it is off. */}}
+{{define "webmail_service"}}
+  webmail:
+    image: docker.io/djmaze/snappymail:latest
+    container_name: {{.ProjectSlug}}_{{.AppSlug}}_webmail
+    restart: unless-stopped
+    depends_on:
+      - mail
+    volumes:
+      - webmail_data:/var/lib/snappymail
+    ports:
+      - "{{.HostPort}}:8888"
+    networks:
+      - internal
+      - projectnet
+{{end}}

@@ -288,8 +288,8 @@ func TestRunCommandLandsOnTheConsoleTab(t *testing.T) {
 	if !strings.Contains(out, `data-tab="console"`) {
 		t.Fatal("no Console tab for an app that has commands")
 	}
-	if !strings.Contains(out, `settingsTabs('settings'`) {
-		t.Error("an ordinary visit does not open on Settings")
+	if !strings.Contains(out, `settingsTabs('app'`) {
+		t.Error("an ordinary visit does not open on the App tab")
 	}
 
 	ran := renderSettings(t, gitApp(), appSettingsForm{Name: "web"},

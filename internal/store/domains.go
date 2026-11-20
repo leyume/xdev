@@ -183,7 +183,8 @@ func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 	wpPort, _ := strconv.Atoi(wpPortStr)
 
 	rows, err := s.db.Query(`
-		SELECT d.hostname, d.port, a.port, d.is_local, a.type, a.serve_mode, a.root_dir, a.upstream, a.upstream_insecure, a.wp_mode, a.slug, a.source_dir, p.slug, p.dir
+		SELECT d.hostname, d.port, a.port, d.is_local, a.type, a.serve_mode, a.root_dir, a.upstream, a.upstream_insecure, a.wp_mode, a.slug, a.source_dir, p.slug, p.dir,
+		       COALESCE(d.id = (SELECT MIN(d2.id) FROM domains d2 WHERE d2.app_id = d.app_id AND d2.port > 0), 0)
 		FROM domains d
 		JOIN apps a ON a.id = d.app_id
 		JOIN projects p ON p.id = a.project_id
@@ -200,16 +201,18 @@ func (s *Store) ProxyRoutes() ([]RouteInfo, error) {
 	for rows.Next() {
 		var r RouteInfo
 		var isLocal, domainPort, appPort int
-		var insecure bool
+		var insecure, firstSvc bool
 		var appType, serveMode, rootDir, upstream, wpMode, slug, sourceDir, projSlug, projDir string
-		if err := rows.Scan(&r.Host, &domainPort, &appPort, &isLocal, &appType, &serveMode, &rootDir, &upstream, &insecure, &wpMode, &slug, &sourceDir, &projSlug, &projDir); err != nil {
+		if err := rows.Scan(&r.Host, &domainPort, &appPort, &isLocal, &appType, &serveMode, &rootDir, &upstream, &insecure, &wpMode, &slug, &sourceDir, &projSlug, &projDir, &firstSvc); err != nil {
 			return nil, err
 		}
 		r.Local = isLocal == 1
 		switch {
-		case domainPort > 0 && appType == "mail":
-			// Stalwart's admin console serves over HTTPS (self-signed) on its own
-			// port; Caddy proxies to it over TLS with verification skipped (loopback).
+		case domainPort > 0 && appType == "mail" && firstSvc:
+			// Stalwart's admin console — a mail app's first service domain —
+			// serves over HTTPS (self-signed) on its own port; the proxy goes to
+			// it over TLS with verification skipped (loopback). Later ones (Rail
+			// webmail) are plain HTTP like any other service port.
 			r.Upstream = fmt.Sprintf("https://127.0.0.1:%d", domainPort)
 		case domainPort > 0:
 			// Secondary service domain (e.g. Adminer): route straight to its port.

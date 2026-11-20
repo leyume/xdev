@@ -301,6 +301,89 @@ func (s *Server) handleAppAdminerToggle(w http.ResponseWriter, r *http.Request) 
 	http.Redirect(w, r, target+"?saved=1", http.StatusSeeOther)
 }
 
+// handleAppRailToggle adds, moves or removes the Rail webmail of a mail app.
+// Only the rail container is touched, never Stalwart, so mail keeps flowing.
+func (s *Server) handleAppRailToggle(w http.ResponseWriter, r *http.Request) {
+	app, proj, ok := s.appAndProject(w, r)
+	if !ok {
+		return
+	}
+	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/settings?tab=services"
+	on := r.FormValue("enable") != ""
+	host, err := s.apps.SetRail(app.ID, on, r.FormValue("host"))
+	s.reconcile()
+	if err != nil {
+		http.Redirect(w, r, target+"&error="+url.QueryEscape(firstLine(err.Error())), http.StatusSeeOther)
+		return
+	}
+	if on {
+		s.store.AddEvent(proj.ID, app.ID, "info", "Rail webmail for "+app.Name+" at "+host)
+	} else {
+		s.store.AddEvent(proj.ID, app.ID, "warn", "Removed Rail webmail from "+app.Name+" — its hostname no longer routes")
+	}
+	http.Redirect(w, r, target+"&saved=1", http.StatusSeeOther)
+}
+
+// handleAppSnappyToggle switches a mail app's SnappyMail on or off. Off hands
+// the app's own domain to Rail; Stalwart is never restarted.
+func (s *Server) handleAppSnappyToggle(w http.ResponseWriter, r *http.Request) {
+	app, proj, ok := s.appAndProject(w, r)
+	if !ok {
+		return
+	}
+	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/settings?tab=services"
+	on := r.FormValue("enable") != ""
+	if err := s.apps.SetSnappyMail(app.ID, on); err != nil {
+		http.Redirect(w, r, target+"&error="+url.QueryEscape(firstLine(err.Error())), http.StatusSeeOther)
+		return
+	}
+	if on {
+		s.store.AddEvent(proj.ID, app.ID, "info", "SnappyMail back on "+app.Domain)
+	} else {
+		s.store.AddEvent(proj.ID, app.ID, "warn", "Turned off SnappyMail — Rail now serves "+app.Domain)
+	}
+	http.Redirect(w, r, target+"&saved=1", http.StatusSeeOther)
+}
+
+// handleAppWebmailHosts changes the hostnames a mail app's own webmail
+// (SnappyMail) answers on, from the Services tab.
+func (s *Server) handleAppWebmailHosts(w http.ResponseWriter, r *http.Request) {
+	app, proj, ok := s.appAndProject(w, r)
+	if !ok {
+		return
+	}
+	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/settings?tab=services"
+	hosts, err := s.apps.SetOwnHosts(app.ID, r.FormValue("hosts"))
+	s.reconcile()
+	if err != nil {
+		http.Redirect(w, r, target+"&error="+url.QueryEscape(firstLine(err.Error())), http.StatusSeeOther)
+		return
+	}
+	s.store.AddEvent(proj.ID, app.ID, "info", "SnappyMail for "+app.Name+" now at "+strings.Join(hosts, ", "))
+	http.Redirect(w, r, target+"&saved=1", http.StatusSeeOther)
+}
+
+// handleAppRailUpdate pulls the latest Rail image and recreates the rail
+// container from it.
+func (s *Server) handleAppRailUpdate(w http.ResponseWriter, r *http.Request) {
+	app, proj, ok := s.appAndProject(w, r)
+	if !ok {
+		return
+	}
+	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/settings?tab=services"
+	updated, err := s.apps.UpdateRail(app.ID)
+	if err != nil {
+		http.Redirect(w, r, target+"&error="+url.QueryEscape(firstLine(err.Error())), http.StatusSeeOther)
+		return
+	}
+	msg := "Rail for " + app.Name + " is up to date"
+	if updated {
+		msg = "Updated Rail for " + app.Name + " to the latest image"
+	}
+	s.store.AddEvent(proj.ID, app.ID, "info", msg)
+	http.Redirect(w, r, target+"&saved=1", http.StatusSeeOther)
+}
+
 // handleAppLaravelServer switches a laravel app between Octane/Swoole and
 // php-fpm, regenerating its compose file for the requested server.
 //
