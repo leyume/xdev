@@ -46,12 +46,15 @@ var chownMail = func(path string) error {
 	return os.Chown(path, mailUID, mailUID)
 }
 
-// ngxCertFor finds ngx's certificate for host: the ACME module's (http-01)
+// ngxCertFor finds ngx's certificate for host: the ACME module's (http-01;
+// in module/ since ngx keeps the module's state apart, at the top before)
 // first, then a DNS-01 wildcard's (certs/<name>.crt, named after its entry's
 // first domain) or the local CA's (local/<name>.crt, a wildcard as _.<rest>).
 func ngxCertFor(acmeDir, host string) (crt, key string) {
-	if crt, key = newestNgxCert(acmeDir, host); crt != "" {
-		return crt, key
+	for _, dir := range []string{filepath.Join(acmeDir, "module"), acmeDir} {
+		if crt, key = newestNgxCert(dir, host); crt != "" {
+			return crt, key
+		}
 	}
 	names := []string{host}
 	if _, parent, ok := strings.Cut(host, "."); ok && strings.Contains(parent, ".") {

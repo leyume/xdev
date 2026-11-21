@@ -129,3 +129,33 @@ func TestSyncMailCertsChown(t *testing.T) {
 		}
 	}
 }
+
+// ngx's certificates are found wherever it keeps them: the ACME module's in
+// module/ (newer ngx) or at the top (older), a DNS-01 wildcard's in certs/,
+// the local CA's in local/.
+func TestNgxCertFor(t *testing.T) {
+	acme := t.TempDir()
+	now := time.Now()
+	os.MkdirAll(filepath.Join(acme, "module"), 0o700)
+	os.MkdirAll(filepath.Join(acme, "certs"), 0o755)
+	os.MkdirAll(filepath.Join(acme, "local"), 0o755)
+	writeFile(t, filepath.Join(acme, "old.a.com-01.crt"), "c", now)
+	writeFile(t, filepath.Join(acme, "old.a.com-01.key"), "k", now)
+	writeFile(t, filepath.Join(acme, "module", "new.a.com-02.crt"), "c", now)
+	writeFile(t, filepath.Join(acme, "module", "new.a.com-02.key"), "k", now)
+	writeFile(t, filepath.Join(acme, "certs", "*.w.com.crt"), "c", now)
+	writeFile(t, filepath.Join(acme, "certs", "*.w.com.key"), "k", now)
+	writeFile(t, filepath.Join(acme, "local", "_.l.test.crt"), "c", now)
+	writeFile(t, filepath.Join(acme, "local", "_.l.test.key"), "k", now)
+	for host, want := range map[string]string{
+		"old.a.com":   filepath.Join(acme, "old.a.com-01.crt"),
+		"new.a.com":   filepath.Join(acme, "module", "new.a.com-02.crt"),
+		"mail.w.com":  filepath.Join(acme, "certs", "*.w.com.crt"),
+		"mail.l.test": filepath.Join(acme, "local", "_.l.test.crt"),
+		"none.a.com":  "",
+	} {
+		if got, _ := ngxCertFor(acme, host); got != want {
+			t.Errorf("ngxCertFor(%s) = %q, want %q", host, got, want)
+		}
+	}
+}
