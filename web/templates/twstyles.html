@@ -38,7 +38,7 @@
   --danger: #f58c8c;
   --warn: #f2c14e;
   --radius: 10px;
-  --radius-sm: 8px;
+  --radius-sm: 6px;
   /* Spacing scale. Every gap on a page comes from one of these four, so cards,
      form rows and stacked sections line up without each template picking its
      own number — the drift between them was what made dense pages read as
@@ -228,7 +228,7 @@ button {
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: transparent;
   color: var(--text);
-  padding: 9px 16px;
+  padding: 8px 14px;
   transition: background 0.15s, border-color 0.15s, transform 0.05s;
 }
 button:hover { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.22); }
@@ -272,7 +272,7 @@ button.is-busy .ico { visibility: hidden; }
 a.btn, a.primary {
   text-decoration: none;
   display: inline-block;
-  padding: 9px 16px;
+  padding: 8px 14px;
   border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: transparent;
@@ -1241,6 +1241,14 @@ a.host-link:hover .host-arrow { opacity: 1; color: var(--accent); transform: tra
   padding: 8px 0; border-top: 1px solid var(--border-soft); font-size: 13px; overflow-wrap: anywhere; }
 .ops-backups li:first-child { border-top: none; }
 .ops-backups li .btn { margin: 0; flex: none; }
+/* A card's header row holds its action beside the title, on the title's line:
+   no form-card top margin, no glow lifting it off the row. */
+.form-card .title-row button, .form-card .title-row a.btn { margin-top: 0; }
+.form-card .title-row button.primary { box-shadow: none; }
+.ops-backups-note { margin: 0 0 4px; }
+.ops-card > .title-row { margin-bottom: 14px; min-height: 34px; }
+.ops-card form + p.muted { margin-top: 14px; }
+.ops-card .ops-logs pre.logs { margin-top: 0; }
 .other-places { margin-top: 20px; }
 .tab-panel a { color: var(--accent); text-decoration: none; }
 .tab-panel a:hover { text-decoration: underline; }
