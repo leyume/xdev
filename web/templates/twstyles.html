@@ -38,7 +38,7 @@
   --danger: #f58c8c;
   --warn: #f2c14e;
   --radius: 10px;
-  --radius-sm: 8px;
+  --radius-sm: 6px;
   /* Spacing scale. Every gap on a page comes from one of these four, so cards,
      form rows and stacked sections line up without each template picking its
      own number — the drift between them was what made dense pages read as
@@ -228,7 +228,7 @@ button {
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: transparent;
   color: var(--text);
-  padding: 9px 16px;
+  padding: 8px 14px;
   transition: background 0.15s, border-color 0.15s, transform 0.05s;
 }
 button:hover { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.22); }
@@ -272,7 +272,7 @@ button.is-busy .ico { visibility: hidden; }
 a.btn, a.primary {
   text-decoration: none;
   display: inline-block;
-  padding: 9px 16px;
+  padding: 8px 14px;
   border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: transparent;
@@ -1198,27 +1198,61 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
    host port, its repository, its limits. As a single dot-separated line these
    were the same size and colour as each other, so telling a domain from an
    upstream from a port meant reading all of them. */
-.app-card-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px 24px; font-size: 13px; margin: 14px 0 4px; }
-.meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.meta-k { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
-.meta-v { overflow-wrap: anywhere; }
-.app-card-meta a { color: var(--accent); text-decoration: none; }
-.app-card-meta a:hover { text-decoration: underline; }
+/* Expanded card: tiles for where the app answers, sharing the card's width,
+   then a quiet row of facts under a hairline. */
+.app-card-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px 24px; margin: 22px 0 0; }
+.link-tile { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.app-card-links .meta-k, .app-card-facts .meta-k { font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--muted); }
+.link-tile .meta-v { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.host-link { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; font-size: 13.5px;
+  color: var(--text); text-decoration: none; overflow-wrap: anywhere; }
+.host-link .host-arrow { font-size: 11px; color: var(--muted); opacity: .55; transition: opacity .15s, transform .15s, color .15s; }
+a.host-link:hover { color: var(--accent); }
+a.host-link:hover .host-arrow { opacity: 1; color: var(--accent); transform: translate(1px, -1px); }
+.app-card-facts { display: flex; flex-wrap: wrap; gap: 14px 40px; margin: 26px 0 0; padding: 24px 0 26px;
+  border-top: 1px solid var(--border-soft); font-size: 13px; }
+.app-card-facts:empty { display: none; }
+.app-card-facts .meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.app-card-facts .meta-v { overflow-wrap: anywhere; color: var(--text); }
+.app-card-facts a { color: var(--text); text-decoration: none; border-bottom: 1px dotted var(--muted); }
+.app-card-facts a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.app-card-facts code { font-size: 12px; padding: 1px 6px; border-radius: 6px; background: color-mix(in srgb, var(--muted) 14%, transparent); }
 
-.tabs { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--border-soft); padding-top: 14px; }
+.tabs { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--border-soft); padding-top: 22px; }
 .tab { font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 6px 14px; border-radius: var(--radius-sm); cursor: pointer; }
 .tab.active { color: var(--accent); background: rgba(180, 140, 255, 0.12); }
-.tab-panel { margin-top: 14px; }
+.tab-panel { margin-top: 18px; }
 /* Page-level tabs (app settings): an underline bar, quieter than the pill
    tabs inside cards so the two levels read as different things. */
 .page-tabs { display: flex; gap: 4px; margin-bottom: var(--gap); border-bottom: 1px solid var(--border-soft); overflow-x: auto; }
 .page-tabs button { background: none; border: none; box-shadow: none; border-radius: 0; padding: 10px 14px; margin-bottom: -1px; font-size: 13.5px; font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; }
 .page-tabs button:hover { color: var(--text); background: none; }
 .page-tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+/* Between the configuration tabs and the ones about what the app is doing. */
+.page-tabs-sep { flex: none; width: 1px; margin: 9px 6px; background: var(--border); }
+.ops-chart-label { font-size: 12px; color: var(--muted); margin: 14px 0 4px; }
+.ops-chart { min-height: 60px; overflow: hidden; }
+.ops-logs pre.logs { max-height: 35vh; overflow: auto; margin: 10px 0 0; }
+.app-card .tab-panel pre.logs { max-height: 35vh; }
+.app-card .tab-panel > .muted.small { margin-top: 10px; }
+.ops-backups { list-style: none; margin: 10px 0 0; padding: 0; }
+.ops-backups li { display: flex; align-items: center; gap: 12px; justify-content: space-between;
+  padding: 8px 0; border-top: 1px solid var(--border-soft); font-size: 13px; overflow-wrap: anywhere; }
+.ops-backups li:first-child { border-top: none; }
+.ops-backups li .btn { margin: 0; flex: none; }
+/* A card's header row holds its action beside the title, on the title's line:
+   no form-card top margin, no glow lifting it off the row. */
+.form-card .title-row button, .form-card .title-row a.btn { margin-top: 0; }
+.form-card .title-row button.primary { box-shadow: none; }
+.ops-backups-note { margin: 0 0 4px; }
+.ops-card > .title-row { margin-bottom: 14px; min-height: 34px; }
+.ops-card form + p.muted { margin-top: 14px; }
+.ops-card .ops-logs pre.logs { margin-top: 0; }
 .other-places { margin-top: 20px; }
 .tab-panel a { color: var(--accent); text-decoration: none; }
 .tab-panel a:hover { text-decoration: underline; }
-.mini-chart { min-height: 100px; }
+.mini-chart { min-height: 100px; width: 100%; overflow: hidden; }
 .mini-chart.is-empty { min-height: 0; }
 .mini-chart + .mini-chart { margin-top: 10px; }
 

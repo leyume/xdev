@@ -38,6 +38,7 @@ type Data struct {
 	AdminerPort   int     // published host port for the secondary HTTP UI (laravel Adminer, mail admin); 0 = none
 	RailPort      int     // mail: published host port of the Rail webmail; 0 = no Rail
 	RailOnAppPort bool    // mail: SnappyMail is off, so Rail also publishes HostPort (the app's own domain)
+	PublishIP     string  // mail: address Rail's ports bind to ("" = all interfaces)
 	CPULimit      float64 // cores; 0 = unlimited
 	MemLimit      int64   // bytes; 0 = unlimited
 

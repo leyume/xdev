@@ -215,6 +215,14 @@ func (s *Service) editServiceDomains(app store.App, opts EditOpts, own []string)
 		if slices.Contains(own, host) {
 			return nil, fmt.Errorf("%q is already one of this app's own domains — give the second one its own hostname", host)
 		}
+		// The rows after the first (a mail app's Rail webmail) keep their
+		// hostnames; neither field may take one, or the save would fail on the
+		// domains table after the app row was already written.
+		for _, d := range existing[1:] {
+			if d.Host == host || slices.Contains(own, d.Host) {
+				return nil, fmt.Errorf("%q already routes to another of this app's services (Rail webmail) — change it on the Services tab first", d.Host)
+			}
+		}
 		out := make([]store.ServiceDomain, len(existing))
 		copy(out, existing)
 		out[0].Host = host

@@ -3,6 +3,7 @@ package server
 import (
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -371,7 +372,7 @@ func TestSettingsWebmailCard(t *testing.T) {
 		t.Error("offers to update a Rail that is not on")
 	}
 
-	both := page(apps.Webmail{Snappy: true, RailHost: "rail.demo.test", RailPort: 20031})
+	both := page(apps.Webmail{Snappy: true, Rail: true, RailHost: "rail.demo.test", RailPort: 20031})
 	for _, want := range []string{`href="https://rail.demo.test"`, "Change hostname", "port 20031",
 		`action="/apps/7/rail/update"`} {
 		if !strings.Contains(both, want) {
@@ -382,7 +383,7 @@ func TestSettingsWebmailCard(t *testing.T) {
 		t.Error("a switch is disabled while both webmails are on")
 	}
 
-	railOnly := page(apps.Webmail{RailHost: "rail.demo.test", RailPort: 20031})
+	railOnly := page(apps.Webmail{Rail: true, RailHost: "rail.demo.test", RailPort: 20031})
 	for _, want := range []string{"also sail.demo.test", "served by Rail", "Turn SnappyMail on first"} {
 		if !strings.Contains(railOnly, want) {
 			t.Errorf("Rail-only page missing %q", want)
@@ -421,5 +422,98 @@ func TestSettingsSnappyMailHostname(t *testing.T) {
 	if !strings.Contains(out, `action="/apps/7/webmail/hosts"`) ||
 		!strings.Contains(out, `value="sail.demo.test, webmail.demo.test"`) {
 		t.Error("SnappyMail has no hostname form with its current hostnames")
+	}
+}
+
+// A mail app's card lists the admin console first, then each webmail that is
+// on with its hostnames, and no generic Address row.
+func TestProjectBoardMailRows(t *testing.T) {
+	mail := store.App{ID: 7, Name: "zail", Slug: "zail", Type: "mail", Status: store.AppRunning,
+		Domain: "sail.demo.test", Port: 20010, ComposePath: "/p/demo/zail/_/compose.yml"}
+	rows := mailHostRows("zail.demo.test", []string{"sail.demo.test", "mail.demo.test"},
+		apps.Webmail{Snappy: true, Rail: true, RailHost: "rail.demo.test"})
+	out := renderProjectWith(t, []store.App{mail}, viewData{"MailRows": map[int64][]hostRow{7: rows}})
+	admin, snappy, rail := strings.Index(out, ">Mail admin<"), strings.Index(out, ">SnappyMail<"), strings.Index(out, ">Rail<")
+	if admin < 0 || snappy < admin || rail < snappy {
+		t.Errorf("rows out of order: admin %d, SnappyMail %d, Rail %d", admin, snappy, rail)
+	}
+	for _, want := range []string{`href="https://zail.demo.test"`, `href="https://mail.demo.test"`, `href="https://rail.demo.test"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("mail card missing %q", want)
+		}
+	}
+	if strings.Contains(out, ">Address<") {
+		t.Error("mail card still has a generic Address row")
+	}
+	if !strings.Contains(out, "cardLinked('zail', 7)") {
+		t.Error("card does not open from ?app=zail")
+	}
+}
+
+// With SnappyMail off, Rail also answers on the app's own hostnames.
+func TestMailHostRowsRailOnly(t *testing.T) {
+	rows := mailHostRows("zail.a", []string{"sail.a"}, apps.Webmail{Rail: true, RailHost: "rail.a"})
+	if len(rows) != 2 || rows[1].Label != "Rail" || strings.Join(rows[1].Hosts, " ") != "rail.a sail.a" {
+		t.Errorf("rows = %+v", rows)
+	}
+}
+
+// Webmail switches say what happened (no "restarted": Stalwart never is), and
+// links carry a non-standard HTTPS port.
+func TestSettingsWebmailMessageAndPort(t *testing.T) {
+	mail := store.App{ID: 7, Name: "zail", Slug: "zail", Type: "mail", Status: store.AppRunning,
+		Domain: "sail.demo.test", Port: 20010, ComposePath: "/p/demo/zail/_/compose.yml"}
+	out := renderSettings(t, mail, appSettingsForm{Name: "zail", Domain: "sail.demo.test"}, viewData{
+		"CanToggleRail": true, "Tab": "services", "HTTPSPort": 8443, "Msg": "Rail is on at rail.demo.test.",
+		"Webmail": apps.Webmail{Snappy: true, Rail: true, RailHost: "rail.demo.test", RailPort: 20031},
+	})
+	for _, want := range []string{"Rail is on at rail.demo.test.", `href="https://rail.demo.test:8443"`, `href="https://sail.demo.test:8443"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("settings page missing %q", want)
+		}
+	}
+	if strings.Contains(out, "restarted") {
+		t.Error("a webmail switch claims a restart")
+	}
+}
+
+// Metrics, Logs, Env and Backups are settings tabs too, each posting back to
+// its own tab; ?tab= opens one directly.
+func TestSettingsOpsTabs(t *testing.T) {
+	app := gitApp()
+	ops := &appOps{Env: true, EnvContent: "APP_KEY=secret-value", Backups: []string{"web-20261121.tar.gz"}, CanClearLogs: true}
+	out := renderSettings(t, app, appSettingsForm{Name: "web", Domain: "web.demo.test"},
+		viewData{"Ops": ops, "Tab": "env", "EnvPath": "/p/demo/web/.env"})
+	for _, want := range []string{
+		`data-tab="metrics"`, `data-tab="logs"`, `data-tab="env"`, `data-tab="backups"`,
+		"APP_KEY=secret-value", `action="/apps/` + strconv.FormatInt(app.ID, 10) + `/env?from=settings"`,
+		`/backup?from=settings"`, `/import?from=settings"`, `/logs/clear?from=settings"`,
+		"web-20261121.tar.gz", "settingsTabs('env'",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("settings page missing %q", want)
+		}
+	}
+
+	proxy := store.App{ID: 9, Name: "p", Slug: "p", Type: "proxy", Domain: "p.demo.test", Upstream: "https://x.example"}
+	out = renderSettings(t, proxy, appSettingsForm{Name: "p", Domain: "p.demo.test"}, viewData{"Tab": "logs"})
+	if strings.Contains(out, `data-tab="logs"`) || strings.Contains(out, "settingsTabs('logs'") {
+		t.Error("a proxy app got the ops tabs")
+	}
+}
+
+// An ops action posted from the settings page lands back on its tab.
+func TestOpsReturn(t *testing.T) {
+	app := store.App{ID: 5}
+	r := httptest.NewRequest("POST", "/apps/5/env?from=settings", nil)
+	if got, ok := opsReturn(r, app, "env", "env"); !ok || got != "/apps/5/settings?tab=env" {
+		t.Errorf("from settings: %q %v", got, ok)
+	}
+	r = httptest.NewRequest("POST", "/apps/5/env", nil)
+	if got, ok := opsReturn(r, app, "env", "env"); ok || got != "/apps/5/env" {
+		t.Errorf("from its page: %q %v", got, ok)
+	}
+	if got := withQuery("/apps/5/settings?tab=env", "error", "bad thing"); got != "/apps/5/settings?tab=env&error=bad+thing" {
+		t.Errorf("withQuery = %q", got)
 	}
 }

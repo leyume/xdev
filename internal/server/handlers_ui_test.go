@@ -162,6 +162,7 @@ func renderProjectWith(t *testing.T, apps []store.App, extra viewData) string {
 		"MaxDomains": maxComposeDomains,
 		"ExtraHosts": map[int64][]string{}, "AdminerDomains": map[int64]string{},
 		"ServiceDomains": map[int64][]store.ServiceDomain{},
+		"MailRows":       map[int64][]hostRow{},
 		"ProxyEnabled":   true, "HTTPSPort": 443,
 	}
 	// The same maps the handler builds, so the template sees real values rather

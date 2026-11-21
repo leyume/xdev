@@ -82,7 +82,7 @@ services:
     networks:
       - internal
       - projectnet
-{{template "webmail_service" .}}{{if .RailPort}}{{template "rail_service" .}}{{end}}
+{{if not .RailOnAppPort}}{{template "webmail_service" .}}{{end}}{{if .RailPort}}{{template "rail_service" .}}{{end}}
 volumes:
   mail_data:
   webmail_data:

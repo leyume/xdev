@@ -310,18 +310,27 @@ func (s *Server) handleAppRailToggle(w http.ResponseWriter, r *http.Request) {
 	}
 	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/settings?tab=services"
 	on := r.FormValue("enable") != ""
+	was := s.apps.WebmailState(app)
 	host, err := s.apps.SetRail(app.ID, on, r.FormValue("host"))
 	s.reconcile()
 	if err != nil {
 		http.Redirect(w, r, target+"&error="+url.QueryEscape(firstLine(err.Error())), http.StatusSeeOther)
 		return
 	}
-	if on {
+	var msg string
+	switch {
+	case on && was.RailHost == host:
+		msg = "Rail is on at " + host + "."
+	case on:
+		msg = "Rail is on at " + host + " — Stalwart kept running."
 		s.store.AddEvent(proj.ID, app.ID, "info", "Rail webmail for "+app.Name+" at "+host)
-	} else {
+	case was.Rail:
+		msg = "Rail is off; its data folder is kept."
 		s.store.AddEvent(proj.ID, app.ID, "warn", "Removed Rail webmail from "+app.Name+" — its hostname no longer routes")
+	default:
+		msg = "Rail is off."
 	}
-	http.Redirect(w, r, target+"&saved=1", http.StatusSeeOther)
+	http.Redirect(w, r, target+"&msg="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
 // handleAppSnappyToggle switches a mail app's SnappyMail on or off. Off hands
@@ -333,16 +342,23 @@ func (s *Server) handleAppSnappyToggle(w http.ResponseWriter, r *http.Request) {
 	}
 	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/settings?tab=services"
 	on := r.FormValue("enable") != ""
+	was := s.apps.WebmailState(app).Snappy
 	if err := s.apps.SetSnappyMail(app.ID, on); err != nil {
 		http.Redirect(w, r, target+"&error="+url.QueryEscape(firstLine(err.Error())), http.StatusSeeOther)
 		return
 	}
-	if on {
-		s.store.AddEvent(proj.ID, app.ID, "info", "SnappyMail back on "+app.Domain)
-	} else {
-		s.store.AddEvent(proj.ID, app.ID, "warn", "Turned off SnappyMail — Rail now serves "+app.Domain)
+	msg := "SnappyMail is on at " + app.Domain + "."
+	if !on {
+		msg = "SnappyMail is off — Rail now serves " + app.Domain + "."
 	}
-	http.Redirect(w, r, target+"&saved=1", http.StatusSeeOther)
+	if was != on {
+		if on {
+			s.store.AddEvent(proj.ID, app.ID, "info", "SnappyMail back on "+app.Domain)
+		} else {
+			s.store.AddEvent(proj.ID, app.ID, "warn", "Turned off SnappyMail — Rail now serves "+app.Domain)
+		}
+	}
+	http.Redirect(w, r, target+"&msg="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
 // handleAppWebmailHosts changes the hostnames a mail app's own webmail
@@ -360,11 +376,11 @@ func (s *Server) handleAppWebmailHosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.store.AddEvent(proj.ID, app.ID, "info", "SnappyMail for "+app.Name+" now at "+strings.Join(hosts, ", "))
-	http.Redirect(w, r, target+"&saved=1", http.StatusSeeOther)
+	http.Redirect(w, r, target+"&msg="+url.QueryEscape("Webmail now answers on "+strings.Join(hosts, ", ")+"."), http.StatusSeeOther)
 }
 
 // handleAppRailUpdate pulls the latest Rail image and recreates the rail
-// container from it.
+// container from it when it is newer.
 func (s *Server) handleAppRailUpdate(w http.ResponseWriter, r *http.Request) {
 	app, proj, ok := s.appAndProject(w, r)
 	if !ok {
@@ -376,12 +392,17 @@ func (s *Server) handleAppRailUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, target+"&error="+url.QueryEscape(firstLine(err.Error())), http.StatusSeeOther)
 		return
 	}
-	msg := "Rail for " + app.Name + " is up to date"
-	if updated {
-		msg = "Updated Rail for " + app.Name + " to the latest image"
+	var msg string
+	switch {
+	case updated:
+		msg = "Rail updated to the latest image and restarted — Stalwart kept running."
+		s.store.AddEvent(proj.ID, app.ID, "info", "Updated Rail for "+app.Name+" to the latest image")
+	case app.Status != store.AppRunning:
+		msg = "Pulled the latest Rail image — it is used when the app next starts."
+	default:
+		msg = "Rail is already on the latest image."
 	}
-	s.store.AddEvent(proj.ID, app.ID, "info", msg)
-	http.Redirect(w, r, target+"&saved=1", http.StatusSeeOther)
+	http.Redirect(w, r, target+"&msg="+url.QueryEscape(msg), http.StatusSeeOther)
 }
 
 // handleAppLaravelServer switches a laravel app between Octane/Swoole and

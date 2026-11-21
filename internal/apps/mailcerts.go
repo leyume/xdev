@@ -46,6 +46,33 @@ var chownMail = func(path string) error {
 	return os.Chown(path, mailUID, mailUID)
 }
 
+// ngxCertFor finds ngx's certificate for host: the ACME module's (http-01;
+// in module/ since ngx keeps the module's state apart, at the top before)
+// first, then a DNS-01 wildcard's (certs/<name>.crt, named after its entry's
+// first domain) or the local CA's (local/<name>.crt, a wildcard as _.<rest>).
+func ngxCertFor(acmeDir, host string) (crt, key string) {
+	for _, dir := range []string{filepath.Join(acmeDir, "module"), acmeDir} {
+		if crt, key = newestNgxCert(dir, host); crt != "" {
+			return crt, key
+		}
+	}
+	names := []string{host}
+	if _, parent, ok := strings.Cut(host, "."); ok && strings.Contains(parent, ".") {
+		names = append(names, "*."+parent)
+	}
+	for _, name := range names {
+		for _, c := range []string{
+			filepath.Join(acmeDir, "certs", name),
+			filepath.Join(acmeDir, "local", strings.Replace(name, "*", "_", 1)),
+		} {
+			if fileExists(c+".crt") && fileExists(c+".key") {
+				return c + ".crt", c + ".key"
+			}
+		}
+	}
+	return "", ""
+}
+
 // ngxCertName matches ngx's (nginx-acme's) state files: <host>-<hex>.crt.
 var ngxCertName = regexp.MustCompile(`^(.+)-[0-9a-f]+\.crt$`)
 
@@ -112,11 +139,12 @@ func (s *Service) ensureMailPublicURL(app store.App) error {
 func (s *Service) mailTLSHosts(app store.App) []string {
 	v, _ := envValue(filepath.Join(filepath.Dir(app.ComposePath), ".env"), "MAIL_TLS_HOSTS")
 	hosts := strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' })
+	// Unset means the admin console's hostname only: later service rows are
+	// Rail's, which Stalwart never serves, and copying their certificates would
+	// restart the mail server on every Rail move or renewal.
 	if len(hosts) == 0 {
-		if svc, err := s.store.AppServiceDomains(app.ID); err == nil {
-			for _, d := range svc {
-				hosts = append(hosts, d.Host)
-			}
+		if svc, err := s.store.AppServiceDomains(app.ID); err == nil && len(svc) > 0 {
+			hosts = append(hosts, svc[0].Host)
 		}
 	}
 	return hosts
@@ -138,7 +166,7 @@ func (s *Service) syncMailCerts(app store.App) (bool, error) {
 	}
 	changed := false
 	for _, host := range s.mailTLSHosts(app) {
-		crt, key := newestNgxCert(s.acmeDir, host)
+		crt, key := ngxCertFor(s.acmeDir, host)
 		if crt == "" {
 			log.Printf("mail %s: no certificate for %s in %s yet — is it routed by an app (so ngx issues one)?", app.Slug, host, s.acmeDir)
 			continue

@@ -91,9 +91,9 @@ func TestDatabaseDetailRenders(t *testing.T) {
 	}
 
 	// A dedicated database links back to its app and can't be dropped from here.
-	d.Dedicated, d.ProjectSlug, d.AppID = true, "demo", 7
+	d.Dedicated, d.ProjectSlug, d.AppID, d.AppSlug = true, "demo", 7, "api"
 	out = renderNamed(t, "database_detail", viewData{"D": d})
-	if !strings.Contains(out, "/projects/demo#app-7") || strings.Contains(out, "/database/db/drop") {
+	if !strings.Contains(out, "/projects/demo?app=api") || strings.Contains(out, "/database/db/drop") {
 		t.Errorf("dedicated detail page: want app link and no drop form")
 	}
 }

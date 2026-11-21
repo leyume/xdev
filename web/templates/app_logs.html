@@ -7,7 +7,7 @@
 <section class="page-head">
   <div>
     <h1>{{.App.Name}} — logs</h1>
-    <div class="muted small">last 300 lines</div>
+    <div class="muted small">last {{.LogLines}} lines</div>
   </div>
   <div class="form-actions">
     <a class="iconbtn tip" href="/apps/{{.App.ID}}/logs"

@@ -66,7 +66,7 @@
       {{if or (and .ProjectName (not $.Project)) .AppName}}
       <div class="act-meta">
         {{if and .ProjectName (not $.Project)}}<a class="act-tag" href="/events?project={{.ProjectSlug}}">{{.ProjectName}}</a>{{end}}
-        {{if .AppName}}<a class="act-tag app" href="/projects/{{.ProjectSlug}}#app-{{.AppID}}">{{.AppName}}</a>{{end}}
+        {{if .AppName}}<a class="act-tag app" href="/projects/{{.ProjectSlug}}?app={{.AppSlug}}">{{.AppName}}</a>{{end}}
       </div>
       {{end}}
     </div>
@@ -84,7 +84,7 @@
       <td class="nowrap muted" title="{{.Full}}">{{.Short}}</td>
       <td class="nowrap"><span class="lvl-dot k-{{.Kind}}"></span>{{if .Level}}{{.Level}}{{else}}info{{end}}</td>
       {{if not $.Project}}<td class="nowrap">{{if .ProjectName}}<a href="/events?project={{.ProjectSlug}}">{{.ProjectName}}</a>{{else}}<span class="muted">—</span>{{end}}</td>{{end}}
-      <td class="nowrap">{{if .AppName}}<a href="/projects/{{.ProjectSlug}}#app-{{.AppID}}">{{.AppName}}</a>{{else}}<span class="muted">—</span>{{end}}</td>
+      <td class="nowrap">{{if .AppName}}<a href="/projects/{{.ProjectSlug}}?app={{.AppSlug}}">{{.AppName}}</a>{{else}}<span class="muted">—</span>{{end}}</td>
       <td>{{.Message}}</td>
     </tr>
     {{end}}

@@ -101,18 +101,48 @@ func writeProblem(w http.ResponseWriter, r *http.Request, msg string, status int
 	http.Error(w, msg, status)
 }
 
+// opsReturn is where an app's logs/env/backups action lands: back on the
+// settings tab it was posted from (?from=settings on the form's action), or
+// on the action's own page.
+func opsReturn(r *http.Request, app store.App, page, tab string) (string, bool) {
+	id := strconv.FormatInt(app.ID, 10)
+	if r.URL.Query().Get("from") == "settings" {
+		return "/apps/" + id + "/settings?tab=" + tab, true
+	}
+	return "/apps/" + id + "/" + page, false
+}
+
+// withQuery adds k=v to target, which may already have a query.
+func withQuery(target, k, v string) string {
+	sep := "?"
+	if strings.Contains(target, "?") {
+		sep = "&"
+	}
+	return target + sep + k + "=" + url.QueryEscape(v)
+}
+
+// opsFail sends an action's error back to where it came from.
+func opsFail(w http.ResponseWriter, r *http.Request, target string, err error) {
+	http.Redirect(w, r, withQuery(target, "error", firstLine(err.Error())), http.StatusSeeOther)
+}
+
+// logLines is how much of an app's log the logs page, its settings tab and
+// its project card show: the tail, newest last.
+const logLines = 100
+
 // handleAppLogs shows the tail of an app's container logs.
 func (s *Server) handleAppLogs(w http.ResponseWriter, r *http.Request) {
 	app, proj, ok := s.appAndProject(w, r)
 	if !ok {
 		return
 	}
-	logs, err := s.apps.Logs(app.ID, 300)
+	logs, err := s.apps.Logs(app.ID, logLines)
 	if err != nil {
 		logs = "could not read logs: " + err.Error()
 	}
 	s.render(w, r, "app_logs", viewData{
 		"Title": app.Name + " logs · xdev", "App": app, "Project": proj, "Logs": logs,
+		"LogLines": logLines,
 		"CanClear": apps.CanClearLogs(app),
 		"Cleared":  r.URL.Query().Get("cleared") != "",
 		"Error":    r.URL.Query().Get("error"),
@@ -125,13 +155,18 @@ func (s *Server) handleAppLogsClear(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/logs"
+	target, settings := opsReturn(r, app, "logs", "logs")
 	if err := s.apps.ClearLogs(app.ID); err != nil {
-		redirectWithError(w, r, target, err)
+		opsFail(w, r, target, err)
 		return
 	}
 	s.store.AddEvent(proj.ID, app.ID, "info", "Cleared the log for app "+app.Name)
-	http.Redirect(w, r, target+"?cleared=1", http.StatusSeeOther)
+	if settings {
+		target = withQuery(target, "msg", "Log cleared.")
+	} else {
+		target = withQuery(target, "cleared", "1")
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 // handleAppEnvForm shows the editable .env for an app.
@@ -158,13 +193,19 @@ func (s *Server) handleAppEnvSave(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	target, settings := opsReturn(r, app, "env", "env")
 	if err := s.apps.WriteEnv(app.ID, r.FormValue("content")); err != nil {
-		redirectWithError(w, r, "/apps/"+strconv.FormatInt(app.ID, 10)+"/env", err)
+		opsFail(w, r, target, err)
 		return
 	}
 	_ = s.apps.Start(app.ID) // restart (idempotent up -d) to pick up new env
 	s.store.AddEvent(proj.ID, app.ID, "info", "Updated .env for app "+app.Name)
-	http.Redirect(w, r, "/apps/"+strconv.FormatInt(app.ID, 10)+"/env?saved=1", http.StatusSeeOther)
+	if settings {
+		target = withQuery(target, "msg", "Saved .env and restarted the app.")
+	} else {
+		target = withQuery(target, "saved", "1")
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 // uploadedArchive returns the "archive" file from a multipart submit, or a nil
@@ -265,23 +306,26 @@ func (s *Server) handleAppImport(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/backups"
+	target, settings := opsReturn(r, app, "backups", "backups")
 	archive, closeArchive, err := uploadedArchive(r)
 	if err != nil {
-		redirectWithError(w, r, target, err)
+		opsFail(w, r, target, err)
 		return
 	}
 	defer closeArchive()
 	if archive == nil {
-		redirectWithError(w, r, target, errors.New("choose a .tar.gz backup to import"))
+		opsFail(w, r, target, errors.New("choose a .tar.gz backup to import"))
 		return
 	}
 	if err := s.apps.Import(app.ID, archive); err != nil {
-		redirectWithError(w, r, target, err)
+		opsFail(w, r, target, err)
 		return
 	}
 	s.store.AddEvent(proj.ID, app.ID, "warn", "Imported backup over app "+app.Name)
 	s.reconcile()
+	if settings {
+		target = withQuery(target, "msg", "Imported the backup over "+app.Name+".")
+	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
@@ -291,12 +335,16 @@ func (s *Server) handleAppBackupCreate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	target := "/apps/" + strconv.FormatInt(app.ID, 10) + "/backups"
-	if _, err := s.apps.Backup(app.ID, s.backupsRoot()); err != nil {
-		redirectWithError(w, r, target, err)
+	target, settings := opsReturn(r, app, "backups", "backups")
+	name, err := s.apps.Backup(app.ID, s.backupsRoot())
+	if err != nil {
+		opsFail(w, r, target, err)
 		return
 	}
 	s.store.AddEvent(proj.ID, app.ID, "info", "Created backup of app "+app.Name)
+	if settings {
+		target = withQuery(target, "msg", "Backed up to "+filepath.Base(name)+".")
+	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 

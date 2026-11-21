@@ -160,6 +160,9 @@ func (s *Server) renderAppSettingsWith(w http.ResponseWriter, r *http.Request, a
 		"PortAddress": s.reach().PortAddress(app.Port),
 		"PortOnly":    s.reach().PortOnly(),
 		"Saved":       r.URL.Query().Get("saved") != "",
+		"Msg":         r.URL.Query().Get("msg"),
+		"Ops":         s.appOps(app),
+		"HTTPSPort":   s.httpsPort,
 		"JustStarted": r.URL.Query().Get("deploying") != "",
 		"Rotated":     r.URL.Query().Get("rotated") != "",
 		"Uploaded":    r.URL.Query().Get("uploaded") != "",
@@ -319,4 +322,30 @@ func composeFileLabel(app store.App) string {
 		return "the file you supplied"
 	}
 	return "generated for this " + app.Type + " app when it was created"
+}
+
+// appOps is what the settings page's Metrics, Logs, Env and Backups tabs show,
+// or nil for an app with none of them (a proxy app runs nothing here).
+type appOps struct {
+	CanClearLogs bool
+	Env          bool   // has an editable .env (not a shared-host WordPress site)
+	EnvContent   string // read at render; the tab is the editor
+	EnvError     string
+	Backups      []string
+}
+
+func (s *Server) appOps(app store.App) *appOps {
+	if app.IsProxy() {
+		return nil
+	}
+	o := &appOps{CanClearLogs: apps.CanClearLogs(app), Env: app.WPMode != store.WPShared}
+	if o.Env {
+		content, err := s.apps.ReadEnv(app.ID)
+		if err != nil {
+			o.EnvError = err.Error()
+		}
+		o.EnvContent = content
+	}
+	o.Backups, _ = s.apps.ListBackups(app.ID, s.backupsRoot())
+	return o
 }

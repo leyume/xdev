@@ -264,7 +264,12 @@ func extractAppArchive(archive io.Reader, dir string, all bool) error {
 	if all {
 		return untarGz(archive, dir)
 	}
+	// A mail app's Rail webmail keeps its state (sessions, settings, contacts)
+	// under _/rail-data: that is content, not a rendered file.
 	return untarGzFilter(archive, dir, func(name string) bool {
+		if name == "_/rail-data" || strings.HasPrefix(name, "_/rail-data/") {
+			return true
+		}
 		return name != "_" && !strings.HasPrefix(name, "_/")
 	})
 }
