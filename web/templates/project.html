@@ -120,7 +120,7 @@
          x-data="{collapsed:true, tab:'metrics', loaded:{},
         open(t){ this.tab=t; if(t!=='metrics' && !this.loaded[t]){ this.loaded[t]=true; this.fetchPartial(t); } },
         async fetchPartial(t){ const el=this.$refs[t];
-          try{ const r=await fetch('/apps/{{.ID}}/'+t+'/partial',{credentials:'same-origin'}); el.innerHTML=await r.text(); }
+          try{ const r=await fetch('/apps/{{.ID}}/'+t+'/partial',{credentials:'same-origin'}); el.innerHTML=await r.text(); const pre=el.querySelector('pre'); if(pre) pre.scrollTop=pre.scrollHeight; }
           catch(e){ el.textContent='Could not load.'; } }}">
       {{/* In the gutter, not in the header row: it is absolutely positioned, so
            it takes no layout space and the header's own controls keep the
@@ -1145,11 +1145,21 @@ function detectComposePorts(text, maxSlots) {
       legend: { show: false },
     };
   }
+  // Keep a chart as wide as its panel: the card can change width (window
+  // resize, a card drawn while collapsed). Height stays as set.
+  function fit(plot, el) {
+    if (typeof ResizeObserver === 'undefined') return;
+    new ResizeObserver(() => {
+      const w = el.clientWidth;
+      if (w > 0 && Math.abs(w - plot.width) > 1) plot.setSize({ width: w, height: plot.height });
+    }).observe(el);
+  }
   async function loadAppChart(id) {
     const cpuEl = document.getElementById('cpuChart-' + id);
     const memEl = document.getElementById('memChart-' + id);
     if (!cpuEl || !memEl) return;
-    const w = Math.min(360, cpuEl.clientWidth || 360);
+    // End to end: as wide as the card's panel, at the same height.
+    const w = cpuEl.clientWidth || 360;
     try {
       const r = await fetch(`/apps/${id}/metrics.json`, { credentials: 'same-origin' });
       const d = await r.json();
@@ -1159,8 +1169,8 @@ function detectComposePorts(text, maxSlots) {
         memEl.remove();
         return;
       }
-      new uPlot(opts('CPU %', '#b48cff', w), [d.t, d.cpu], cpuEl);
-      new uPlot(opts('MiB', '#8ce8b8', w), [d.t, d.mem], memEl);
+      fit(new uPlot(opts('CPU %', '#b48cff', w), [d.t, d.cpu], cpuEl), cpuEl);
+      fit(new uPlot(opts('MiB', '#8ce8b8', w), [d.t, d.mem], memEl), memEl);
     } catch (e) {
       cpuEl.innerHTML = '<p class="muted small">Could not load metrics.</p>';
     }

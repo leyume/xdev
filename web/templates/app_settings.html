@@ -1140,6 +1140,16 @@ function settingsTabs(initial, restore, appID) {
         cpu: new uPlot(chartOpts('CPU %', '#b48cff', w), [d.t, d.cpu], cpuEl),
         mem: new uPlot(chartOpts('MiB', '#8ce8b8', w), [d.t, d.mem], memEl),
       };
+      // Stay end to end when the page changes width.
+      if (typeof ResizeObserver !== 'undefined') {
+        new ResizeObserver(() => {
+          const nw = cpuEl.clientWidth;
+          if (nw > 0 && Math.abs(nw - charts.cpu.width) > 1) {
+            charts.cpu.setSize({ width: nw, height: charts.cpu.height });
+            charts.mem.setSize({ width: nw, height: charts.mem.height });
+          }
+        }).observe(cpuEl);
+      }
       setInterval(() => { if (this.tab === 'metrics') this.loadMetrics(); }, 10000);
     },
   };

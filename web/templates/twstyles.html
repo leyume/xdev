@@ -1200,10 +1200,8 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
    upstream from a port meant reading all of them. */
 /* Expanded card: tiles for where the app answers, sharing the card's width,
    then a quiet row of facts under a hairline. */
-.app-card-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 18px 0 0; }
-.link-tile { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 14px 16px;
-  border: 1px solid var(--border); border-radius: 12px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 70%); }
+.app-card-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px 24px; margin: 22px 0 0; }
+.link-tile { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .app-card-links .meta-k, .app-card-facts .meta-k { font-size: 10.5px; font-weight: 700; text-transform: uppercase;
   letter-spacing: 0.08em; color: var(--muted); }
 .link-tile .meta-v { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -1212,7 +1210,7 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
 .host-link .host-arrow { font-size: 11px; color: var(--muted); opacity: .55; transition: opacity .15s, transform .15s, color .15s; }
 a.host-link:hover { color: var(--accent); }
 a.host-link:hover .host-arrow { opacity: 1; color: var(--accent); transform: translate(1px, -1px); }
-.app-card-facts { display: flex; flex-wrap: wrap; gap: 14px 40px; margin: 16px 0 6px; padding: 14px 2px 2px;
+.app-card-facts { display: flex; flex-wrap: wrap; gap: 14px 40px; margin: 26px 0 0; padding: 24px 0 26px;
   border-top: 1px solid var(--border-soft); font-size: 13px; }
 .app-card-facts:empty { display: none; }
 .app-card-facts .meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -1221,10 +1219,10 @@ a.host-link:hover .host-arrow { opacity: 1; color: var(--accent); transform: tra
 .app-card-facts a:hover { color: var(--accent); border-bottom-color: var(--accent); }
 .app-card-facts code { font-size: 12px; padding: 1px 6px; border-radius: 6px; background: color-mix(in srgb, var(--muted) 14%, transparent); }
 
-.tabs { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--border-soft); padding-top: 14px; }
+.tabs { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--border-soft); padding-top: 22px; }
 .tab { font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 6px 14px; border-radius: var(--radius-sm); cursor: pointer; }
 .tab.active { color: var(--accent); background: rgba(180, 140, 255, 0.12); }
-.tab-panel { margin-top: 14px; }
+.tab-panel { margin-top: 18px; }
 /* Page-level tabs (app settings): an underline bar, quieter than the pill
    tabs inside cards so the two levels read as different things. */
 .page-tabs { display: flex; gap: 4px; margin-bottom: var(--gap); border-bottom: 1px solid var(--border-soft); overflow-x: auto; }
@@ -1235,7 +1233,9 @@ a.host-link:hover .host-arrow { opacity: 1; color: var(--accent); transform: tra
 .page-tabs-sep { flex: none; width: 1px; margin: 9px 6px; background: var(--border); }
 .ops-chart-label { font-size: 12px; color: var(--muted); margin: 14px 0 4px; }
 .ops-chart { min-height: 60px; overflow: hidden; }
-.ops-logs pre.logs { max-height: 60vh; overflow: auto; margin: 10px 0 0; }
+.ops-logs pre.logs { max-height: 35vh; overflow: auto; margin: 10px 0 0; }
+.app-card .tab-panel pre.logs { max-height: 35vh; }
+.app-card .tab-panel > .muted.small { margin-top: 10px; }
 .ops-backups { list-style: none; margin: 10px 0 0; padding: 0; }
 .ops-backups li { display: flex; align-items: center; gap: 12px; justify-content: space-between;
   padding: 8px 0; border-top: 1px solid var(--border-soft); font-size: 13px; overflow-wrap: anywhere; }
@@ -1244,7 +1244,7 @@ a.host-link:hover .host-arrow { opacity: 1; color: var(--accent); transform: tra
 .other-places { margin-top: 20px; }
 .tab-panel a { color: var(--accent); text-decoration: none; }
 .tab-panel a:hover { text-decoration: underline; }
-.mini-chart { min-height: 100px; }
+.mini-chart { min-height: 100px; width: 100%; overflow: hidden; }
 .mini-chart.is-empty { min-height: 0; }
 .mini-chart + .mini-chart { margin-top: 10px; }
 
