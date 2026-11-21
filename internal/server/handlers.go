@@ -177,6 +177,7 @@ func (s *Server) handleHomeDashboard(w http.ResponseWriter, r *http.Request) {
 		dbLive++
 	}
 
+	host := metrics.HostSnapshot()
 	s.render(w, r, "dashboard", viewData{
 		"Title":        "Dashboard · xdev",
 		"Projects":     projects,
@@ -188,7 +189,8 @@ func (s *Server) handleHomeDashboard(w http.ResponseWriter, r *http.Request) {
 		"Events":       events,
 		"Runtime":      s.engine.Info(),
 		"Engine":       string(s.engine.Current()),
-		"Host":         metrics.HostSnapshot(),
+		"Host":         host,
+		"AppsUse":      sumAppUse(appRows, host),
 		"EngineMsg":    r.URL.Query().Get("engine_msg"),
 		"Containers":   containers,
 		"ContainersOK": containersOK,
@@ -285,4 +287,45 @@ func (s *Server) currentUser(r *http.Request) (any, bool) {
 		return nil, false
 	}
 	return u, true
+}
+
+// appsUse is what every app together uses right now, beside the host's total:
+// CPU in cores and memory in bytes, and each as a share of the host (for the
+// apps segment of the host bars). Apps are sampled per container, so 100% of
+// CPU there is one core.
+type appsUse struct {
+	Cores    float64
+	MemBytes uint64
+	CPUShare float64 // % of all cores
+	MemShare float64 // % of host memory
+	// The rest of the host's use (other processes, xdev's own containers such
+	// as the shared database), as % — the second segment of each bar.
+	OtherCPU   float64
+	OtherMem   float64
+	OtherCores float64 // the same in cores and bytes, for the legend
+	OtherBytes uint64
+	Sampled    int // apps with a recent sample
+}
+
+func sumAppUse(rows []appRow, h metrics.Host) appsUse {
+	var u appsUse
+	for _, r := range rows {
+		if !r.HasMetrics {
+			continue
+		}
+		u.Sampled++
+		u.Cores += r.CPUPct / 100
+		u.MemBytes += uint64(r.MemMiB) << 20
+	}
+	if h.Cores > 0 {
+		u.CPUShare = min(u.Cores/float64(h.Cores)*100, h.CPUPct)
+	}
+	if h.MemTotal > 0 {
+		u.MemShare = min(float64(u.MemBytes)/float64(h.MemTotal)*100, h.MemPct())
+	}
+	u.OtherCPU = max(h.CPUPct-u.CPUShare, 0)
+	u.OtherMem = max(h.MemPct()-u.MemShare, 0)
+	u.OtherCores = u.OtherCPU / 100 * float64(h.Cores)
+	u.OtherBytes = uint64(u.OtherMem / 100 * float64(h.MemTotal))
+	return u
 }

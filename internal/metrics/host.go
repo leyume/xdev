@@ -3,6 +3,7 @@ package metrics
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -13,7 +14,8 @@ import (
 
 // Host is a point-in-time snapshot of overall machine resource usage.
 type Host struct {
-	CPUPct        float64
+	CPUPct        float64 // of all cores together (100 = every core busy)
+	Cores         int     // logical CPUs
 	MemUsed       uint64
 	MemTotal      uint64
 	DiskUsed      uint64
@@ -21,6 +23,9 @@ type Host struct {
 	Hostname      string
 	UptimeSeconds uint64
 }
+
+// CPUCores is the CPU in use, in cores: CPUPct of Cores.
+func (h Host) CPUCores() float64 { return h.CPUPct / 100 * float64(h.Cores) }
 
 // MemPct / DiskPct are convenience helpers for templates.
 func (h Host) MemPct() float64  { return pct(h.MemUsed, h.MemTotal) }
@@ -42,7 +47,10 @@ func (h Host) Uptime() string {
 // HostSnapshot reads current host CPU/memory/disk usage. CPU is measured over a
 // short window, so this call blocks briefly (~200ms).
 func HostSnapshot() Host {
-	var h Host
+	h := Host{Cores: runtime.NumCPU()}
+	if n, err := cpu.Counts(true); err == nil && n > 0 {
+		h.Cores = n // the host's, where xdev itself may be limited to fewer
+	}
 	if pcts, err := cpu.Percent(200*time.Millisecond, false); err == nil && len(pcts) > 0 {
 		h.CPUPct = pcts[0]
 	}

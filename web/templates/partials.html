@@ -162,15 +162,28 @@
     <span class="muted small">{{.Host.Hostname}} · uptime {{.Host.Uptime}}</span>
   </div>
   <div class="host-grid">
+    {{/* CPU and memory: the host's total, with what xdev's apps use as the
+         bright first segment of the bar (the rest is everything else on the
+         machine). CPU reads in cores, like memory reads in GB. */}}
     <div class="host-stat">
       <div class="host-label">CPU</div>
+      {{with .AppsUse}}
+      <div class="bar stacked"><span class="seg-apps" style="width:{{f1 .CPUShare}}%"></span><span class="seg-other" style="width:{{f1 .OtherCPU}}%"></span></div>
+      {{else}}
       <div class="bar"><span style="width:{{f1 .Host.CPUPct}}%"></span></div>
-      <div class="muted small">{{f1 .Host.CPUPct}}%</div>
+      {{end}}
+      <div class="muted small">{{f2 .Host.CPUCores}} / {{.Host.Cores}} cores · {{f1 .Host.CPUPct}}%</div>
+      {{with .AppsUse}}<div class="host-apps small"><span class="dot-apps"></span>Apps {{f2 .Cores}}<span class="dot-other"></span>Other {{f2 .OtherCores}}</div>{{end}}
     </div>
     <div class="host-stat">
       <div class="host-label">Memory</div>
+      {{with .AppsUse}}
+      <div class="bar stacked"><span class="seg-apps" style="width:{{f1 .MemShare}}%"></span><span class="seg-other" style="width:{{f1 .OtherMem}}%"></span></div>
+      {{else}}
       <div class="bar"><span style="width:{{f1 .Host.MemPct}}%"></span></div>
+      {{end}}
       <div class="muted small">{{gib .Host.MemUsed}} / {{gib .Host.MemTotal}} GB</div>
+      {{with .AppsUse}}<div class="host-apps small"><span class="dot-apps"></span>Apps {{gib .MemBytes}} GB<span class="dot-other"></span>Other {{gib .OtherBytes}} GB</div>{{end}}
     </div>
     <div class="host-stat">
       <div class="host-label">Disk (/)</div>

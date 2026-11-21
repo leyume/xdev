@@ -13,7 +13,7 @@
 </section>
 
 <div class="card">
-  <h3>CPU usage (%)</h3>
+  <h3>CPU (cores)</h3>
   <div id="cpuChart"></div>
 </div>
 <div class="card">
@@ -48,11 +48,12 @@
     cpuEl.innerHTML = msg; memEl.innerHTML = '';
     return;
   }
-  const cpu = new uPlot(opts('CPU %', '#4f8cff'), [d.t, d.cpu], cpuEl);
+  const cores = (s) => s.map(v => v / 100); // per-container %, 100 = one core
+  const cpu = new uPlot(opts('cores', '#4f8cff'), [d.t, cores(d.cpu)], cpuEl);
   const mem = new uPlot(opts('MiB', '#36c46b'), [d.t, d.mem], memEl);
   setInterval(async () => {
     const n = await load();
-    if (n.t && n.t.length) { cpu.setData([n.t, n.cpu]); mem.setData([n.t, n.mem]); }
+    if (n.t && n.t.length) { cpu.setData([n.t, cores(n.cpu)]); mem.setData([n.t, n.mem]); }
   }, 10000);
 })();
 </script>

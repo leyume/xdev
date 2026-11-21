@@ -1169,7 +1169,8 @@ function detectComposePorts(text, maxSlots) {
         memEl.remove();
         return;
       }
-      fit(new uPlot(opts('CPU %', '#b48cff', w), [d.t, d.cpu], cpuEl), cpuEl);
+      // CPU in cores (samples are per-container %, 100 = one core).
+      fit(new uPlot(opts('cores', '#b48cff', w), [d.t, d.cpu.map(v => v / 100)], cpuEl), cpuEl);
       fit(new uPlot(opts('MiB', '#8ce8b8', w), [d.t, d.mem], memEl), memEl);
     } catch (e) {
       cpuEl.innerHTML = '<p class="muted small">Could not load metrics.</p>';
