@@ -235,6 +235,17 @@
           </span>
         </div>
         {{end}}
+        {{with and $.RailDomains (index $.RailDomains .ID)}}
+        <div class="meta">
+          <span class="meta-k">Rail webmail</span>
+          <span class="meta-v">
+            {{if $.ProxyEnabled}}
+              {{if eq $.HTTPSPort 443}}<a href="https://{{.}}" target="_blank">{{.}}</a>
+              {{else}}<a href="https://{{.}}:{{$.HTTPSPort}}" target="_blank">{{.}}:{{$.HTTPSPort}}</a>{{end}}
+            {{else}}{{.}}{{end}}
+          </span>
+        </div>
+        {{end}}
         {{/* Compose apps route one hostname per published port; list them all. */}}
         {{range index $.ServiceDomains .ID}}
         <div class="meta">

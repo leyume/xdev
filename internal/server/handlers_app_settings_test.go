@@ -371,7 +371,7 @@ func TestSettingsWebmailCard(t *testing.T) {
 		t.Error("offers to update a Rail that is not on")
 	}
 
-	both := page(apps.Webmail{Snappy: true, RailHost: "rail.demo.test", RailPort: 20031})
+	both := page(apps.Webmail{Snappy: true, Rail: true, RailHost: "rail.demo.test", RailPort: 20031})
 	for _, want := range []string{`href="https://rail.demo.test"`, "Change hostname", "port 20031",
 		`action="/apps/7/rail/update"`} {
 		if !strings.Contains(both, want) {
@@ -382,7 +382,7 @@ func TestSettingsWebmailCard(t *testing.T) {
 		t.Error("a switch is disabled while both webmails are on")
 	}
 
-	railOnly := page(apps.Webmail{RailHost: "rail.demo.test", RailPort: 20031})
+	railOnly := page(apps.Webmail{Rail: true, RailHost: "rail.demo.test", RailPort: 20031})
 	for _, want := range []string{"also sail.demo.test", "served by Rail", "Turn SnappyMail on first"} {
 		if !strings.Contains(railOnly, want) {
 			t.Errorf("Rail-only page missing %q", want)
@@ -421,5 +421,39 @@ func TestSettingsSnappyMailHostname(t *testing.T) {
 	if !strings.Contains(out, `action="/apps/7/webmail/hosts"`) ||
 		!strings.Contains(out, `value="sail.demo.test, webmail.demo.test"`) {
 		t.Error("SnappyMail has no hostname form with its current hostnames")
+	}
+}
+
+// A mail app's Rail hostname is on the project board, beside its admin console.
+func TestProjectBoardShowsRail(t *testing.T) {
+	mail := store.App{ID: 7, Name: "zail", Slug: "zail", Type: "mail", Status: store.AppRunning,
+		Domain: "sail.demo.test", Port: 20010, ComposePath: "/p/demo/zail/_/compose.yml"}
+	out := renderProjectWith(t, []store.App{mail}, viewData{
+		"AdminerDomains": map[int64]string{7: "zail.demo.test"},
+		"RailDomains":    map[int64]string{7: "rail.demo.test"},
+	})
+	for _, want := range []string{"Rail webmail", `href="https://rail.demo.test"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("project board missing %q", want)
+		}
+	}
+}
+
+// Webmail switches say what happened (no "restarted": Stalwart never is), and
+// links carry a non-standard HTTPS port.
+func TestSettingsWebmailMessageAndPort(t *testing.T) {
+	mail := store.App{ID: 7, Name: "zail", Slug: "zail", Type: "mail", Status: store.AppRunning,
+		Domain: "sail.demo.test", Port: 20010, ComposePath: "/p/demo/zail/_/compose.yml"}
+	out := renderSettings(t, mail, appSettingsForm{Name: "zail", Domain: "sail.demo.test"}, viewData{
+		"CanToggleRail": true, "Tab": "services", "HTTPSPort": 8443, "Msg": "Rail is on at rail.demo.test.",
+		"Webmail": apps.Webmail{Snappy: true, Rail: true, RailHost: "rail.demo.test", RailPort: 20031},
+	})
+	for _, want := range []string{"Rail is on at rail.demo.test.", `href="https://rail.demo.test:8443"`, `href="https://sail.demo.test:8443"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("settings page missing %q", want)
+		}
+	}
+	if strings.Contains(out, "restarted") {
+		t.Error("a webmail switch claims a restart")
 	}
 }

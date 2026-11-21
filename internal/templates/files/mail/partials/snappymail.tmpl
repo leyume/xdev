@@ -7,8 +7,6 @@
     image: docker.io/djmaze/snappymail:latest
     container_name: {{.ProjectSlug}}_{{.AppSlug}}_webmail
     restart: unless-stopped
-    depends_on:
-      - mail
     volumes:
       - webmail_data:/var/lib/snappymail
     ports:

@@ -160,6 +160,8 @@ func (s *Server) renderAppSettingsWith(w http.ResponseWriter, r *http.Request, a
 		"PortAddress": s.reach().PortAddress(app.Port),
 		"PortOnly":    s.reach().PortOnly(),
 		"Saved":       r.URL.Query().Get("saved") != "",
+		"Msg":         r.URL.Query().Get("msg"),
+		"HTTPSPort":   s.httpsPort,
 		"JustStarted": r.URL.Query().Get("deploying") != "",
 		"Rotated":     r.URL.Query().Get("rotated") != "",
 		"Uploaded":    r.URL.Query().Get("uploaded") != "",

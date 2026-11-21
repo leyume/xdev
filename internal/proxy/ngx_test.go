@@ -23,7 +23,8 @@ func TestNgxRender(t *testing.T) {
 		{Host: "plain.example.com", Upstream: "http://10.0.0.5:8080/x"},
 		{Host: "rz.example.com", Upstream: "https://203.0.113.9:7443/app", Insecure: true}, // self-signed origin
 		{Host: "bad.test", Root: "/srv/my site", Internal: true},                           // space: ngx can't express it
-	})
+		{Host: "bad.test", Paths: []string{"/_xdev/push"}, Upstream: "127.0.0.1:7331"},     // its host was left out: so is this
+	}, false)
 	// SITES as whole entries, so "a=x" can't pass by matching the start of "a=x/y"
 	_, sites, _ := strings.Cut(got, "SITES='")
 	sites, _, _ = strings.Cut(sites, "'")
@@ -44,6 +45,8 @@ func TestNgxRender(t *testing.T) {
 		"mail.example.com/webmail/*=https+insecure://host.docker.internal:8443",
 		"plain.example.com/x/*=http://10.0.0.5:8080",
 		"rz.example.com/app/*=https+insecure://203.0.113.9:7443", // unverified like its app
+		// the bare prefix too, or /webmail would become /webmail/webmail
+		"mail.example.com/webmail=https+insecure://host.docker.internal:8443",
 	} {
 		if !entries[want] {
 			t.Errorf("SITES has no entry %q:\n%s", want, sites)
@@ -60,8 +63,39 @@ func TestNgxRender(t *testing.T) {
 		}
 	}
 	n.httpsPort, n.disableHTTPSRedirect = 8443, true
-	if got := n.render(nil); !strings.Contains(got, "HTTPS_PORT='8443'") || !strings.Contains(got, "HTTPS_REDIRECT='off'") {
+	if got := n.render(nil, false); !strings.Contains(got, "HTTPS_PORT='8443'") || !strings.Contains(got, "HTTPS_REDIRECT='off'") {
 		t.Errorf("ports not rendered:\n%s", got)
+	}
+}
+
+// An ngx that decodes %-encoded roots gets the ones with spaces; one that
+// doesn't never sees a % at all. No email leaves ngx's own in force.
+func TestNgxRenderPct(t *testing.T) {
+	n := &Ngx{httpsPort: 443, upstreamHost: "127.0.0.1"}
+	routes := []Route{
+		{Host: "s.test", Root: "/Users/x/Library/Application Support/xdev/site", Internal: true},
+		{Host: "wp.test", Root: "/srv/my wp", FCGIPort: 9001, Internal: true},
+		{Host: "p.test", Root: "/srv/100%"},
+	}
+	got := n.render(routes, true)
+	for _, want := range []string{"s.test=/Users/x/Library/Application%20Support/xdev/site",
+		"wp.test=fastcgi://127.0.0.1:9001/srv/my%20wp", "p.test=/srv/100%25"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "ACME_EMAIL") {
+		t.Errorf("empty ACME_EMAIL written:\n%s", got)
+	}
+	if got := n.render(routes, false); strings.Contains(got, "%") {
+		t.Errorf("%% sent to an ngx without pct:\n%s", got)
+	}
+
+	dir := t.TempDir()
+	env := filepath.Join(dir, "ngx.env")
+	os.WriteFile(ngxStatusPath(env), []byte("abc ok\nsome warning\nfeatures: pct\n"), 0o644)
+	if !ngxFeature(env, "pct") || ngxFeature(env, "nope") {
+		t.Error("ngxFeature misread the features line")
 	}
 }
 

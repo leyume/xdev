@@ -11,14 +11,17 @@
      Never set RAIL_DOMAIN here, not even empty: rail treats a present
      RAIL_DOMAIN as "do your own HTTPS on 443". The proxy does HTTPS.
      State (sessions, settings, contacts, cache, secret.key) lives in
-     ./rail-data, which stays when Rail is switched off. */}}
+     ./rail-data, which stays when Rail is switched off; xdev creates it for
+     Rail's user (65534) before the container starts.
+
+     Its ports bind to PublishIP (loopback unless the proxy runs on a container
+     network): RAIL_TRUST_PROXY makes Rail believe X-Forwarded-For, which only
+     the proxy may set — ngx replaces whatever the client sent. */}}
 {{define "rail_service"}}
   rail:
     image: docker.io/leyume/rail:latest
     container_name: {{.ProjectSlug}}_{{.AppSlug}}_rail
     restart: unless-stopped
-    depends_on:
-      - mail
     environment:
       RAIL_LISTEN: 0.0.0.0:8080
       RAIL_DATA: /data
@@ -39,10 +42,10 @@
     volumes:
       - ./rail-data:/data
     ports:
-      - "{{.RailPort}}:8080"
+      - "{{with .PublishIP}}{{.}}:{{end}}{{.RailPort}}:8080"
 {{- if .RailOnAppPort}}
       # SnappyMail is off: Rail also serves the app's own domain.
-      - "{{.HostPort}}:8080"
+      - "{{with .PublishIP}}{{.}}:{{end}}{{.HostPort}}:8080"
 {{- end}}
     networks:
       - internal

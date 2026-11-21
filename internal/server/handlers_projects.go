@@ -76,6 +76,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	// country domain) and they all serve the same thing. a.Domain is the first of
 	// them and is already shown as the app's address, so only the rest go here.
 	extraHosts := map[int64][]string{}
+	railDomains := map[int64]string{}
 	for _, a := range apps {
 		if hs, err := s.store.AppHostnames(a.ID); err == nil && len(hs) > 1 {
 			extraHosts[a.ID] = hs[1:]
@@ -90,6 +91,12 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		if h := s.store.AppServiceDomain(a.ID); h != "" {
 			adminerDomains[a.ID] = h
+		}
+		// A mail app's rows after the console are its Rail webmail.
+		if a.Type == "mail" {
+			if list, err := s.store.AppServiceDomains(a.ID); err == nil && len(list) > 1 {
+				railDomains[a.ID] = list[1].Host
+			}
 		}
 	}
 	// Local domains that aren't *.localhost need a hosts-file entry to resolve;
@@ -108,6 +115,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				addCandidate(h)
 			}
 			addCandidate(adminerDomains[a.ID])
+			addCandidate(railDomains[a.ID])
 			for _, d := range serviceDomains[a.ID] {
 				addCandidate(d.Host)
 			}
@@ -143,6 +151,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		"AppsRunning":    running,
 		"Activity":       activity,
 		"AdminerDomains": adminerDomains,
+		"RailDomains":    railDomains,
 		"ServiceDomains": serviceDomains,
 		"ExtraHosts":     extraHosts,
 		"Catalog":        templates.Catalog(),

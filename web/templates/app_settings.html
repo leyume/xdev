@@ -21,6 +21,7 @@
 
 {{if .Error}}<div class="alert form-error">{{.Error}}</div>{{end}}
 {{if .Saved}}<div class="alert ok">Saved{{if eq $app.Status "running"}} and restarted{{end}}.</div>{{end}}
+{{if .Msg}}<div class="alert ok">{{.Msg}}</div>{{end}}
 {{if .Cleared}}<div class="alert ok">Cleared {{.Cleared}} deploy log(s).</div>{{end}}
 {{if .Uploaded}}<div class="alert ok">Uploaded build published — the site now serves the new files.</div>{{end}}
 {{if .JustStarted}}<div class="alert ok">Deploy started — it runs in the background; watch it in <strong>Deploys</strong> on the right.</div>{{end}}
@@ -45,7 +46,7 @@
 {{with .Deploy}}{{if .NewToken}}{{$tab = "source"}}{{end}}{{end}}
 {{if .ActionResult}}{{$tab = "console"}}{{end}}
 {{if eq .Tab "services"}}{{$tab = "services"}}{{end}}
-{{if or .Error .Saved .JustStarted (ne $tab "app")}}{{$restore = false}}{{end}}
+{{if or .Saved .Msg .JustStarted (ne $tab "app")}}{{$restore = false}}{{end}}
 <div class="grid-main">
 <div class="main-col" x-data="settingsTabs('{{$tab}}', {{$restore}}, {{$app.ID}})">
 
@@ -500,7 +501,7 @@ jobs:
         <div class="wm-title">SnappyMail
           {{if .Snappy}}<span class="wm-state on">On</span>{{else}}<span class="wm-state">Off</span>{{end}}</div>
         {{if .Snappy}}
-        <a class="wm-host" href="https://{{$app.Domain}}" target="_blank" rel="noopener">{{$app.Domain}}<span aria-hidden="true"> ↗</span></a>
+        <a class="wm-host" href="https://{{$app.Domain}}{{with $.HTTPSPort}}{{if ne . 443}}:{{.}}{{end}}{{end}}" target="_blank" rel="noopener">{{$app.Domain}}<span aria-hidden="true"> ↗</span></a>
         <details class="wm-more">
           <summary>Change hostname</summary>
           <form class="wm-inline" method="post" action="/apps/{{$app.ID}}/webmail/hosts">
@@ -518,22 +519,22 @@ jobs:
             {{if .Snappy}}data-confirm="Turn off SnappyMail? {{$app.Domain}} switches to Rail; SnappyMail's settings are kept."{{end}}>
         <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
         {{if .Snappy}}
-        <button type="submit" {{if not .RailPort}}disabled title="Turn Rail on first, so {{$app.Domain}} keeps a webmail"{{end}}>Turn off</button>
+        <button type="submit" {{if not .Rail}}disabled title="Turn Rail on first, so {{$app.Domain}} keeps a webmail"{{end}}>Turn off</button>
         {{else}}
         <input type="hidden" name="enable" value="1"><button type="submit">Turn on</button>
         {{end}}
       </form>
     </li>
 
-    <li class="wm-row{{if not .RailPort}} is-off{{end}}">
+    <li class="wm-row{{if not .Rail}} is-off{{end}}">
       <span class="wm-mark rail" aria-hidden="true">R</span>
       <div class="wm-body">
         <div class="wm-title">Rail
-          {{if .RailPort}}<span class="wm-state on">On</span>{{else}}<span class="wm-state">Off</span>{{end}}
-          {{if and .RailPort (not .Snappy)}}<span class="tag">also {{$app.Domain}}</span>{{end}}</div>
-        {{if .RailPort}}
-          {{if .RailHost}}<a class="wm-host" href="https://{{.RailHost}}" target="_blank" rel="noopener">{{.RailHost}}<span aria-hidden="true"> ↗</span></a>{{end}}
-          <span class="wm-port">port {{.RailPort}}</span>
+          {{if .Rail}}<span class="wm-state on">On</span>{{else}}<span class="wm-state">Off</span>{{end}}
+          {{if and .Rail (not .Snappy)}}<span class="tag">also {{$app.Domain}}</span>{{end}}</div>
+        {{if .Rail}}
+          {{if .RailHost}}<a class="wm-host" href="https://{{.RailHost}}{{with $.HTTPSPort}}{{if ne . 443}}:{{.}}{{end}}{{end}}" target="_blank" rel="noopener">{{.RailHost}}<span aria-hidden="true"> ↗</span></a>{{end}}
+          {{if gt .RailPort 0}}<span class="wm-port">port {{.RailPort}}</span>{{end}}
           <details class="wm-more">
             <summary>Change hostname</summary>
             <form class="wm-inline" method="post" action="/apps/{{$app.ID}}/rail">
@@ -553,7 +554,7 @@ jobs:
           </form>
         {{end}}
       </div>
-      {{if .RailPort}}
+      {{if .Rail}}
       <div class="wm-actions">
         <form method="post" action="/apps/{{$app.ID}}/rail/update">
           <input type="hidden" name="csrf_token" value="{{$.CSRF}}">

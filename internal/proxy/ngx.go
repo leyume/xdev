@@ -57,7 +57,7 @@ func (n *Ngx) Reachable() bool {
 
 // Sync writes the routes to ngx.env and waits for ngx to apply them.
 func (n *Ngx) Sync(routes []Route) error {
-	body := n.render(routes)
+	body := n.render(routes, ngxFeature(n.envPath, "pct"))
 	sum := sha256.Sum256([]byte(body))
 	want := hex.EncodeToString(sum[:])
 	if cur, err := os.ReadFile(n.envPath); err != nil || string(cur) != body {
@@ -92,57 +92,98 @@ func (n *Ngx) status(want string) (string, bool) {
 }
 
 // siteEntryRE is what ngx accepts for one SITES entry (kept in step with its
-// 40-sites.sh). A route that doesn't fit, such as a root path with a space in
-// it, is left out rather than failing the whole config for every other site.
-var siteEntryRE = regexp.MustCompile(`^[A-Za-z0-9.,*-]+(/[A-Za-z0-9._~/-]*\*?)?=[A-Za-z0-9._:/+~-]+$`)
+// 40-sites.sh). A route that doesn't fit is left out rather than failing the
+// whole config for every other site. An ngx with the "pct" feature also takes
+// %-encoded root paths, which is how a root with a space in it gets through.
+var siteEntryRE = regexp.MustCompile(`^[A-Za-z0-9.,*-]+(/[A-Za-z0-9._~/-]*\*?)?=[A-Za-z0-9._:/+~%-]+$`)
 
-// render builds ngx.env for routes.
-func (n *Ngx) render(routes []Route) string {
-	hosts := map[string]bool{}
-	for _, r := range routes {
-		if len(r.Paths) == 0 {
-			hosts[r.Host] = true
+// ngxFeature reports whether the ngx answering in envPath's directory
+// announced feature on its status file's "features:" line.
+func ngxFeature(envPath, feature string) bool {
+	data, _ := os.ReadFile(ngxStatusPath(envPath))
+	for _, line := range strings.Split(string(data), "\n") {
+		if list, ok := strings.CutPrefix(line, "features:"); ok {
+			for _, f := range strings.Fields(list) {
+				if f == feature {
+					return true
+				}
+			}
 		}
+	}
+	return false
+}
+
+// pctPath %-encodes every byte of a filesystem path that SITES can't carry.
+func pctPath(p string) string {
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		if c < 0x80 && (c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte("._:/+~-", c) >= 0) {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
+}
+
+// render builds ngx.env for routes; pct = ngx decodes %-encoded root paths.
+func (n *Ngx) render(routes []Route, pct bool) string {
+	root := func(p string) string {
+		if pct {
+			return pctPath(p)
+		}
+		return p
 	}
 	var sites, internal []string
 	add := func(entry string) bool {
-		if !siteEntryRE.MatchString(entry) {
+		if !siteEntryRE.MatchString(entry) || (!pct && strings.Contains(entry, "%")) {
 			log.Printf("ngx: skipping route %q: ngx can't express it", entry)
 			return false
 		}
 		sites = append(sites, entry)
 		return true
 	}
-	for _, r := range routes {
-		var target string
+	target := func(r Route) string {
 		switch {
 		case r.Root != "" && r.FCGIPort > 0:
 			// fpm opens the same path, so this root is not host-prefixed (see phpSiteSubroute)
-			target = fmt.Sprintf("fastcgi://%s%s", net.JoinHostPort(n.upstreamHost, fmt.Sprint(r.FCGIPort)), r.Root)
+			return fmt.Sprintf("fastcgi://%s%s", net.JoinHostPort(n.upstreamHost, fmt.Sprint(r.FCGIPort)), root(r.Root))
 		case r.Root != "":
-			target = hostPathWith(n.rootPrefix, r.Root)
+			return root(hostPathWith(n.rootPrefix, r.Root))
 		default:
-			target = ngxUpstream(r.Upstream, n.upstreamHost, r.Insecure)
+			return ngxUpstream(r.Upstream, n.upstreamHost, r.Insecure)
 		}
-		if len(r.Paths) > 0 {
-			// ngx puts a path into the server block of the host's own entry; a host
-			// without one would fail the whole config, so its paths wait for it.
-			if !hosts[r.Host] {
-				continue
-			}
-			for _, p := range r.Paths {
-				add(r.Host + p + "=" + target)
-			}
+	}
+	// Each host's own entry first: ngx puts a path into the server block of the
+	// host's entry, so a path whose host was left out would fail the whole
+	// config — those wait for their host.
+	hosts := map[string]bool{}
+	for _, r := range routes {
+		if len(r.Paths) > 0 || !add(r.Host+"="+target(r)) {
 			continue
 		}
-		if add(r.Host+"="+target) && r.Internal {
+		hosts[r.Host] = true
+		if r.Internal {
 			internal = append(internal, r.Host)
 		}
 		// A proxy app at https://origin/webmail serves pages that link to /webmail/... themselves.
 		// Prefixing those again would ask the origin for /webmail/webmail/..., so a request already
-		// under the prefix goes through as it is; everything else still gets the prefix.
+		// under the prefix (or for the prefix itself) goes through as it is; everything else still
+		// gets the prefix.
 		if base, prefix := splitUpstreamPrefix(r.Upstream); prefix != "" {
-			add(r.Host + prefix + "/*=" + ngxUpstream(base, n.upstreamHost, r.Insecure))
+			up := ngxUpstream(base, n.upstreamHost, r.Insecure)
+			add(r.Host + prefix + "=" + up)
+			add(r.Host + prefix + "/*=" + up)
+		}
+	}
+	for _, r := range routes {
+		if len(r.Paths) == 0 || !hosts[r.Host] {
+			continue
+		}
+		t := target(r)
+		for _, p := range r.Paths {
+			add(r.Host + p + "=" + t)
 		}
 	}
 
@@ -151,7 +192,9 @@ func (n *Ngx) render(routes []Route) string {
 	kv := func(k, v string) { fmt.Fprintf(&b, "%s=%s\n", k, shellQuote(v)) }
 	kv("SITES", strings.Join(sites, " "))
 	kv("TLS_INTERNAL", strings.Join(internal, " "))
-	kv("ACME_EMAIL", n.acmeEmail)
+	if n.acmeEmail != "" { // unset leaves ngx's own (container env) value in force
+		kv("ACME_EMAIL", n.acmeEmail)
+	}
 	if n.httpsPort != 443 && n.httpsPort != 0 {
 		kv("HTTPS_PORT", fmt.Sprint(n.httpsPort))
 	}

@@ -166,7 +166,7 @@ func TestSetSnappyMail(t *testing.T) {
 	if _, err := svc.SetRail(app.ID, true, ""); err != nil {
 		t.Fatal(err)
 	}
-	appPort := `"` + strconv.Itoa(app.Port) + `:8080"`
+	appPort := `"127.0.0.1:` + strconv.Itoa(app.Port) + `:8080"`
 
 	if err := svc.SetSnappyMail(app.ID, false); err != nil {
 		t.Fatal(err)
