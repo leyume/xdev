@@ -15,6 +15,10 @@ func tmplFuncs() template.FuncMap {
 	return template.FuncMap{
 		// mib converts a byte count to whole mebibytes.
 		"mib": func(b int64) int64 { return b / 1024 / 1024 },
+		// cores turns a per-container CPU percent (100 = one core) into cores.
+		"cores": func(pct float64) string { return strconv.FormatFloat(pct/100, 'f', 2, 64) },
+		// f2 formats a float with two decimal places.
+		"f2": func(f float64) string { return strconv.FormatFloat(f, 'f', 2, 64) },
 		// f1 formats a float with one decimal place.
 		"f1": func(f float64) string { return strconv.FormatFloat(f, 'f', 1, 64) },
 		// gib formats a byte count as gibibytes with one decimal.

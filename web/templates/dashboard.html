@@ -47,7 +47,7 @@
   <div class="chart-head">
     <div>
       <h2>Host utilization</h2>
-      <div class="muted small">CPU &amp; memory · {{.Host.Hostname}}</div>
+      <div class="muted small">CPU{{if .Host.Cores}} (% of {{.Host.Cores}} cores){{end}} &amp; memory · {{.Host.Hostname}}</div>
     </div>
     <span class="spacer"></span>
     <span class="legend-dot cpu"></span><span class="muted small">CPU</span>
@@ -85,7 +85,7 @@
          without any of this script knowing. */}}
     <table class="table apps-table" :data-filter="filter">
       <thead>
-        <tr><th>App</th><th class="num">CPU</th><th class="num">Memory</th><th class="act"><span class="sr-only">Actions</span></th></tr>
+        <tr><th>App</th><th class="num" title="Cores in use (1.00 = one full core)">CPU (cores)</th><th class="num">Memory</th><th class="act"><span class="sr-only">Actions</span></th></tr>
       </thead>
       {{$proj := ""}}
       {{range .Apps}}
@@ -101,7 +101,7 @@
               <span class="type-chip">{{.Type}}</span>
             </div>
           </td>
-          <td class="num"><span id="cpu-{{.ID}}">{{if .HasMetrics}}{{f1 .CPUPct}}%{{else}}<span class="nil">—</span>{{end}}</span></td>
+          <td class="num"><span id="cpu-{{.ID}}">{{if .HasMetrics}}{{cores .CPUPct}}{{else}}<span class="nil">—</span>{{end}}</span></td>
           <td class="num"><span id="mem-{{.ID}}">{{if .HasMetrics}}{{.MemMiB}} MiB{{else}}<span class="nil">—</span>{{end}}</span></td>
           <td class="act">
             <form class="inline act-start" method="post" action="/apps/{{.ID}}/start">
@@ -197,7 +197,7 @@ function appsRealtime() {
         const r = await fetch('/apps/metrics.json', { credentials: 'same-origin' });
         for (const m of await r.json()) {
           const c = document.getElementById('cpu-' + m.id), me = document.getElementById('mem-' + m.id);
-          if (c) c.textContent = m.has ? m.cpu.toFixed(1) + '%' : '—';
+          if (c) c.textContent = m.has ? (m.cpu / 100).toFixed(2) : '—';
           if (me) me.textContent = m.has ? m.mem + ' MiB' : '—';
         }
       } catch (e) { /* transient; next tick retries */ }

@@ -444,6 +444,13 @@ code {
   transition: width 0.4s ease;
 }
 .bar.warn > span { background: var(--warn); }
+/* Host bars: apps (bright) then everything else (dim), side by side. */
+.bar.stacked { display: flex; }
+.bar.stacked > span { border-radius: 0; }
+.bar.stacked > .seg-other { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+.host-apps { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: var(--text); }
+.dot-apps, .dot-other { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+.dot-other { margin-left: 10px; background: color-mix(in srgb, var(--accent) 35%, transparent); }
 
 /* Two-column form row */
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }

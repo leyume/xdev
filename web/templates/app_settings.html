@@ -597,7 +597,7 @@ jobs:
       <h3 style="margin:0">Metrics</h3>
       <span class="muted small">last 3 hours · a sample every 10s</span>
     </div>
-    <div class="ops-chart-label">CPU (%)</div>
+    <div class="ops-chart-label">CPU (cores)</div>
     <div class="ops-chart" x-ref="cpuChart"></div>
     <div class="ops-chart-label">Memory (MiB)</div>
     <div class="ops-chart" x-ref="memChart"></div>
@@ -1132,12 +1132,13 @@ function settingsTabs(initial, restore, appID) {
         if (!charts) cpuEl.innerHTML = '<p class="muted small">No samples yet — they appear once the app has run for a minute.</p>';
         return;
       }
-      if (charts) { charts.cpu.setData([d.t, d.cpu]); charts.mem.setData([d.t, d.mem]); return; }
+      const cores = d.cpu.map(v => v / 100); // samples are per-container %, 100 = one core
+      if (charts) { charts.cpu.setData([d.t, cores]); charts.mem.setData([d.t, d.mem]); return; }
       cpuEl.innerHTML = '';
       const w = cpuEl.clientWidth || 640;
       // Held outside Alpine's reactive state: uPlot instances must not be proxied.
       charts = {
-        cpu: new uPlot(chartOpts('CPU %', '#b48cff', w), [d.t, d.cpu], cpuEl),
+        cpu: new uPlot(chartOpts('cores', '#b48cff', w), [d.t, cores], cpuEl),
         mem: new uPlot(chartOpts('MiB', '#8ce8b8', w), [d.t, d.mem], memEl),
       };
       // Stay end to end when the page changes width.
