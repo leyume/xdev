@@ -25,7 +25,7 @@ func (s *Server) handleAppLogsPartial(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	logs, err := s.apps.Logs(app.ID, 300)
+	logs, err := s.apps.Logs(app.ID, logLines)
 	if err != nil {
 		logs = "could not read logs: " + err.Error()
 	}

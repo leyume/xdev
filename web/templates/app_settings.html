@@ -608,7 +608,7 @@ jobs:
   <section class="card form-card">
     <div class="title-row">
       <h3 style="margin:0">Logs</h3>
-      <span class="muted small">last 300 lines</span>
+      <span class="muted small">last 100 lines</span>
       <span class="spacer"></span>
       <button type="button" class="iconbtn tip" data-tip="Refresh" aria-label="Refresh"
               @click="loadLogs()">{{template "icon_refresh" .}}</button>
@@ -887,11 +887,7 @@ jobs:
 </form>
 </div><!-- /form tabs -->
 
-<p class="muted small other-places">Other places this app is configured:
-  <a href="/apps/{{$app.ID}}/env">environment</a> ·
-  <a href="/apps/{{$app.ID}}/backups">backups</a> ·
-  <a href="/apps/{{$app.ID}}/logs">logs</a>.
-  Changing this app's <strong>type</strong> isn't possible — create a new app and import a backup into it.</p>
+<p class="muted small other-places">Changing this app's <strong>type</strong> isn't possible — create a new app and import a backup into it{{if .Ops}} (the <a href="?tab=backups" @click.prevent="tab='backups'">Backups</a> tab){{end}}.</p>
 
 </div><!-- /main-col -->
 

@@ -171,21 +171,20 @@
       </div>
 
       <div class="app-card-body" :class="{open: !collapsed}"><div class="app-card-body-inner">
-      {{/* What this app is reachable at: a label column and a value column, one
-           fact per row and one hostname per line, so a card with five
-           hostnames reads as a list instead of a wrapped run of links. */}}
-      <div class="app-card-meta">
+      {{/* Where the app answers, as a row of tiles that share the card's width —
+           one per role (the app itself, or for mail its admin console and each
+           webmail that is on), every hostname on its own line — and below them
+           the quieter facts: port, repository, database, limits. */}}
+      <div class="app-card-links">
         {{if eq .Type "mail"}}
-        {{/* Mail: the admin console first, then each webmail that is on, with the
-             hostnames it answers on. */}}
         {{range index $.MailRows .ID}}
-        <div class="meta">
+        <div class="meta link-tile">
           <span class="meta-k">{{.Label}}</span>
           <span class="meta-v">{{range .Hosts}}{{template "host_link" dict "Host" . "Proxy" $.ProxyEnabled "Port" $.HTTPSPort}}{{end}}</span>
         </div>
         {{end}}
         {{else}}
-        <div class="meta">
+        <div class="meta link-tile">
           <span class="meta-k">Address</span>
           <span class="meta-v">
             {{/* An app with no hostname is not unfinished — on an install with
@@ -203,35 +202,26 @@
           </span>
         </div>
         {{with index $.AdminerDomains .ID}}
-        <div class="meta">
+        <div class="meta link-tile">
           <span class="meta-k">rql</span>
           <span class="meta-v">{{template "host_link" dict "Host" . "Proxy" $.ProxyEnabled "Port" $.HTTPSPort}}</span>
         </div>
         {{end}}
         {{/* Compose apps route one hostname per published port; list them all. */}}
         {{range index $.ServiceDomains .ID}}
-        <div class="meta">
+        <div class="meta link-tile">
           <span class="meta-k">Port {{.Port}}</span>
           <span class="meta-v">{{template "host_link" dict "Host" .Host "Proxy" $.ProxyEnabled "Port" $.HTTPSPort}}</span>
         </div>
         {{end}}
         {{end}}
+      </div>
+
+      <div class="app-card-facts">
         {{if .Upstream}}
         <div class="meta">
           <span class="meta-k">Forwards to</span>
           <span class="meta-v">{{.Upstream}}</span>
-        </div>
-        {{end}}
-        {{if .IsGit}}
-        <div class="meta">
-          <span class="meta-k">Repository</span>
-          <span class="meta-v"><span>{{.GitURL}}{{if .DeployedSHA}} @ <code>{{slice .DeployedSHA 0 7}}</code>{{end}}</span></span>
-        </div>
-        {{end}}
-        {{if or (eq .DBMode "shared") (eq .WPMode "shared")}}
-        <div class="meta">
-          <span class="meta-k">Database</span>
-          <span class="meta-v"><a href="/database" title="Manage the shared database &amp; rql">Shared xdev MariaDB ↗</a></span>
         </div>
         {{end}}
         {{if .Port}}
@@ -242,6 +232,18 @@
                ssh tunnel, which is not the same person opening the link. */}}
           {{$port := index $.PortURLs .ID}}
           <span class="meta-v"><a href="{{$port}}" target="_blank" rel="noopener">{{trimPrefix $port "http://"}}</a></span>
+        </div>
+        {{end}}
+        {{if .IsGit}}
+        <div class="meta">
+          <span class="meta-k">Repository</span>
+          <span class="meta-v"><span>{{trimPrefix .GitURL "https://github.com/"}}{{if .DeployedSHA}} <code>{{slice .DeployedSHA 0 7}}</code>{{end}}</span></span>
+        </div>
+        {{end}}
+        {{if or (eq .DBMode "shared") (eq .WPMode "shared")}}
+        <div class="meta">
+          <span class="meta-k">Database</span>
+          <span class="meta-v"><a href="/database" title="Manage the shared database &amp; rql">Shared MariaDB</a></span>
         </div>
         {{end}}
         {{if or .CPULimit .MemLimit}}
@@ -1287,4 +1289,4 @@ function detectComposePorts(text, maxSlots) {
 {{/* host_link — one hostname as an https link through the proxy (with the
      HTTPS port when it isn't 443), or as plain text when there is no proxy.
      Args: dict "Host" h "Proxy" bool "Port" int. */}}
-{{define "host_link"}}{{if .Proxy}}<a href="https://{{.Host}}{{if and .Port (ne .Port 443)}}:{{.Port}}{{end}}" target="_blank" rel="noopener">{{.Host}}</a>{{else}}<span>{{.Host}}</span>{{end}}{{end}}
+{{define "host_link"}}{{if .Proxy}}<a class="host-link" href="https://{{.Host}}{{if and .Port (ne .Port 443)}}:{{.Port}}{{end}}" target="_blank" rel="noopener">{{.Host}}<span class="host-arrow" aria-hidden="true">↗</span></a>{{else}}<span class="host-link">{{.Host}}</span>{{end}}{{end}}

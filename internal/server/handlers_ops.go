@@ -126,18 +126,23 @@ func opsFail(w http.ResponseWriter, r *http.Request, target string, err error) {
 	http.Redirect(w, r, withQuery(target, "error", firstLine(err.Error())), http.StatusSeeOther)
 }
 
+// logLines is how much of an app's log the logs page, its settings tab and
+// its project card show: the tail, newest last.
+const logLines = 100
+
 // handleAppLogs shows the tail of an app's container logs.
 func (s *Server) handleAppLogs(w http.ResponseWriter, r *http.Request) {
 	app, proj, ok := s.appAndProject(w, r)
 	if !ok {
 		return
 	}
-	logs, err := s.apps.Logs(app.ID, 300)
+	logs, err := s.apps.Logs(app.ID, logLines)
 	if err != nil {
 		logs = "could not read logs: " + err.Error()
 	}
 	s.render(w, r, "app_logs", viewData{
 		"Title": app.Name + " logs · xdev", "App": app, "Project": proj, "Logs": logs,
+		"LogLines": logLines,
 		"CanClear": apps.CanClearLogs(app),
 		"Cleared":  r.URL.Query().Get("cleared") != "",
 		"Error":    r.URL.Query().Get("error"),
