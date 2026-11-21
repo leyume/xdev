@@ -84,6 +84,7 @@ type Activity struct {
 	TS, Level, Message                string
 	ProjectID, AppID                  int64
 	ProjectName, ProjectSlug, AppName string
+	AppSlug                           string // for the project page's ?app= link
 }
 
 // SystemProject selects events that belong to no project (the shared
@@ -112,7 +113,7 @@ func (s *Store) ActivityPage(projectID, appID int64, limit, offset int) ([]Activ
 	}
 	rows, err := s.db.Query(`SELECT e.ts, COALESCE(e.level,''), e.message,
 			COALESCE(e.project_id,0), COALESCE(e.app_id,0),
-			COALESCE(p.name,''), COALESCE(p.slug,''), COALESCE(a.name,'')
+			COALESCE(p.name,''), COALESCE(p.slug,''), COALESCE(a.name,''), COALESCE(a.slug,'')
 		FROM events e
 		LEFT JOIN projects p ON p.id = e.project_id
 		LEFT JOIN apps a ON a.id = e.app_id
@@ -125,7 +126,7 @@ func (s *Store) ActivityPage(projectID, appID int64, limit, offset int) ([]Activ
 	for rows.Next() {
 		var a Activity
 		if err := rows.Scan(&a.TS, &a.Level, &a.Message, &a.ProjectID, &a.AppID,
-			&a.ProjectName, &a.ProjectSlug, &a.AppName); err != nil {
+			&a.ProjectName, &a.ProjectSlug, &a.AppName, &a.AppSlug); err != nil {
 			return nil, 0, err
 		}
 		out = append(out, a)

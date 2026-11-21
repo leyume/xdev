@@ -361,6 +361,7 @@ type SharedDBDetail struct {
 	Container   string
 	ProjectSlug string
 	AppID       int64
+	AppSlug     string
 	Env         []DBEnvVar // the container's MARIADB_*/MYSQL_* settings
 }
 
@@ -416,6 +417,7 @@ type DedicatedDB struct {
 	ProjectSlug string
 	AppID       int64
 	AppName     string
+	AppSlug     string
 	Container   string // <project>_<app>_db (matches the compose container_name)
 	DBName      string // "laravel" | "wordpress" (the schema inside the container)
 	Running     bool   // follows the app's status (same compose lifecycle)
@@ -441,7 +443,7 @@ func (s *Service) DedicatedDatabases() []DedicatedDB {
 				continue
 			}
 			out = append(out, DedicatedDB{
-				ProjectName: p.Name, ProjectSlug: p.Slug, AppID: a.ID, AppName: a.Name,
+				ProjectName: p.Name, ProjectSlug: p.Slug, AppID: a.ID, AppName: a.Name, AppSlug: a.Slug,
 				Container: p.Slug + "_" + a.Slug + "_db",
 				DBName:    dedicatedDBName(a), Running: a.Status == "running",
 			})

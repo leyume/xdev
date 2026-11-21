@@ -12,7 +12,7 @@
     </div>
   </div>
   <div class="head-acts">
-    {{if $d.Dedicated}}<a class="btn" href="/projects/{{$d.ProjectSlug}}#app-{{$d.AppID}}">Open app</a>{{end}}
+    {{if $d.Dedicated}}<a class="btn" href="/projects/{{$d.ProjectSlug}}?app={{$d.AppSlug}}">Open app</a>{{end}}
     {{with .AdminerURL}}<a class="btn primary" href="{{.}}" target="_blank">Open in rql ↗</a>{{end}}
     {{if not $d.Dedicated}}
     <button class="iconbtn danger tip" type="button" data-tip="Drop database" aria-label="Drop database {{$d.Name}}" @click="typed = ''; drop = true">{{template "icon_trash" $}}</button>

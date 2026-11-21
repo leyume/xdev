@@ -1198,10 +1198,19 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
    host port, its repository, its limits. As a single dot-separated line these
    were the same size and colour as each other, so telling a domain from an
    upstream from a port meant reading all of them. */
-.app-card-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px 24px; font-size: 13px; margin: 14px 0 4px; }
-.meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.meta-k { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
-.meta-v { overflow-wrap: anywhere; }
+/* Card details: a label column and a value column. Each .meta is a row whose
+   two cells sit in the card's grid (display: contents), so every label lines
+   up whatever its length; several hostnames stack one per line. */
+.app-card-meta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 9px 22px;
+  font-size: 13px; margin: 16px 0 10px; padding: 12px 14px; align-items: baseline;
+  border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--muted) 4%, transparent); }
+.meta { display: contents; }
+.meta-k { font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.meta-v { display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; line-height: 1.45; }
+@media (max-width: 520px) {
+  .app-card-meta { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .meta-v { margin-bottom: 8px; }
+}
 .app-card-meta a { color: var(--accent); text-decoration: none; }
 .app-card-meta a:hover { text-decoration: underline; }
 
@@ -1215,6 +1224,15 @@ details[open] > summary > .chevron { transform: rotate(0deg); }
 .page-tabs button { background: none; border: none; box-shadow: none; border-radius: 0; padding: 10px 14px; margin-bottom: -1px; font-size: 13.5px; font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; }
 .page-tabs button:hover { color: var(--text); background: none; }
 .page-tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+/* Between the configuration tabs and the ones about what the app is doing. */
+.page-tabs-sep { flex: none; width: 1px; margin: 9px 6px; background: var(--border); }
+.ops-chart-label { font-size: 12px; color: var(--muted); margin: 14px 0 4px; }
+.ops-chart { min-height: 60px; overflow: hidden; }
+.ops-logs pre.logs { max-height: 60vh; overflow: auto; margin: 10px 0 0; }
+.ops-backups { list-style: none; margin: 10px 0 0; padding: 0; }
+.ops-backups li { display: flex; align-items: center; gap: 12px; justify-content: space-between;
+  padding: 8px 0; border-top: 1px solid var(--border-soft); font-size: 13px; overflow-wrap: anywhere; }
+.ops-backups li:first-child { border-top: none; }
 .other-places { margin-top: 20px; }
 .tab-panel a { color: var(--accent); text-decoration: none; }
 .tab-panel a:hover { text-decoration: underline; }

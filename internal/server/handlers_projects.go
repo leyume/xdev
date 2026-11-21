@@ -76,7 +76,10 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	// country domain) and they all serve the same thing. a.Domain is the first of
 	// them and is already shown as the app's address, so only the rest go here.
 	extraHosts := map[int64][]string{}
-	railDomains := map[int64]string{}
+	// A mail app's card lists its hostnames by what answers there: the admin
+	// console first, then each webmail that is on (see mailHostRows).
+	mailRows := map[int64][]hostRow{}
+	railHosts := map[int64]string{}
 	for _, a := range apps {
 		if hs, err := s.store.AppHostnames(a.ID); err == nil && len(hs) > 1 {
 			extraHosts[a.ID] = hs[1:]
@@ -92,11 +95,15 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		if h := s.store.AppServiceDomain(a.ID); h != "" {
 			adminerDomains[a.ID] = h
 		}
-		// A mail app's rows after the console are its Rail webmail.
 		if a.Type == "mail" {
-			if list, err := s.store.AppServiceDomains(a.ID); err == nil && len(list) > 1 {
-				railDomains[a.ID] = list[1].Host
+			w := s.apps.WebmailState(a)
+			own := []string{}
+			if a.Domain != "" {
+				own = append(own, a.Domain)
 			}
+			own = append(own, extraHosts[a.ID]...)
+			mailRows[a.ID] = mailHostRows(adminerDomains[a.ID], own, w)
+			railHosts[a.ID] = w.RailHost
 		}
 	}
 	// Local domains that aren't *.localhost need a hosts-file entry to resolve;
@@ -115,7 +122,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				addCandidate(h)
 			}
 			addCandidate(adminerDomains[a.ID])
-			addCandidate(railDomains[a.ID])
+			addCandidate(railHosts[a.ID])
 			for _, d := range serviceDomains[a.ID] {
 				addCandidate(d.Host)
 			}
@@ -151,7 +158,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		"AppsRunning":    running,
 		"Activity":       activity,
 		"AdminerDomains": adminerDomains,
-		"RailDomains":    railDomains,
+		"MailRows":       mailRows,
 		"ServiceDomains": serviceDomains,
 		"ExtraHosts":     extraHosts,
 		"Catalog":        templates.Catalog(),
@@ -715,4 +722,38 @@ func redirectWithError(w http.ResponseWriter, r *http.Request, target string, er
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return line
+}
+
+// hostRow is one labelled line of hostnames on an app card.
+type hostRow struct {
+	Label string
+	Hosts []string
+}
+
+// mailHostRows lists where a mail app answers: the admin console, then each
+// webmail that is on — SnappyMail on the app's own hostnames, Rail on its own
+// (and on the app's too while SnappyMail is off). A mail app whose compose file
+// can't be read shows its own hostnames as plain "Webmail".
+func mailHostRows(admin string, own []string, w apps.Webmail) []hostRow {
+	var rows []hostRow
+	if admin != "" {
+		rows = append(rows, hostRow{"Mail admin", []string{admin}})
+	}
+	if w.Snappy {
+		rows = append(rows, hostRow{"SnappyMail", own})
+	}
+	if w.Rail {
+		var hs []string
+		if w.RailHost != "" {
+			hs = append(hs, w.RailHost)
+		}
+		if !w.Snappy {
+			hs = append(hs, own...)
+		}
+		rows = append(rows, hostRow{"Rail", hs})
+	}
+	if !w.Snappy && !w.Rail && len(own) > 0 {
+		rows = append(rows, hostRow{"Webmail", own})
+	}
+	return rows
 }

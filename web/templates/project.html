@@ -114,7 +114,8 @@
     {{if .Apps}}
     {{range .Apps}}
     <div class="card app-card" id="app-{{.ID}}" data-app-id="{{.ID}}"
-         x-init="if (location.hash === '#app-{{.ID}}') { collapsed = false; $nextTick(() => $el.scrollIntoView({ block: 'start' })) }"
+         x-init="if (cardLinked('{{.Slug}}', {{.ID}})) { collapsed = false; $nextTick(() => $el.scrollIntoView({ block: 'start' })) }
+                 $watch('collapsed', c => cardParam('{{.Slug}}', !c))"
          @dragstart="onDragStart($event)" @dragend="onDragEnd($event)"
          x-data="{collapsed:true, tab:'metrics', loaded:{},
         open(t){ this.tab=t; if(t!=='metrics' && !this.loaded[t]){ this.loaded[t]=true; this.fetchPartial(t); } },
@@ -170,51 +171,50 @@
       </div>
 
       <div class="app-card-body" :class="{open: !collapsed}"><div class="app-card-body-inner">
-      {{/* What this app is reachable at, one labelled entry per fact rather than
-           a single dot-separated run. The old row put a hostname, a port, a
-           repository URL and a resource limit side by side in the same grey,
-           and reading it meant knowing in advance which was which. */}}
+      {{/* What this app is reachable at: a label column and a value column, one
+           fact per row and one hostname per line, so a card with five
+           hostnames reads as a list instead of a wrapped run of links. */}}
       <div class="app-card-meta">
+        {{if eq .Type "mail"}}
+        {{/* Mail: the admin console first, then each webmail that is on, with the
+             hostnames it answers on. */}}
+        {{range index $.MailRows .ID}}
+        <div class="meta">
+          <span class="meta-k">{{.Label}}</span>
+          <span class="meta-v">{{range .Hosts}}{{template "host_link" dict "Host" . "Proxy" $.ProxyEnabled "Port" $.HTTPSPort}}{{end}}</span>
+        </div>
+        {{end}}
+        {{else}}
         <div class="meta">
           <span class="meta-k">Address</span>
           <span class="meta-v">
-            {{$host := .Domain}}
             {{/* An app with no hostname is not unfinished — on an install with
                  no domains it is reached at its published port, and that URL is
                  its address. */}}
-            {{if not $host}}
+            {{if not .Domain}}
               {{$addr := index $.Addresses .ID}}
-              {{if $addr}}<a href="{{$addr}}" target="_blank">{{$addr}}</a>
+              {{if $addr}}<a href="{{$addr}}" target="_blank" rel="noopener">{{$addr}}</a>
               {{else}}<span class="muted">—</span>{{end}}
-            {{else if $.ProxyEnabled}}
-              {{if eq $.HTTPSPort 443}}<a href="https://{{$host}}" target="_blank">{{$host}}</a>
-              {{else}}<a href="https://{{$host}}:{{$.HTTPSPort}}" target="_blank">{{$host}}:{{$.HTTPSPort}}</a>{{end}}
-            {{else}}{{$host}}{{end}}
-            {{/* The app's other hostnames — same app, same content, own certificate. */}}
-            {{range index $.ExtraHosts .ID}}
-              <span class="muted">·</span>
-              {{if $.ProxyEnabled}}
-                {{if eq $.HTTPSPort 443}}<a href="https://{{.}}" target="_blank">{{.}}</a>
-                {{else}}<a href="https://{{.}}:{{$.HTTPSPort}}" target="_blank">{{.}}</a>{{end}}
-              {{else}}<span class="muted">{{.}}</span>{{end}}
+            {{else}}
+              {{template "host_link" dict "Host" .Domain "Proxy" $.ProxyEnabled "Port" $.HTTPSPort}}
+              {{/* The app's other hostnames — same app, same content, own certificate. */}}
+              {{range index $.ExtraHosts .ID}}{{template "host_link" dict "Host" . "Proxy" $.ProxyEnabled "Port" $.HTTPSPort}}{{end}}
             {{end}}
           </span>
         </div>
-        {{if .Port}}
+        {{with index $.AdminerDomains .ID}}
         <div class="meta">
-          <span class="meta-k">Host port</span>
-          {{/* Addressed at the server's public host when one is configured —
-               127.0.0.1 is right only for whoever is reading this through an
-               ssh tunnel, which is not the same person opening the link. */}}
-          {{$port := index $.PortURLs .ID}}
-          <span class="meta-v"><a href="{{$port}}" target="_blank">{{trimPrefix $port "http://"}}</a></span>
+          <span class="meta-k">rql</span>
+          <span class="meta-v">{{template "host_link" dict "Host" . "Proxy" $.ProxyEnabled "Port" $.HTTPSPort}}</span>
         </div>
         {{end}}
-        {{if .IsGit}}
+        {{/* Compose apps route one hostname per published port; list them all. */}}
+        {{range index $.ServiceDomains .ID}}
         <div class="meta">
-          <span class="meta-k">Repository</span>
-          <span class="meta-v">{{.GitURL}}{{if .DeployedSHA}} @ <code>{{slice .DeployedSHA 0 7}}</code>{{end}}</span>
+          <span class="meta-k">Port {{.Port}}</span>
+          <span class="meta-v">{{template "host_link" dict "Host" .Host "Proxy" $.ProxyEnabled "Port" $.HTTPSPort}}</span>
         </div>
+        {{end}}
         {{end}}
         {{if .Upstream}}
         <div class="meta">
@@ -222,46 +222,26 @@
           <span class="meta-v">{{.Upstream}}</span>
         </div>
         {{end}}
-        {{$adm := index $.AdminerDomains .ID}}
-        {{$admLabel := "rql"}}{{if eq .Type "mail"}}{{$admLabel = "Mail admin"}}{{end}}
-        {{if $adm}}
+        {{if .IsGit}}
         <div class="meta">
-          <span class="meta-k">{{$admLabel}}</span>
-          <span class="meta-v">
-            {{if $.ProxyEnabled}}
-              {{if eq $.HTTPSPort 443}}<a href="https://{{$adm}}" target="_blank">{{$adm}}</a>
-              {{else}}<a href="https://{{$adm}}:{{$.HTTPSPort}}" target="_blank">{{$adm}}:{{$.HTTPSPort}}</a>{{end}}
-            {{else}}{{$adm}}{{end}}
-          </span>
-        </div>
-        {{end}}
-        {{with and $.RailDomains (index $.RailDomains .ID)}}
-        <div class="meta">
-          <span class="meta-k">Rail webmail</span>
-          <span class="meta-v">
-            {{if $.ProxyEnabled}}
-              {{if eq $.HTTPSPort 443}}<a href="https://{{.}}" target="_blank">{{.}}</a>
-              {{else}}<a href="https://{{.}}:{{$.HTTPSPort}}" target="_blank">{{.}}:{{$.HTTPSPort}}</a>{{end}}
-            {{else}}{{.}}{{end}}
-          </span>
-        </div>
-        {{end}}
-        {{/* Compose apps route one hostname per published port; list them all. */}}
-        {{range index $.ServiceDomains .ID}}
-        <div class="meta">
-          <span class="meta-k">Port {{.Port}}</span>
-          <span class="meta-v">
-            {{if $.ProxyEnabled}}
-              {{if eq $.HTTPSPort 443}}<a href="https://{{.Host}}" target="_blank">{{.Host}}</a>
-              {{else}}<a href="https://{{.Host}}:{{$.HTTPSPort}}" target="_blank">{{.Host}}</a>{{end}}
-            {{else}}{{.Host}}{{end}}
-          </span>
+          <span class="meta-k">Repository</span>
+          <span class="meta-v"><span>{{.GitURL}}{{if .DeployedSHA}} @ <code>{{slice .DeployedSHA 0 7}}</code>{{end}}</span></span>
         </div>
         {{end}}
         {{if or (eq .DBMode "shared") (eq .WPMode "shared")}}
         <div class="meta">
           <span class="meta-k">Database</span>
           <span class="meta-v"><a href="/database" title="Manage the shared database &amp; rql">Shared xdev MariaDB ↗</a></span>
+        </div>
+        {{end}}
+        {{if .Port}}
+        <div class="meta">
+          <span class="meta-k">Host port</span>
+          {{/* Addressed at the server's public host when one is configured —
+               127.0.0.1 is right only for whoever is reading this through an
+               ssh tunnel, which is not the same person opening the link. */}}
+          {{$port := index $.PortURLs .ID}}
+          <span class="meta-v"><a href="{{$port}}" target="_blank" rel="noopener">{{trimPrefix $port "http://"}}</a></span>
         </div>
         {{end}}
         {{if or .CPULimit .MemLimit}}
@@ -749,6 +729,22 @@
 // this.$el would be a card in one method and the list in another. Reading the
 // list once, when Alpine runs init() against the component's own element, is
 // what keeps every method talking about the same thing.
+// An expanded card is in the address bar as ?app=<slug>, so a link (or a
+// reload, or another page) can open this project with that card expanded.
+// The last card opened owns it; collapsing that one takes it away again.
+// #app-<id>, the older form, still opens its card.
+function cardLinked(slug, id) {
+  return new URLSearchParams(location.search).get('app') === slug || location.hash === '#app-' + id;
+}
+function cardParam(slug, open) {
+  const u = new URL(location.href);
+  if (open) u.searchParams.set('app', slug);
+  else if (u.searchParams.get('app') === slug) u.searchParams.delete('app');
+  else return;
+  if (u.hash.startsWith('#app-')) u.hash = '';
+  history.replaceState(history.state, '', u);
+}
+
 function appOrder(slug, csrf) {
   return {
     list: null,
@@ -1287,3 +1283,8 @@ function detectComposePorts(text, maxSlots) {
     </template>
   </div>
 {{end}}
+
+{{/* host_link — one hostname as an https link through the proxy (with the
+     HTTPS port when it isn't 443), or as plain text when there is no proxy.
+     Args: dict "Host" h "Proxy" bool "Port" int. */}}
+{{define "host_link"}}{{if .Proxy}}<a href="https://{{.Host}}{{if and .Port (ne .Port 443)}}:{{.Port}}{{end}}" target="_blank" rel="noopener">{{.Host}}</a>{{else}}<span>{{.Host}}</span>{{end}}{{end}}

@@ -46,6 +46,7 @@
 {{with .Deploy}}{{if .NewToken}}{{$tab = "source"}}{{end}}{{end}}
 {{if .ActionResult}}{{$tab = "console"}}{{end}}
 {{if eq .Tab "services"}}{{$tab = "services"}}{{end}}
+{{if .Ops}}{{if or (eq .Tab "metrics") (eq .Tab "logs") (eq .Tab "backups") (and (eq .Tab "env") .Ops.Env)}}{{$tab = .Tab}}{{end}}{{end}}
 {{if or .Saved .Msg .JustStarted (ne $tab "app")}}{{$restore = false}}{{end}}
 <div class="grid-main">
 <div class="main-col" x-data="settingsTabs('{{$tab}}', {{$restore}}, {{$app.ID}})">
@@ -60,6 +61,13 @@
   {{if or .Git .Deploy}}<button type="button" role="tab" data-tab="source" :class="{active: tab==='source'}" @click="tab='source'">Source &amp; deploy</button>{{end}}
   {{if or .CanSwitchServer .CanToggleAdminer .CanToggleRail}}<button type="button" role="tab" data-tab="services" :class="{active: tab==='services'}" @click="tab='services'">Services</button>{{end}}
   {{with .Actions}}<button type="button" role="tab" data-tab="console" :class="{active: tab==='console'}" @click="tab='console'">Console</button>{{end}}
+  {{with .Ops}}
+  <span class="page-tabs-sep" aria-hidden="true"></span>
+  <button type="button" role="tab" data-tab="metrics" :class="{active: tab==='metrics'}" @click="tab='metrics'">Metrics</button>
+  <button type="button" role="tab" data-tab="logs" :class="{active: tab==='logs'}" @click="tab='logs'">Logs</button>
+  {{if .Env}}<button type="button" role="tab" data-tab="env" :class="{active: tab==='env'}" @click="tab='env'">Env</button>{{end}}
+  <button type="button" role="tab" data-tab="backups" :class="{active: tab==='backups'}" @click="tab='backups'">Backups</button>
+  {{end}}
 </nav>
 
 <div class="tab-pane" x-show="tab==='source'"{{if ne $tab "source"}} style="display:none"{{end}}>
@@ -577,6 +585,101 @@ jobs:
 {{/* The settings form spans the App … Compose tabs: each section is a tab of
      its own, all inside one form, so one Save still submits every field. A
      field the browser rejects on a hidden tab brings that tab forward. */}}
+{{/* What the app is doing and holds, beside how it is configured: the same
+     Metrics / Logs / Env / Backups the project card shows in brief, here in
+     full. Each is its own pane outside the settings form (they post on their
+     own, with ?from=settings so they land back on their tab). Logs and charts
+     load the first time their tab opens. */}}
+{{with .Ops}}
+<div class="tab-pane" x-show="tab==='metrics'"{{if ne $tab "metrics"}} style="display:none"{{end}}>
+  <section class="card form-card">
+    <div class="title-row">
+      <h3 style="margin:0">Metrics</h3>
+      <span class="muted small">last 3 hours · a sample every 10s</span>
+    </div>
+    <div class="ops-chart-label">CPU (%)</div>
+    <div class="ops-chart" x-ref="cpuChart"></div>
+    <div class="ops-chart-label">Memory (MiB)</div>
+    <div class="ops-chart" x-ref="memChart"></div>
+  </section>
+</div>
+
+<div class="tab-pane" x-show="tab==='logs'"{{if ne $tab "logs"}} style="display:none"{{end}}>
+  <section class="card form-card">
+    <div class="title-row">
+      <h3 style="margin:0">Logs</h3>
+      <span class="muted small">last 300 lines</span>
+      <span class="spacer"></span>
+      <button type="button" class="iconbtn tip" data-tip="Refresh" aria-label="Refresh"
+              @click="loadLogs()">{{template "icon_refresh" .}}</button>
+      {{if .CanClearLogs}}
+      <form class="inline" method="post" action="/apps/{{$app.ID}}/logs/clear?from=settings"
+            data-confirm="Clear this app's log?">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <button class="iconbtn tip danger" type="submit" data-tip="Clear log" aria-label="Clear log">{{template "icon_trash" .}}</button>
+      </form>
+      {{end}}
+    </div>
+    <div class="ops-logs" x-ref="logs"><div class="muted small">Loading…</div></div>
+  </section>
+</div>
+
+{{if .Env}}
+<div class="tab-pane" x-show="tab==='env'"{{if ne $tab "env"}} style="display:none"{{end}}>
+  <section class="card form-card">
+    <div class="title-row"><h3 style="margin:0">Environment</h3></div>
+    {{if .EnvError}}<div class="alert form-error">Could not read the .env: {{.EnvError}}</div>{{end}}
+    <form method="post" action="/apps/{{$app.ID}}/env?from=settings">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <textarea name="content" class="code" rows="18" spellcheck="false" aria-label=".env contents">{{.EnvContent}}</textarea>
+      <div class="form-actions">
+        <button class="primary" type="submit">Save &amp; restart</button>
+      </div>
+    </form>
+    <p class="muted small">Written to <code>{{$.EnvPath}}</code>; the app restarts to apply it.
+      {{if eq $app.Type "compose"}}Your compose stack reads it for <code>${VAR}</code> substitution —
+      <code>PORT</code> is managed by xdev and rewritten on every start.{{end}}</p>
+  </section>
+</div>
+{{end}}
+
+<div class="tab-pane" x-show="tab==='backups'"{{if ne $tab "backups"}} style="display:none"{{end}}>
+  <section class="card form-card">
+    <div class="title-row">
+      <h3 style="margin:0">Backups</h3>
+      <span class="spacer"></span>
+      <form class="inline" method="post" action="/apps/{{$app.ID}}/backup?from=settings">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <button class="primary" type="submit">Back up now</button>
+      </form>
+    </div>
+    <p class="muted small">A <code>.tar.gz</code> of the app's directory (code and compose). Named volumes — databases — are not included.</p>
+    {{if .Backups}}
+    <ul class="ops-backups">
+      {{range .Backups}}
+      <li><span class="mono">{{.}}</span><a class="btn" href="/apps/{{$app.ID}}/backups/{{.}}">Download</a></li>
+      {{end}}
+    </ul>
+    {{else}}
+    <p class="muted">No backups yet.</p>
+    {{end}}
+  </section>
+  <section class="card form-card">
+    <h3>Import a backup</h3>
+    <form method="post" action="/apps/{{$app.ID}}/import?from=settings" enctype="multipart/form-data"
+          data-confirm="Import a backup over {{$app.Name}}? Files in the archive replace the app's current files.">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <label>Archive <span class="muted">(overwrites this app's files from a <code>.tar.gz</code>, then restarts it)</span>
+        <input type="file" name="archive" accept=".tar.gz,.tgz,application/gzip" required>
+      </label>
+      <button type="submit">Import over this app</button>
+    </form>
+  </section>
+</div>
+<link rel="stylesheet" href="/static/uPlot.min.css">
+<script src="/static/uPlot.iife.min.js"></script>
+{{end}}
+
 <div class="tab-pane" x-show="formTabs.includes(tab)"{{if ne $tab "app"}} style="display:none"{{end}}>
 <form method="post" action="/apps/{{$app.ID}}/settings"
       x-data="appSettings({{json $form.ExtraDomains}}, {{json .SlotPorts}}, {{.MaxDomains}})"
@@ -978,8 +1081,20 @@ function deployWatch(appID, running) {
 // where to look (see the $tab block at the top); otherwise the last tab used on
 // this app comes back. sessionStorage may be unavailable — the page then just
 // opens on the server's choice.
+function chartOpts(label, color, width) {
+  const axis = { stroke: '#96909f', grid: { stroke: 'rgba(150,144,159,0.12)' }, ticks: { stroke: 'rgba(150,144,159,0.12)' } };
+  return {
+    width: width, height: 180,
+    scales: { x: { time: true } },
+    axes: [axis, axis],
+    series: [{}, { label: label, stroke: color, width: 2, fill: color + '22' }],
+    legend: { show: false },
+  };
+}
+
 function settingsTabs(initial, restore, appID) {
   const key = 'xdev-settings-tab-' + appID;
+  let logsLoaded = false, charts = null;
   return {
     tab: initial,
     formTabs: ['app', 'domains', 'database', 'upstream', 'runs', 'compose'],
@@ -990,7 +1105,46 @@ function settingsTabs(initial, restore, appID) {
           if (t && this.$root.querySelector('[data-tab="' + t + '"]')) this.tab = t;
         } catch (e) {}
       }
-      this.$watch('tab', (v) => { try { sessionStorage.setItem(key, v); } catch (e) {} });
+      this.$watch('tab', (v) => { try { sessionStorage.setItem(key, v); } catch (e) {} this.opened(v); });
+      this.$nextTick(() => this.opened(this.tab));
+    },
+    // Logs and metrics load the first time their tab opens; metrics then
+    // refresh every 10s while it is the open tab.
+    opened(t) {
+      if (t === 'logs' && !logsLoaded) { logsLoaded = true; this.loadLogs(); }
+      if (t === 'metrics') this.$nextTick(() => this.loadMetrics());
+    },
+    async loadLogs() {
+      const el = this.$refs.logs;
+      if (!el) return;
+      try {
+        const r = await fetch('/apps/' + appID + '/logs/partial', { credentials: 'same-origin' });
+        el.innerHTML = await r.text();
+        const pre = el.querySelector('pre');
+        if (pre) pre.scrollTop = pre.scrollHeight; // newest lines in view
+      } catch (e) { el.textContent = 'Could not load the logs.'; }
+    },
+    async loadMetrics() {
+      const cpuEl = this.$refs.cpuChart, memEl = this.$refs.memChart;
+      if (!cpuEl || typeof uPlot === 'undefined') return;
+      let d;
+      try {
+        const r = await fetch('/apps/' + appID + '/metrics.json', { credentials: 'same-origin' });
+        d = await r.json();
+      } catch (e) { cpuEl.innerHTML = '<p class="muted small">Could not load metrics.</p>'; return; }
+      if (!d.t || d.t.length === 0) {
+        if (!charts) cpuEl.innerHTML = '<p class="muted small">No samples yet — they appear once the app has run for a minute.</p>';
+        return;
+      }
+      if (charts) { charts.cpu.setData([d.t, d.cpu]); charts.mem.setData([d.t, d.mem]); return; }
+      cpuEl.innerHTML = '';
+      const w = cpuEl.clientWidth || 640;
+      // Held outside Alpine's reactive state: uPlot instances must not be proxied.
+      charts = {
+        cpu: new uPlot(chartOpts('CPU %', '#b48cff', w), [d.t, d.cpu], cpuEl),
+        mem: new uPlot(chartOpts('MiB', '#8ce8b8', w), [d.t, d.mem], memEl),
+      };
+      setInterval(() => { if (this.tab === 'metrics') this.loadMetrics(); }, 10000);
     },
   };
 }

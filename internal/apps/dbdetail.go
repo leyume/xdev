@@ -159,7 +159,7 @@ func (s *Service) DedicatedDatabaseDetail(ctx context.Context, appID int64) (Sha
 	d = SharedDBDetail{
 		Name: dedicatedDBName(app), App: proj.Name + " / " + app.Name, Port: 3306,
 		Dedicated: true, Container: proj.Slug + "_" + app.Slug + "_db",
-		ProjectSlug: proj.Slug, AppID: app.ID,
+		ProjectSlug: proj.Slug, AppID: app.ID, AppSlug: app.Slug,
 	}
 	d.Host = d.Container
 	engine := s.dedicatedEngine(app)
